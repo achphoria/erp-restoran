@@ -46,8 +46,11 @@ export default function PublicOrderPage() {
   const [error, setError] = useState('');
   const [fatal, setFatal] = useState('');
 
+  const [soldOut, setSoldOut] = useState<string[]>([]);
+
   const loadOrder = useCallback(() => {
     rpc<TableOrder | null>('public_get_table_order', { p_token: token }).then(setTableOrder).catch(() => undefined);
+    rpc<string[]>('public_get_sold_out_items', { p_token: token }).then(setSoldOut).catch(() => undefined);
   }, [token]);
 
   useEffect(() => {
@@ -143,7 +146,11 @@ export default function PublicOrderPage() {
                     {i.description && <div className="muted small">{i.description}</div>}
                     <div className="bold" style={{ color: 'var(--primary)', marginTop: 4 }}>{formatRupiah(i.price)}</div>
                   </div>
-                  <button className="btn-primary" onClick={() => (i.modifier_groups.length ? setCustomizing(i) : add(i))}>+ Tambah</button>
+                  {soldOut.includes(i.id) ? (
+                    <span className="badge badge-danger">Habis</span>
+                  ) : (
+                    <button className="btn-primary" onClick={() => (i.modifier_groups.length ? setCustomizing(i) : add(i))}>+ Tambah</button>
+                  )}
                 </div>
               ))}
             </div>

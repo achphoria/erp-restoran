@@ -31,6 +31,7 @@ export interface MenuItem {
   station: string;
   is_active: boolean;
   description?: string | null;
+  image_url?: string | null;
 }
 
 export interface Modifier {

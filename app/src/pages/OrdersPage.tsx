@@ -6,9 +6,14 @@ import { errorMessage, formatRupiah, formatTime, SALES_CHANNELS, todayISO } from
 import { printReceipt } from '../lib/receipt';
 import type { Order } from '../lib/types';
 import PaymentModal from '../components/PaymentModal';
+import OrderActions, { type OrderAction } from '../components/OrderActions';
 
-const STATUS_BADGE: Record<string, string> = { open: 'badge-warning', paid: 'badge-success', void: 'badge-danger' };
-const STATUS_LABEL: Record<string, string> = { open: 'Open Bill', paid: 'Lunas', void: 'Void' };
+const STATUS_BADGE: Record<string, string> = {
+  open: 'badge-warning', paid: 'badge-success', void: 'badge-danger', refunded: 'badge-danger', merged: 'badge',
+};
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Open Bill', paid: 'Lunas', void: 'Void', refunded: 'Refund', merged: 'Digabung',
+};
 
 export default function OrdersPage() {
   const { outlet, can } = useAuth();
@@ -18,7 +23,9 @@ export default function OrdersPage() {
   const [date, setDate] = useState(todayISO());
   const [expanded, setExpanded] = useState<string | null>(null);
   const [payOrder, setPayOrder] = useState<Order | null>(null);
+  const [action, setAction] = useState<{ action: OrderAction; order: Order } | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     if (!outlet) return;
@@ -79,12 +86,14 @@ export default function OrdersPage() {
             <option value="open">Open Bill</option>
             <option value="paid">Lunas</option>
             <option value="void">Void</option>
+            <option value="refunded">Refund</option>
             <option value="all">Semua</option>
           </select>
           {status !== 'open' && <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
         </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
+      {notice && <div className="alert alert-success">{notice}</div>}
 
       <div className="card table-wrap">
         <table className="table">
@@ -112,11 +121,20 @@ export default function OrdersPage() {
                         )}
                         <button className="btn-sm" onClick={() => navigate(`/pos?order=${o.id}`)}>+ Item</button>
                         {can('pos.pay') && <button className="btn-sm btn-primary" onClick={() => setPayOrder(o)}>Bayar</button>}
+                        <select className="btn-sm" value="" onChange={(e) => setAction({ action: e.target.value as OrderAction, order: o })}>
+                          <option value="" disabled>⋯ Lainnya</option>
+                          <option value="move">Pindah meja</option>
+                          <option value="split">Split bill</option>
+                          <option value="merge">Gabung bill</option>
+                        </select>
                         {can('pos.void') && <button className="btn-sm btn-danger" onClick={() => voidOrder(o)}>Void</button>}
                       </>
                     )}
                     {o.status === 'paid' && (
-                      <button className="btn-sm" onClick={() => printReceipt(o.id).catch((e) => setError(errorMessage(e)))}>🖨️ Struk</button>
+                      <>
+                        <button className="btn-sm" onClick={() => printReceipt(o.id).catch((e) => setError(errorMessage(e)))}>🖨️ Struk</button>
+                        {can('pos.refund') && <button className="btn-sm btn-danger" onClick={() => setAction({ action: 'refund', order: o })}>Refund</button>}
+                      </>
                     )}
                   </div>
                 }
@@ -129,6 +147,20 @@ export default function OrdersPage() {
           </tbody>
         </table>
       </div>
+
+      {action && (
+        <OrderActions
+          action={action.action}
+          order={action.order}
+          openOrders={orders.filter((o) => o.status === 'open')}
+          onClose={() => setAction(null)}
+          onDone={(msg) => {
+            setAction(null);
+            setNotice(msg);
+            load();
+          }}
+        />
+      )}
 
       {payOrder && (
         <PaymentModal

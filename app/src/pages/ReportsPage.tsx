@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, supabase } from '../lib/supabase';
-import { errorMessage, formatNumber, formatRupiah, todayISO } from '../lib/format';
+import { errorMessage, formatDateTime, formatNumber, formatRupiah, todayISO } from '../lib/format';
 
 interface DailySales {
   business_date: string; order_count: number; guest_count: number; subtotal: number;
@@ -151,6 +151,61 @@ export default function ReportsPage() {
           </table>
         </div>
       </div>
+
+      <AuditSection outletId={outlet?.id} from={from} to={to} />
     </>
+  );
+}
+
+interface RefundRow { refund_number: string; order_number: string; amount: number; reason: string; is_stock_returned: boolean; refunded_at: string; refunded_by_name: string | null }
+interface VoidRow { order_number: string; void_type: string; amount: number; reason: string | null; voided_at: string | null }
+
+// Audit kasir: refund & void pada periode
+function AuditSection({ outletId, from, to }: { outletId?: string; from: string; to: string }) {
+  const [refunds, setRefunds] = useState<RefundRow[]>([]);
+  const [voids, setVoids] = useState<VoidRow[]>([]);
+
+  useEffect(() => {
+    if (!outletId) return;
+    Promise.all([
+      must(supabase.from('rpt_refunds').select('*').eq('outlet_id', outletId).gte('business_date', from).lte('business_date', to).order('refunded_at', { ascending: false })),
+      must(supabase.from('rpt_voids').select('*').eq('outlet_id', outletId).gte('business_date', from).lte('business_date', to).order('voided_at', { ascending: false })),
+    ]).then(([r, v]) => { setRefunds(r); setVoids(v); }).catch(() => undefined);
+  }, [outletId, from, to]);
+
+  return (
+    <div className="grid grid-2" style={{ marginTop: 16 }}>
+      <div className="card table-wrap">
+        <h2 style={{ marginBottom: 12 }}>Refund <span className="muted small">({refunds.length} · {formatRupiah(sum(refunds, 'amount'))})</span></h2>
+        <table className="table">
+          <tbody>
+            {refunds.map((r) => (
+              <tr key={r.refund_number}>
+                <td><b>{r.order_number}</b><div className="muted small">{formatDateTime(r.refunded_at)} · {r.refunded_by_name}</div></td>
+                <td className="small">{r.reason}{r.is_stock_returned && <span className="badge" style={{ marginLeft: 6 }}>stok kembali</span>}</td>
+                <td className="right">{formatRupiah(r.amount)}</td>
+              </tr>
+            ))}
+            {!refunds.length && <tr><td className="empty">Tidak ada refund.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="card table-wrap">
+        <h2 style={{ marginBottom: 12 }}>Void <span className="muted small">({voids.length} · {formatRupiah(sum(voids, 'amount'))})</span></h2>
+        <table className="table">
+          <tbody>
+            {voids.map((v, idx) => (
+              <tr key={idx}>
+                <td><b>{v.order_number}</b><div className="muted small">{v.voided_at ? formatDateTime(v.voided_at) : ''}</div></td>
+                <td><span className="badge">{v.void_type === 'order' ? 'seluruh order' : 'item'}</span></td>
+                <td className="small">{v.reason}</td>
+                <td className="right">{formatRupiah(v.amount)}</td>
+              </tr>
+            ))}
+            {!voids.length && <tr><td className="empty">Tidak ada void.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

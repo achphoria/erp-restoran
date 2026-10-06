@@ -51,6 +51,15 @@ await db.exec(`
   grant usage on schema auth to anon, authenticated;
   grant execute on function auth.uid() to anon, authenticated;
   create publication supabase_realtime;
+  create schema storage;
+  create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+  create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid);
+  alter table storage.objects enable row level security;
+  create function storage.foldername(name text) returns text[] language sql immutable as
+    $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
+  grant usage on schema storage to anon, authenticated;
+  grant all on storage.objects to authenticated;
+  grant select on storage.buckets to anon, authenticated;
   grant usage on schema public to anon, authenticated;
   alter default privileges in schema public grant all on tables to anon, authenticated;
   alter default privileges in schema public grant all on sequences to anon, authenticated;
@@ -365,7 +374,10 @@ await check('neraca saldo seimbang (total debit = total kredit)', async () => {
 });
 await check('neraca seimbang: aset = kewajiban + ekuitas + laba berjalan', async () => {
   const rows = (await db.query(`select * from fin_get_account_balances('2000-01-01', '2100-01-01') where not is_header`)).rows;
-  const total = (type) => rows.filter((r) => r.account_type === type).reduce((s, r) => s + Number(r.closing_balance), 0);
+  // akun kontra (mis. Diskon Penjualan: tipe pendapatan, saldo normal debit) mengurangi kelompoknya
+  const natural = (type) => (["asset", "cogs", "expense"].includes(type) ? "debit" : "credit");
+  const total = (type) => rows.filter((r) => r.account_type === type)
+    .reduce((s, r) => s + (r.normal_balance === natural(type) ? 1 : -1) * Number(r.closing_balance), 0);
   const profit = total('revenue') - total('cogs') - total('expense');
   const diff = total('asset') - (total('liability') + total('equity') + profit);
   assert(Math.abs(diff) < 0.01, `selisih ${diff}`);
@@ -430,7 +442,7 @@ await check('perusahaan baru langsung punya COA & jurnal stok awal', async () =>
 // FASE 4: CRM, promo, QR order
 // =====================================================================
 console.log('\nMenjalankan migrasi fase 4 (di atas data fase 1-3):');
-await runMigrations(allMigrations.filter((f) => f >= '008'));
+await runMigrations(allMigrations.filter((f) => f >= '008' && f < '010'));
 
 const menuId = async (code) => val(`select id from mst_menu_items where code = $1`, [code]);
 const payCash = async (orderId) => {
@@ -618,6 +630,136 @@ await check('fase 1-3 tetap jalan: order biasa POS', async () => {
     items: [{ menu_item_id: await menuId('SNK02'), quantity: 1 }],
   })]);
   assert(Number(o.subtotal) === 18000 && o.status === 'open', JSON.stringify(o));
+});
+
+// =====================================================================
+// FASE 5: foto menu, sold out, pindah/gabung/split bill, refund
+// =====================================================================
+console.log('\nMenjalankan migrasi fase 5 (di atas data fase 1-4):');
+await runMigrations(allMigrations.filter((f) => f >= '010'));
+
+const tableId = async (code) => val(`select id from mst_tables where code = $1 and outlet_id = $2`, [code, outletId]);
+const openOrderOn = async (code) => val(`select id from pos_orders where table_id = $1 and status = 'open'`, [await tableId(code)]);
+
+console.log('\nFoto menu:');
+await check('upload foto hanya ke folder perusahaan sendiri', async () => {
+  await loginAs(U1);
+  const company = await val(`select sys_current_company_id()`);
+  await db.query(`insert into storage.objects (bucket_id, name) values ('menu-images', $1)`, [`${company}/nasgor.jpg`]);
+  await expectError(`insert into storage.objects (bucket_id, name) values ('menu-images', $1)`,
+    [`00000000-0000-0000-0000-000000000000/hack.jpg`], /row-level security/);
+});
+
+console.log('\nMenu habis:');
+await check('menu ditandai habis tidak bisa dipesan di POS', async () => {
+  await db.query(`select pos_set_menu_sold_out($1, $2, true)`, [outletId, await menuId('MNM02')]);
+  await expectError(`select pos_save_order($1::jsonb)`, [JSON.stringify({
+    outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM02') }],
+  })], /sedang habis/);
+});
+await check('menu habis tampil di QR & tidak bisa dipesan tamu', async () => {
+  const t = await val(`select qr_token from mst_tables where code = 'A3'`);
+  const esJeruk = await menuId('MNM02');
+  await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role anon;`);
+  const soldOut = await val(`select public_get_sold_out_items($1)`, [t]);
+  assert(soldOut.includes(esJeruk), JSON.stringify(soldOut));
+  await expectError(`select public_submit_table_order($1, 'x', $2::jsonb)`, [t, JSON.stringify([{ menu_item_id: esJeruk }])], /sedang habis/);
+});
+await check('tersedia lagi setelah status habis dicabut', async () => {
+  await loginAs(U1);
+  await db.query(`select pos_set_menu_sold_out($1, $2, false)`, [outletId, await menuId('MNM02')]);
+  const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({
+    outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM02') }],
+  })]);
+  await db.query(`select pos_void_order($1, 'tes')`, [o.id]);
+});
+
+console.log('\nPindah / gabung / split bill:');
+await check('pindah meja A5 -> A6', async () => {
+  const id = await openOrderOn('A5');
+  await db.query(`select pos_move_order_table($1, $2)`, [id, await tableId('A6')]);
+  const r = await one(`select (select status from mst_tables where code = 'A5') a5, (select status from mst_tables where code = 'A6') a6`);
+  assert(r.a5 === 'available' && r.a6 === 'occupied', JSON.stringify(r));
+});
+await check('gabung bill meja B1 ke meja A6', async () => {
+  const b1 = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({
+    outlet_id: outletId, table_id: await tableId('B1'), sales_channel: 'dine_in', guest_count: 2,
+    items: [{ menu_item_id: await menuId('MKN01'), quantity: 2 }],
+  })]);
+  const target = await val(`select pos_merge_orders($1, $2)`, [await openOrderOn('A6'), b1.id]);
+  assert(Number(target.subtotal) === 18000 + 70000, `subtotal ${target.subtotal}`);
+  const src = await one(`select status, subtotal from pos_orders where id = $1`, [b1.id]);
+  assert(src.status === 'merged' && Number(src.subtotal) === 0, JSON.stringify(src));
+  assert((await val(`select status from mst_tables where code = 'B1'`)) === 'available', 'B1 masih terisi');
+});
+let splitOrder;
+await check('split 1 dari 2 porsi nasi goreng ke bill baru', async () => {
+  const id = await openOrderOn('A6');
+  const line = await one(`select id from pos_order_items where order_id = $1 and menu_item_name = 'Nasi Goreng Spesial'`, [id]);
+  splitOrder = await val(`select pos_split_order($1, $2::jsonb)`, [id, JSON.stringify([{ order_item_id: line.id, quantity: 1 }])]);
+  assert(Number(splitOrder.subtotal) === 35000, `split ${splitOrder.subtotal}`);
+  assert(Number(await val(`select subtotal from pos_orders where id = $1`, [id])) === 53000, 'sisa bill salah');
+});
+await check('split semua item ditolak (bill asal tidak boleh kosong)', async () => {
+  const id = await openOrderOn('A6');
+  const lines = (await db.query(`select id from pos_order_items where order_id = $1`, [id])).rows;
+  await expectError(`select pos_split_order($1, $2::jsonb)`, [id, JSON.stringify(lines.map((l) => ({ order_item_id: l.id })))], /minimal satu/);
+});
+
+console.log('\nRefund:');
+let shift5;
+await check('refund + kembalikan stok: poin, stok, status kembali', async () => {
+  shift5 = await val(`select pos_open_shift($1, 100000)`, [outletId]);
+  await db.query(`select pos_set_order_customer($1, $2)`, [splitOrder.id, customerId]);
+  const pointsBefore = await val(`select points_balance from crm_customers where id = $1`, [customerId]);
+  const riceBefore = Number(await val(`select quantity from rpt_stock_balances where item_code = 'BHN01' and warehouse_name like 'Gudang%'`));
+  await payCash(splitOrder.id);
+  assert((await val(`select points_balance from crm_customers where id = $1`, [customerId])) > pointsBefore, 'poin tidak bertambah');
+  const r = await val(`select pos_refund_order($1, 'Salah input menu', true)`, [splitOrder.id]);
+  assert(r.refund_number.startsWith('RFD/'), r.refund_number);
+  assert((await val(`select points_balance from crm_customers where id = $1`, [customerId])) === pointsBefore, 'poin tidak kembali');
+  const riceAfter = Number(await val(`select quantity from rpt_stock_balances where item_code = 'BHN01' and warehouse_name like 'Gudang%'`));
+  assert(riceAfter === riceBefore, `beras ${riceBefore} -> ${riceAfter}`);
+  assert((await val(`select status from pos_orders where id = $1`, [splitOrder.id])) === 'refunded', 'status');
+});
+await check('refund dua kali ditolak', () =>
+  expectError(`select pos_refund_order($1, 'lagi')`, [splitOrder.id], /Hanya order lunas/));
+await check('refund tanpa kembalikan stok: HPP tetap tercatat', async () => {
+  const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({
+    outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN04') }],
+  })]);
+  await payCash(o.id);
+  const cogsBefore = await balanceOf('cogs');
+  await db.query(`select pos_refund_order($1, 'Pelanggan komplain', false)`, [o.id]);
+  assert((await balanceOf('cogs')) === cogsBefore, 'HPP ikut dibalik');
+});
+await check('neraca tetap seimbang setelah refund', async () => {
+  const r = await one(`select sum(debit) d, sum(credit) c from fin_journal_lines`);
+  assert(Number(r.d) === Number(r.c), JSON.stringify(r));
+  const rows = (await db.query(`select * from fin_get_account_balances('2000-01-01', '2100-01-01') where not is_header`)).rows;
+  const natural = (type) => (["asset", "cogs", "expense"].includes(type) ? "debit" : "credit");
+  const total = (type) => rows.filter((x) => x.account_type === type)
+    .reduce((s, x) => s + (x.normal_balance === natural(type) ? 1 : -1) * Number(x.closing_balance), 0);
+  const diff = total('asset') - (total('liability') + total('equity') + total('revenue') - total('cogs') - total('expense'));
+  assert(Math.abs(diff) < 0.01, `selisih ${diff}`);
+});
+await check('kas shift: tunai masuk dikurangi refund tunai', async () => {
+  const r = await val(`select pos_close_shift($1, 100000)`, [shift5.id]);
+  assert(Number(r.expected_cash) === 100000 && Number(r.difference) === 0, JSON.stringify(r));
+});
+await check('laporan refund & void terisi', async () => {
+  assert((await val(`select count(*)::int from rpt_refunds`)) === 2, 'refund');
+  assert((await val(`select count(*)::int from rpt_voids`)) >= 3, 'void');
+});
+await check('pelayan (tanpa izin refund) tidak bisa refund', async () => {
+  const U6 = '66666666-6666-6666-6666-666666666666';
+  const company = await val(`select sys_current_company_id()`);
+  const waiter = await val(`select id from sys_roles where code = 'waiter'`);
+  await db.query(`insert into sys_user_invitations (company_id, email, role_id, outlet_ids) values ($1, 'pelayan@test.com', $2, array[$3::uuid])`, [company, waiter, outletId]);
+  await db.exec(`reset role; insert into auth.users values ('${U6}', 'pelayan@test.com')`);
+  await loginAs(U6);
+  await db.query(`select sys_accept_invitation((select (sys_get_my_invitations()->0->>'id')::uuid), 'Rudi')`);
+  await expectError(`select pos_refund_order($1, 'x')`, [splitOrder.id], /izin/);
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

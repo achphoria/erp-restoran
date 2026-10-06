@@ -28,6 +28,9 @@ const SOURCE_LABEL: Record<string, string> = {
   sales: 'Penjualan', purchase_receipt: 'Pembelian', stock_adjustment: 'Penyesuaian Stok', stock_opname: 'Stock Opname',
   supplier_payment: 'Bayar Supplier', expense: 'Biaya', manual: 'Manual', opening_stock: 'Saldo Awal',
 };
+const NATURAL_BALANCE: Record<string, string> = {
+  asset: 'debit', cogs: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit',
+};
 const monthStart = () => todayISO().slice(0, 8) + '01';
 const isCashAccount = (a: Account) => a.account_type === 'asset' && !a.is_header && (a.system_key === 'cash' || a.system_key === 'bank' || a.code.startsWith('1-11') || a.code.startsWith('1-12'));
 
@@ -123,7 +126,12 @@ function ReportsTab({ setError }: Ctx) {
       .catch((e) => setError(errorMessage(e)));
   }, [report, from, to, outletId, setError]);
 
-  const leaf = rows.filter((r) => !r.is_header);
+  // Saldo dari server bertanda menurut saldo normal akun. Akun kontra (Diskon Penjualan,
+  // Akumulasi Penyusutan, Prive) dibalik tandanya agar mengurangi kelompoknya di laporan.
+  const leaf = rows.filter((r) => !r.is_header).map((r) =>
+    r.normal_balance === NATURAL_BALANCE[r.account_type]
+      ? r
+      : { ...r, period_balance: -Number(r.period_balance), closing_balance: -Number(r.closing_balance) });
   const sumType = (type: string, key: 'period_balance' | 'closing_balance') =>
     leaf.filter((r) => r.account_type === type).reduce((s, r) => s + Number(r[key]), 0);
 
@@ -175,10 +183,8 @@ function StatementSection({ title, rows, valueKey, total, negate }: {
 }
 
 function ProfitLoss({ rows, sumType }: { rows: Balance[]; sumType: (t: string) => number }) {
-  // akun kontra pendapatan (diskon) bersaldo normal debit -> balik tanda agar mengurangi pendapatan
-  const revenueRows = rows.filter((r) => r.account_type === 'revenue')
-    .map((r) => (r.normal_balance === 'debit' ? { ...r, period_balance: -Number(r.period_balance) } : r));
-  const revenue = revenueRows.reduce((s, r) => s + Number(r.period_balance), 0);
+  const revenueRows = rows.filter((r) => r.account_type === 'revenue');
+  const revenue = sumType('revenue');
   const cogs = sumType('cogs');
   const expense = sumType('expense');
   const gross = revenue - cogs;
@@ -214,9 +220,7 @@ function BalanceSheet({ rows, sumType, asOf }: { rows: Balance[]; sumType: (t: s
   const liabilities = sumType('liability');
   const equity = sumType('equity');
   // laba berjalan = semua pendapatan - HPP - beban (belum ditutup ke laba ditahan)
-  const revenue = rows.filter((r) => r.account_type === 'revenue')
-    .reduce((s, r) => s + (r.normal_balance === 'debit' ? -1 : 1) * Number(r.closing_balance), 0);
-  const earnings = revenue - sumType('cogs') - sumType('expense');
+  const earnings = sumType('revenue') - sumType('cogs') - sumType('expense');
   const right = liabilities + equity + earnings;
   const balanced = Math.abs(assets - right) < 1;
 

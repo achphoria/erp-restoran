@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
-import { errorMessage, formatRupiah, SALES_CHANNELS } from '../lib/format';
+import { errorMessage, formatRupiah, SALES_CHANNELS, todayISO } from '../lib/format';
 import type { CustomerSummary, DiningTable, MenuCategory, MenuItem, Modifier, ModifierGroup, Order } from '../lib/types';
 import Modal from '../components/Modal';
 import CustomerPicker from '../components/CustomerPicker';
@@ -136,7 +136,38 @@ export default function PosPage() {
     });
   };
 
-  const onMenuClick = (item: MenuItem) => {
+  // Menu habis hari ini (realtime: dapur menandai habis -> langsung terlihat di kasir)
+  const [soldOut, setSoldOut] = useState<Set<string>>(new Set());
+  const [soldOutMode, setSoldOutMode] = useState(false);
+
+  const loadSoldOut = useCallback(async () => {
+    if (!outlet) return;
+    const rows = (await must(supabase.from('mst_menu_sold_outs').select('menu_item_id')
+      .eq('outlet_id', outlet.id).eq('business_date', todayISO()))) as { menu_item_id: string }[];
+    setSoldOut(new Set(rows.map((r) => r.menu_item_id)));
+  }, [outlet]);
+
+  useEffect(() => {
+    loadSoldOut().catch(() => undefined);
+    const ch = supabase.channel('pos-sold-out')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mst_menu_sold_outs' }, () => loadSoldOut().catch(() => undefined))
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [loadSoldOut]);
+
+  const onMenuClick = async (item: MenuItem) => {
+    if (soldOutMode) {
+      try {
+        await rpc('pos_set_menu_sold_out', { p_outlet_id: outlet!.id, p_menu_item_id: item.id, p_is_sold_out: !soldOut.has(item.id) });
+        await loadSoldOut();
+      } catch (e) {
+        setError(errorMessage(e));
+      }
+      return;
+    }
+    if (soldOut.has(item.id)) return;
     if (groupsFor(item).length) setModifierFor(item);
     else addToCart(item);
   };
@@ -211,8 +242,16 @@ export default function PosPage() {
       <section className="pos-menu">
         <div className="page-header" style={{ marginBottom: 12 }}>
           <h1>Kasir</h1>
-          <input placeholder="🔍 Cari menu…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />
+          <div className="row">
+            <button className={soldOutMode ? 'btn-danger' : ''} onClick={() => setSoldOutMode(!soldOutMode)}>
+              {soldOutMode ? '✓ Selesai atur menu habis' : '🚫 Atur menu habis'}
+            </button>
+            <input placeholder="🔍 Cari menu…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
+          </div>
         </div>
+        {soldOutMode && (
+          <div className="alert alert-info">Klik menu untuk menandai <b>habis</b> / <b>tersedia</b>. Status habis otomatis hilang besok.</div>
+        )}
         {error && <div className="alert alert-error">{error}</div>}
         {notice && <div className="alert alert-success">{notice}</div>}
         <div className="pos-categories">
@@ -225,7 +264,9 @@ export default function PosPage() {
         </div>
         <div className="pos-grid">
           {visibleItems.map((item) => (
-            <button key={item.id} className="menu-tile" onClick={() => onMenuClick(item)}>
+            <button key={item.id} className={`menu-tile ${soldOut.has(item.id) ? 'sold-out' : ''}`} onClick={() => onMenuClick(item)}>
+              {item.image_url && <img src={item.image_url} alt="" className="menu-tile-img" loading="lazy" />}
+              {soldOut.has(item.id) && <span className="sold-out-badge">HABIS</span>}
               <span className="name">{item.name}</span>
               <span className="muted small">{item.code}</span>
               <span className="price">{formatRupiah(priceOf(item))}</span>

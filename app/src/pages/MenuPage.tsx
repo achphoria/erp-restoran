@@ -6,6 +6,7 @@ import type { MenuCategory, MenuItem, ModifierGroup } from '../lib/types';
 import Modal from '../components/Modal';
 import SimpleList from '../components/SimpleList';
 import TableQrList from '../components/TableQrList';
+import { uploadMenuImage } from '../lib/image';
 
 type Tab = 'menu' | 'category' | 'modifier' | 'table';
 
@@ -87,7 +88,7 @@ export default function MenuPage() {
               {items.map((i) => (
                 <tr key={i.id}>
                   <td>{i.code}</td>
-                  <td className="bold">{i.name}</td>
+                  <td className="bold">{i.image_url && <img src={i.image_url} alt="" className="thumb" />}{i.name}</td>
                   <td>{categories.find((c) => c.id === i.menu_category_id)?.name}</td>
                   <td>{i.station}</td>
                   <td className="right">{formatRupiah(i.base_price)}</td>
@@ -205,15 +206,30 @@ function MenuForm({
     grabfood: String(prices.find((p) => p.sales_channel === 'grabfood')?.price ?? ''),
   });
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const { profile } = useAuth();
   const set = (patch: Partial<MenuItem>) => setForm((f) => ({ ...f, ...patch }));
+
+  const onPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      set({ image_url: await uploadMenuImage(profile!.company_id, file) });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const save = async () => {
     setBusy(true);
     setError('');
     try {
-      const { id, code, name, menu_category_id, base_price, station, is_active, description } = form;
-      await onSave({ id, code, name, menu_category_id, base_price: Number(base_price), station, is_active, description }, groupIds, channelPrices);
+      const { id, code, name, menu_category_id, base_price, station, is_active, description, image_url } = form;
+      await onSave({ id, code, name, menu_category_id, base_price: Number(base_price), station, is_active, description: description || null, image_url: image_url || null }, groupIds, channelPrices);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -228,13 +244,27 @@ function MenuForm({
       footer={
         <>
           <button onClick={onClose}>Batal</button>
-          <button className="btn-primary" disabled={busy || !form.code || !form.name || !form.menu_category_id} onClick={save}>
+          <button className="btn-primary" disabled={busy || uploading || !form.code || !form.name || !form.menu_category_id} onClick={save}>
             {busy ? 'Menyimpan…' : 'Simpan'}
           </button>
         </>
       }
     >
       {error && <div className="alert alert-error">{error}</div>}
+      <div className="row" style={{ alignItems: 'flex-start', marginBottom: 16 }}>
+        <div className="menu-photo">
+          {form.image_url ? <img src={form.image_url} alt="" /> : <span className="muted small">Belum ada foto</span>}
+        </div>
+        <div className="grid" style={{ flex: 1 }}>
+          <label className="btn" style={{ justifySelf: 'start', cursor: 'pointer' }}>
+            {uploading ? 'Mengunggah…' : form.image_url ? '📷 Ganti foto' : '📷 Upload foto'}
+            <input type="file" accept="image/*" hidden disabled={uploading} onChange={(e) => onPhoto(e.target.files?.[0])} />
+          </label>
+          {form.image_url && <button className="btn-sm btn-danger" style={{ justifySelf: 'start' }} onClick={() => set({ image_url: null })}>Hapus foto</button>}
+          <label className="field"><span>Deskripsi (tampil di QR order)</span>
+            <input value={form.description ?? ''} onChange={(e) => set({ description: e.target.value })} placeholder="contoh: nasi goreng dengan ayam suwir & telur" maxLength={160} /></label>
+        </div>
+      </div>
       <div className="form-grid">
         <label className="field"><span>Kode</span><input value={form.code ?? ''} onChange={(e) => set({ code: e.target.value })} /></label>
         <label className="field"><span>Nama</span><input value={form.name ?? ''} onChange={(e) => set({ name: e.target.value })} /></label>
