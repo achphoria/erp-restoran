@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useNotice } from '../components/Feedback';
 import { errorMessage, formatRupiah, SALES_CHANNELS, todayISO } from '../lib/format';
 import type { CustomerSummary, DiningTable, MenuCategory, MenuItem, Modifier, ModifierGroup, Order } from '../lib/types';
+import { Armchair, Ban, Check, ShoppingBag, UserRound, X } from 'lucide-react';
 import Modal from '../components/Modal';
 import CustomerPicker from '../components/CustomerPicker';
 import PaymentModal from '../components/PaymentModal';
@@ -53,13 +55,14 @@ export default function PosPage() {
   const [guestCount, setGuestCount] = useState(1);
   const [customer, setCustomer] = useState<CustomerSummary | null>(null);
   const [pickingCustomer, setPickingCustomer] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);   // panel keranjang di HP
 
   const [modifierFor, setModifierFor] = useState<MenuItem | null>(null);
   const [pickingTable, setPickingTable] = useState(false);
   const [payOrder, setPayOrder] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
 
   const loadTables = useCallback(async () => {
     if (!outlet) return;
@@ -188,6 +191,9 @@ export default function PosPage() {
     return { subtotal, service, tax, total: Math.round(raw / unit) * unit };
   }, [cart, priceOf, settings]);
 
+  const qtyInCart = (itemId: string) => cart.filter((l) => l.item.id === itemId).reduce((s, l) => s + l.quantity, 0);
+  const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
+
   const resetCart = () => {
     setCart([]);
     setTableId(null);
@@ -226,6 +232,7 @@ export default function PosPage() {
       resetCart();
       if (appendOrder) setParams({});
       await loadTables();
+      setCartOpen(false);
       if (thenPay) setPayOrder(order);
       else setNotice(`Order ${order.order_number} tersimpan & dikirim ke dapur.`);
     } catch (e) {
@@ -238,22 +245,21 @@ export default function PosPage() {
   const selectedTable = tables.find((t) => t.id === tableId);
 
   return (
-    <div className="pos">
+    <div className={`pos ${cartOpen ? 'cart-open' : ''}`}>
       <section className="pos-menu">
         <div className="page-header" style={{ marginBottom: 12 }}>
           <h1>Kasir</h1>
           <div className="row">
             <button className={soldOutMode ? 'btn-danger' : ''} onClick={() => setSoldOutMode(!soldOutMode)}>
-              {soldOutMode ? '✓ Selesai atur menu habis' : '🚫 Atur menu habis'}
+              {soldOutMode ? <><Check size={16} /> Selesai</> : <><Ban size={16} /> Menu habis</>}
             </button>
-            <input placeholder="🔍 Cari menu…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
+            <input type="search" placeholder="Cari menu…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
           </div>
         </div>
         {soldOutMode && (
           <div className="alert alert-info">Klik menu untuk menandai <b>habis</b> / <b>tersedia</b>. Status habis otomatis hilang besok.</div>
         )}
         {error && <div className="alert alert-error">{error}</div>}
-        {notice && <div className="alert alert-success">{notice}</div>}
         <div className="pos-categories">
           <button className={categoryId === 'all' ? 'active' : ''} onClick={() => setCategoryId('all')}>Semua</button>
           {categories.map((c) => (
@@ -267,6 +273,7 @@ export default function PosPage() {
             <button key={item.id} className={`menu-tile ${soldOut.has(item.id) ? 'sold-out' : ''}`} onClick={() => onMenuClick(item)}>
               {item.image_url && <img src={item.image_url} alt="" className="menu-tile-img" loading="lazy" />}
               {soldOut.has(item.id) && <span className="sold-out-badge">HABIS</span>}
+              {qtyInCart(item.id) > 0 && <span className="qty-badge">{qtyInCart(item.id)}</span>}
               <span className="name">{item.name}</span>
               <span className="muted small">{item.code}</span>
               <span className="price">{formatRupiah(priceOf(item))}</span>
@@ -278,6 +285,10 @@ export default function PosPage() {
 
       <section className="card pos-cart">
         <div className="pos-cart-head">
+          <div className="row mobile-only" style={{ justifyContent: 'space-between' }}>
+            <h2>Keranjang</h2>
+            <button className="icon-btn" onClick={() => setCartOpen(false)} aria-label="Tutup keranjang"><X size={20} /></button>
+          </div>
           {appendOrder ? (
             <div className="alert alert-info" style={{ margin: 0 }}>
               Menambah item ke <b>{appendOrder.order_number}</b>
@@ -293,10 +304,10 @@ export default function PosPage() {
               </div>
               <div className="row">
                 {channel === 'dine_in' && (
-                  <button onClick={() => setPickingTable(true)}>🪑 {selectedTable ? `Meja ${selectedTable.code}` : 'Pilih Meja'}</button>
+                  <button onClick={() => setPickingTable(true)}><Armchair size={16} /> {selectedTable ? `Meja ${selectedTable.code}` : 'Pilih Meja'}</button>
                 )}
                 <button onClick={() => setPickingCustomer(true)} title="Member">
-                  👤 {customer ? `${customer.name} ⭐${customer.points_balance}` : 'Member'}
+                  <UserRound size={16} /> {customer ? `${customer.name} · ${customer.points_balance} poin` : 'Member'}
                 </button>
                 {!customer && (
                   <input placeholder="Nama pelanggan" value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={{ flex: 1 }} />
@@ -317,7 +328,7 @@ export default function PosPage() {
               <div>
                 <div className="bold">{l.item.name}</div>
                 {l.modifiers.length > 0 && <div className="meta">+ {l.modifiers.map((m) => m.name).join(', ')}</div>}
-                {l.note && <div className="meta">📝 {l.note}</div>}
+                {l.note && <div className="meta">Catatan: {l.note}</div>}
               </div>
               <div className="right">
                 {formatRupiah(l.quantity * (priceOf(l.item) + l.modifiers.reduce((s, m) => s + Number(m.extra_price), 0)))}
@@ -341,7 +352,7 @@ export default function PosPage() {
             <button disabled={busy || !cart.length} onClick={() => saveOrder(false)}>
               {appendOrder ? 'Tambahkan' : 'Simpan (Open Bill)'}
             </button>
-            <button className="btn-primary" disabled={busy || !cart.length} onClick={() => saveOrder(true)}>
+            <button className="btn-accent" disabled={busy || !cart.length} onClick={() => saveOrder(true)}>
               {busy ? 'Memproses…' : 'Bayar'}
             </button>
           </div>
@@ -359,6 +370,13 @@ export default function PosPage() {
             setModifierFor(null);
           }}
         />
+      )}
+
+      {cartCount > 0 && !cartOpen && (
+        <button className="btn-accent cart-fab" onClick={() => setCartOpen(true)}>
+          <span><ShoppingBag size={18} /> {cartCount} item</span>
+          <span>{formatRupiah(totals.total)} ›</span>
+        </button>
       )}
 
       {pickingCustomer && (

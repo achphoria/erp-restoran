@@ -7,8 +7,12 @@ export interface Outlet {
 export interface Profile {
   user_id: string;
   full_name: string;
+  phone: string | null;
+  avatar_url: string | null;
+  email: string;
   company_id: string;
   company_name: string;
+  company_logo_url: string | null;
   role_code: string;
   role_name: string;
   permissions: string[];

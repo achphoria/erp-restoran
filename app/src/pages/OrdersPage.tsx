@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatRupiah, formatTime, SALES_CHANNELS, todayISO } from '../lib/format';
 import { printReceipt } from '../lib/receipt';
 import type { Order } from '../lib/types';
@@ -25,7 +26,8 @@ export default function OrdersPage() {
   const [payOrder, setPayOrder] = useState<Order | null>(null);
   const [action, setAction] = useState<{ action: OrderAction; order: Order } | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
+  const { prompt } = useFeedback();
 
   const load = useCallback(async () => {
     if (!outlet) return;
@@ -64,13 +66,13 @@ export default function OrdersPage() {
     }
   };
 
-  const voidOrder = (o: Order) => {
-    const reason = prompt(`Alasan void ${o.order_number}?`);
+  const voidOrder = async (o: Order) => {
+    const reason = await prompt({ title: `Void ${o.order_number}`, label: 'Alasan void (wajib, tercatat di log)', placeholder: 'contoh: pelanggan batal pesan', confirmLabel: 'Void order' });
     if (reason) act(() => rpc('pos_void_order', { p_order_id: o.id, p_reason: reason }));
   };
 
-  const voidItem = (itemId: string, name: string) => {
-    const reason = prompt(`Alasan void item "${name}"?`);
+  const voidItem = async (itemId: string, name: string) => {
+    const reason = await prompt({ title: `Void "${name}"`, label: 'Alasan void (wajib, tercatat di log)', placeholder: 'contoh: salah input', confirmLabel: 'Void item' });
     if (reason) act(() => rpc('pos_void_order_item', { p_order_item_id: itemId, p_reason: reason }));
   };
 
@@ -93,7 +95,6 @@ export default function OrdersPage() {
         </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
 
       <div className="card table-wrap">
         <table className="table">
@@ -133,7 +134,7 @@ export default function OrdersPage() {
                     {o.status === 'paid' && (
                       <>
                         <button className="btn-sm" onClick={() => printReceipt(o.id).catch((e) => setError(errorMessage(e)))}>🖨️ Struk</button>
-                        {can('pos.refund') && <button className="btn-sm btn-danger" onClick={() => setAction({ action: 'refund', order: o })}>Refund</button>}
+                        <button className="btn-sm btn-danger" onClick={() => setAction({ action: 'refund', order: o })}>{can(['pos.refund', 'approval.refund']) ? 'Refund' : 'Ajukan refund'}</button>
                       </>
                     )}
                   </div>

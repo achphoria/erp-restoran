@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib/format';
 import Modal from '../components/Modal';
+import MoneyInput from '../components/MoneyInput';
 
 type Tab = 'po' | 'receipts' | 'suppliers';
 
@@ -23,6 +25,7 @@ interface GoodsReceipt {
 
 const PO_STATUS: Record<string, [string, string]> = {
   draft: ['Draft', 'badge'],
+  pending_approval: ['Menunggu Persetujuan', 'badge-warning'],
   approved: ['Disetujui', 'badge-info'],
   partially_received: ['Diterima Sebagian', 'badge-warning'],
   received: ['Selesai', 'badge-success'],
@@ -30,7 +33,7 @@ const PO_STATUS: Record<string, [string, string]> = {
 };
 
 export default function PurchasingPage() {
-  const { profile } = useAuth();
+  const { profile, can } = useAuth();
   const companyId = profile!.company_id;
   const [tab, setTab] = useState<Tab>('po');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -43,7 +46,8 @@ export default function PurchasingPage() {
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<Partial<Supplier> | null>(null);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
+  const { confirm } = useFeedback();
 
   const load = useCallback(async () => {
     try {
@@ -107,7 +111,6 @@ export default function PurchasingPage() {
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
 
       {tab === 'po' && (
         <div className="card table-wrap">
@@ -132,15 +135,18 @@ export default function PurchasingPage() {
                       : po.grand_total)}</td>
                     <td className="right">
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        {(po.status === 'draft' || (po.status === 'pending_approval' && can('approval.purchase_order'))) && (
+                          <button className="btn-sm btn-primary" onClick={() => act(async () => {
+                            const r = await rpc<{ po_number: string; pending_approval?: boolean }>('pur_approve_purchase_order', { p_id: po.id });
+                            return r.pending_approval ? 'PO dikirim ke atasan untuk disetujui.' : `PO ${r.po_number} disetujui.`;
+                          })}>Setujui</button>
+                        )}
                         {po.status === 'draft' && (
-                          <>
-                            <button className="btn-sm btn-primary" onClick={() => act(async () => {
-                              const r = await rpc<{ po_number: string }>('pur_approve_purchase_order', { p_id: po.id });
-                              return `PO ${r.po_number} disetujui.`;
-                            })}>Setujui</button>
-                            <button className="btn-sm btn-danger" onClick={() => confirm('Hapus draft PO ini?') &&
-                              act(() => must(supabase.from('pur_purchase_orders').delete().eq('id', po.id)).then(() => 'Draft dihapus.'))}>Hapus</button>
-                          </>
+                          <button className="btn-sm btn-danger" onClick={async () => {
+                            if (await confirm({ title: 'Hapus draft PO ini?', danger: true, confirmLabel: 'Hapus' })) {
+                              act(() => must(supabase.from('pur_purchase_orders').delete().eq('id', po.id)).then(() => 'Draft dihapus.'));
+                            }
+                          }}>Hapus</button>
                         )}
                         {['approved', 'partially_received'].includes(po.status) && (
                           <button className="btn-sm btn-success" onClick={() => startReceiving(po.id)}>Terima Barang</button>
@@ -301,8 +307,8 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
         };
       })));
       if (approve) {
-        const r = await rpc<{ po_number: string }>('pur_approve_purchase_order', { p_id: po.id });
-        onSaved(`PO ${r.po_number} dibuat & disetujui.`);
+        const r = await rpc<{ po_number: string; pending_approval?: boolean }>('pur_approve_purchase_order', { p_id: po.id });
+        onSaved(r.pending_approval ? 'PO dibuat & dikirim ke atasan untuk disetujui.' : `PO ${r.po_number} dibuat & disetujui.`);
       } else {
         onSaved('Draft PO tersimpan.');
       }
@@ -355,7 +361,7 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
                 </select>
               </td>
               <td><input type="number" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} style={{ width: 90 }} /></td>
-              <td><input type="number" value={l.unit_price} onChange={(e) => updateLine(idx, { unit_price: e.target.value })} style={{ width: 120 }} /></td>
+              <td><MoneyInput value={l.unit_price} onChange={(v) => updateLine(idx, { unit_price: v })} style={{ width: 120 }} /></td>
               <td className="right">{formatRupiah(Number(l.quantity || 0) * Number(l.unit_price || 0))}</td>
               <td><button className="btn-sm btn-danger" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>✕</button></td>
             </tr>
@@ -414,7 +420,7 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
                 <input type="number" value={l.quantity} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} style={{ width: 90 }} />
                 {l.inv_units.code}
               </td>
-              <td><input type="number" value={l.unit_price} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(e.target.value) } : x))} style={{ width: 120 }} /></td>
+              <td><MoneyInput value={l.unit_price} onChange={(v) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(v) } : x))} style={{ width: 120 }} /></td>
               <td className="right">{formatRupiah(l.quantity * l.unit_price)}</td>
             </tr>
           ))}

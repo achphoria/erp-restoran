@@ -12,12 +12,22 @@ async function resizeImage(file: File, maxSize = 800): Promise<Blob> {
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Gagal memproses gambar'))), 'image/webp', 0.82));
 }
 
-// Upload ke bucket menu-images/<company_id>/..., kembalikan URL publik
-export async function uploadMenuImage(companyId: string, file: File): Promise<string> {
+async function uploadImage(bucket: string, path: string, file: File, maxSize: number): Promise<string> {
   if (!file.type.startsWith('image/')) throw new Error('File harus berupa gambar');
-  const blob = await resizeImage(file);
-  const path = `${companyId}/${crypto.randomUUID()}.webp`;
-  const { error } = await supabase.storage.from('menu-images').upload(path, blob, { contentType: 'image/webp' });
+  const blob = await resizeImage(file, maxSize);
+  const { error } = await supabase.storage.from(bucket).upload(path, blob, { contentType: 'image/webp' });
   if (error) throw new Error(error.message);
-  return supabase.storage.from('menu-images').getPublicUrl(path).data.publicUrl;
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
+
+// menu-images/<company_id>/<acak>.webp
+export const uploadMenuImage = (companyId: string, file: File) =>
+  uploadImage('menu-images', `${companyId}/${crypto.randomUUID()}.webp`, file, 800);
+
+// company-assets/<company_id>/logo/<acak>.webp
+export const uploadCompanyLogo = (companyId: string, file: File) =>
+  uploadImage('company-assets', `${companyId}/logo/${crypto.randomUUID()}.webp`, file, 512);
+
+// company-assets/<company_id>/avatars/<user_id>-<acak>.webp
+export const uploadAvatar = (companyId: string, userId: string, file: File) =>
+  uploadImage('company-assets', `${companyId}/avatars/${userId}-${crypto.randomUUID().slice(0, 8)}.webp`, file, 400);

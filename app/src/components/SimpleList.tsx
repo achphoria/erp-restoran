@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useFeedback } from './Feedback';
+import MoneyInput from './MoneyInput';
 
 // Daftar sederhana dengan tambah / ubah nama / hapus
 export default function SimpleList({
@@ -14,6 +16,7 @@ export default function SimpleList({
 }) {
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
+  const { confirm, prompt } = useFeedback();
   return (
     <div className="card">
       <h3 style={{ marginBottom: 8 }}>{title}</h3>
@@ -26,13 +29,15 @@ export default function SimpleList({
               <td className="right">
                 <div className="row" style={{ justifyContent: 'flex-end' }}>
                   {onRename && (
-                    <button className="btn-sm" onClick={() => {
-                      const v = prompt('Nama baru', r.label);
-                      if (v?.trim()) onRename(r.id, v.trim());
+                    <button className="btn-sm" onClick={async () => {
+                      const v = await prompt({ title: 'Ubah nama', label: 'Nama baru', defaultValue: r.label });
+                      if (v) onRename(r.id, v);
                     }}>Ubah</button>
                   )}
                   {onDelete && (
-                    <button className="btn-sm btn-danger" onClick={() => confirm(`Hapus "${r.label}"?`) && onDelete(r.id)}>Hapus</button>
+                    <button className="btn-sm btn-danger" onClick={async () => {
+                      if (await confirm({ title: `Hapus "${r.label}"?`, message: 'Data yang dihapus tidak bisa dikembalikan.', danger: true, confirmLabel: 'Hapus' })) onDelete(r.id);
+                    }}>Hapus</button>
                   )}
                 </div>
               </td>
@@ -48,7 +53,7 @@ export default function SimpleList({
         setPrice('');
       }}>
         <input placeholder={addPlaceholder} value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
-        {withPrice && <input type="number" placeholder="+Rp" value={price} onChange={(e) => setPrice(e.target.value)} style={{ width: 90 }} />}
+        {withPrice && <MoneyInput placeholder="+Rp" value={price} onChange={(v) => setPrice(v)} style={{ width: 90 }} />}
         <button>Tambah</button>
       </form>
     </div>

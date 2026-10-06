@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { rpc } from '../lib/supabase';
 import { errorMessage, formatRupiah } from '../lib/format';
+import { Plus, ShoppingBag } from 'lucide-react';
 import Modal from '../components/Modal';
+import Logo from '../components/Logo';
 
 interface PublicModifier { id: string; name: string; extra_price: number }
 interface PublicGroup { id: string; name: string; min_select: number; max_select: number; modifiers: PublicModifier[] }
@@ -69,14 +71,18 @@ export default function PublicOrderPage() {
   const cartTotal = cart.reduce((s, l) => s + lineTotal(l), 0);
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
 
-  const add = (item: PublicItem, modifiers: PublicModifier[] = [], note = '') => {
+  const [bump, setBump] = useState(0);   // memicu animasi bar keranjang saat item ditambah
+  const add = (item: PublicItem, modifiers: PublicModifier[] = [], note = '', qty = 1) => {
     const key = `${item.id}|${modifiers.map((m) => m.id).sort().join(',')}|${note}`;
     setCart((prev) => {
       const ex = prev.find((l) => l.key === key);
-      if (ex) return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l));
-      return [...prev, { key, item, quantity: 1, modifiers, note }];
+      if (ex) return prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + qty } : l));
+      return [...prev, { key, item, quantity: qty, modifiers, note }];
     });
+    setBump((b) => b + 1);
+    navigator.vibrate?.(15);
   };
+  const qtyOf = (itemId: string) => cart.filter((l) => l.item.id === itemId).reduce((s, l) => s + l.quantity, 0);
   const changeQty = (key: string, d: number) =>
     setCart((prev) => prev.map((l) => (l.key === key ? { ...l, quantity: l.quantity + d } : l)).filter((l) => l.quantity > 0));
 
@@ -106,24 +112,41 @@ export default function PublicOrderPage() {
   );
 
   if (fatal) {
-    return <div className="auth-page"><div className="card auth-card"><h2>😔 Maaf</h2><p>{fatal}</p></div></div>;
+    return <div className="auth-page"><div className="auth-card" style={{ textAlign: 'center' }}><Logo size={48} /><h2 style={{ marginTop: 16 }}>Maaf</h2><p className="muted">{fatal}</p></div></div>;
   }
-  if (!menu) return <div className="auth-page"><p className="muted">Memuat menu…</p></div>;
+  if (!menu) {
+    return (
+      <div className="qr-page" style={{ padding: 16 }}>
+        <div className="skeleton" style={{ height: 56, marginBottom: 16 }} />
+        {[1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton" style={{ height: 96, marginBottom: 12 }} />)}
+      </div>
+    );
+  }
 
   return (
     <div className="qr-page">
+      <div className="qr-sticky">
       <header className="qr-header">
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div className="bold" style={{ fontSize: 17 }}>{menu.outlet.name}</div>
           <div className="small muted">{menu.company_name}</div>
         </div>
-        <span className="badge badge-primary" style={{ fontSize: 13 }}>Meja {menu.table.code}</span>
+        <span className="badge badge-primary" style={{ fontSize: 13, padding: '6px 12px' }}>Meja {menu.table.code}</span>
       </header>
 
-      <div className="tabs" style={{ padding: '0 12px', marginBottom: 0, background: 'var(--surface)' }}>
+      <div className="tabs">
         <button className={view === 'menu' ? 'active' : ''} onClick={() => setView('menu')}>Menu</button>
         <button className={view === 'cart' ? 'active' : ''} onClick={() => setView('cart')}>Keranjang {cartCount > 0 && `(${cartCount})`}</button>
         <button className={view === 'status' ? 'active' : ''} onClick={() => { loadOrder(); setView('status'); }}>Pesanan Saya</button>
+      </div>
+      {view === 'menu' && (
+        <div className="chip-scroll pos-categories">
+          <button className={categoryId === 'all' ? 'active' : ''} onClick={() => setCategoryId('all')}>Semua</button>
+          {menu.categories.map((c) => (
+            <button key={c.id} className={categoryId === c.id ? 'active' : ''} onClick={() => setCategoryId(c.id)}>{c.name}</button>
+          ))}
+        </div>
+      )}
       </div>
 
       <main className="qr-body">
@@ -131,25 +154,20 @@ export default function PublicOrderPage() {
 
         {view === 'menu' && (
           <>
-            <div className="pos-categories" style={{ overflowX: 'auto', flexWrap: 'nowrap' }}>
-              <button className={categoryId === 'all' ? 'active' : ''} onClick={() => setCategoryId('all')}>Semua</button>
-              {menu.categories.map((c) => (
-                <button key={c.id} className={categoryId === c.id ? 'active' : ''} onClick={() => setCategoryId(c.id)}>{c.name}</button>
-              ))}
-            </div>
             <div className="grid">
               {items.map((i) => (
-                <div key={i.id} className="card qr-item">
-                  {i.image_url && <img src={i.image_url} alt="" />}
+                <div key={i.id} className="card qr-item" style={soldOut.includes(i.id) ? { opacity: 0.55 } : undefined}>
+                  {i.image_url && <img src={i.image_url} alt="" loading="lazy" />}
+                  {qtyOf(i.id) > 0 && <span className="qty-badge">{qtyOf(i.id)}</span>}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="bold">{i.name}</div>
                     {i.description && <div className="muted small">{i.description}</div>}
-                    <div className="bold" style={{ color: 'var(--primary)', marginTop: 4 }}>{formatRupiah(i.price)}</div>
+                    <div className="bold" style={{ marginTop: 6, fontSize: 15 }}>{formatRupiah(i.price)}</div>
                   </div>
                   {soldOut.includes(i.id) ? (
                     <span className="badge badge-danger">Habis</span>
                   ) : (
-                    <button className="btn-primary" onClick={() => (i.modifier_groups.length ? setCustomizing(i) : add(i))}>+ Tambah</button>
+                    <button className="btn-primary" style={{ minHeight: 44, borderRadius: 12 }} onClick={() => (i.modifier_groups.length ? setCustomizing(i) : add(i))} aria-label={`Tambah ${i.name}`}><Plus size={18} /> Tambah</button>
                   )}
                 </div>
               ))}
@@ -165,7 +183,7 @@ export default function PublicOrderPage() {
                 <div>
                   <div className="bold">{l.item.name}</div>
                   {l.modifiers.length > 0 && <div className="meta">+ {l.modifiers.map((m) => m.name).join(', ')}</div>}
-                  {l.note && <div className="meta">📝 {l.note}</div>}
+                  {l.note && <div className="meta">Catatan: {l.note}</div>}
                 </div>
                 <div className="right">{formatRupiah(lineTotal(l))}</div>
                 <div className="qty">
@@ -225,20 +243,22 @@ export default function PublicOrderPage() {
       </main>
 
       {view === 'menu' && cartCount > 0 && (
-        <button className="btn-primary qr-cart-bar" onClick={() => setView('cart')}>
-          🛒 {cartCount} item · {formatRupiah(cartTotal)} — Lihat Keranjang
+        <button key={bump} className="btn-accent qr-cart-bar bump" onClick={() => setView('cart')}>
+          <span><ShoppingBag size={18} /> {cartCount} item · {formatRupiah(cartTotal)}</span>
+          <span>Lihat keranjang ›</span>
         </button>
       )}
 
       {customizing && (
         <CustomizeModal item={customizing} onClose={() => setCustomizing(null)}
-          onAdd={(mods, note) => { add(customizing, mods, note); setCustomizing(null); }} />
+          onAdd={(mods, note, qty) => { add(customizing, mods, note, qty); setCustomizing(null); }} />
       )}
     </div>
   );
 }
 
-function CustomizeModal({ item, onClose, onAdd }: { item: PublicItem; onClose: () => void; onAdd: (m: PublicModifier[], note: string) => void }) {
+function CustomizeModal({ item, onClose, onAdd }: { item: PublicItem; onClose: () => void; onAdd: (m: PublicModifier[], note: string, qty: number) => void }) {
+  const [qty, setQty] = useState(1);
   const [selected, setSelected] = useState<{ group: string; mod: PublicModifier }[]>([]);
   const [note, setNote] = useState('');
 
@@ -254,8 +274,8 @@ function CustomizeModal({ item, onClose, onAdd }: { item: PublicItem; onClose: (
 
   return (
     <Modal title={item.name} onClose={onClose}
-      footer={<button className="btn-primary btn-block" disabled={missing} onClick={() => onAdd(selected.map((s) => s.mod), note.trim())}>
-        Tambah · {formatRupiah(Number(item.price) + extra)}
+      footer={<button className="btn-accent btn-block btn-lg" disabled={missing} onClick={() => onAdd(selected.map((s) => s.mod), note.trim(), qty)}>
+        Tambah {qty} · {formatRupiah((Number(item.price) + extra) * qty)}
       </button>}>
       <div className="grid">
         {item.modifier_groups.map((g) => (
@@ -271,6 +291,14 @@ function CustomizeModal({ item, onClose, onAdd }: { item: PublicItem; onClose: (
           </div>
         ))}
         <label className="field"><span>Catatan</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="contoh: tanpa bawang" maxLength={200} /></label>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="bold">Jumlah</span>
+          <div className="qty">
+            <button onClick={() => setQty(Math.max(1, qty - 1))} aria-label="Kurangi">−</button>
+            <span className="bold" style={{ minWidth: 24, textAlign: 'center', fontSize: 17 }}>{qty}</span>
+            <button onClick={() => setQty(Math.min(99, qty + 1))} aria-label="Tambah">+</button>
+          </div>
+        </div>
       </div>
     </Modal>
   );

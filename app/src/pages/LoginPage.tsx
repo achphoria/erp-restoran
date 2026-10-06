@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
+import Logo from '../components/Logo';
+import { APP_TAGLINE } from '../lib/brand';
 import { errorMessage } from '../lib/format';
 
 export default function LoginPage() {
@@ -37,8 +39,9 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <div className="card auth-card">
-        <h1>🍜 ERP Resto</h1>
+      <div className="auth-card">
+        <Logo size={52} withName subtitle={APP_TAGLINE} />
+        <h1>{mode === 'login' ? 'Selamat datang kembali' : 'Buat akun baru'}</h1>
         <p className="muted">{mode === 'login' ? 'Masuk ke akun Anda' : 'Buat akun baru untuk restoran Anda'}</p>
         <form onSubmit={submit}>
           {error && <div className="alert alert-error">{error}</div>}

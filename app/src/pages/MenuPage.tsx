@@ -7,6 +7,7 @@ import Modal from '../components/Modal';
 import SimpleList from '../components/SimpleList';
 import TableQrList from '../components/TableQrList';
 import { uploadMenuImage } from '../lib/image';
+import MoneyInput from '../components/MoneyInput';
 
 type Tab = 'menu' | 'category' | 'modifier' | 'table';
 
@@ -281,11 +282,11 @@ function MenuForm({
           </select>
         </label>
         <label className="field"><span>Harga (Dine In / Take Away)</span>
-          <input type="number" value={form.base_price ?? 0} onChange={(e) => set({ base_price: Number(e.target.value) })} /></label>
+          <MoneyInput value={form.base_price ?? 0} onChange={(v) => set({ base_price: Number(v) })} /></label>
         <label className="field"><span>Harga GoFood (kosong = sama)</span>
-          <input type="number" value={channelPrices.gofood} onChange={(e) => setChannelPrices((p) => ({ ...p, gofood: e.target.value }))} /></label>
+          <MoneyInput value={channelPrices.gofood} onChange={(v) => setChannelPrices((p) => ({ ...p, gofood: v }))} /></label>
         <label className="field"><span>Harga GrabFood (kosong = sama)</span>
-          <input type="number" value={channelPrices.grabfood} onChange={(e) => setChannelPrices((p) => ({ ...p, grabfood: e.target.value }))} /></label>
+          <MoneyInput value={channelPrices.grabfood} onChange={(v) => setChannelPrices((p) => ({ ...p, grabfood: v }))} /></label>
         <label className="field"><span>Status</span>
           <select value={form.is_active ? '1' : '0'} onChange={(e) => set({ is_active: e.target.value === '1' })}>
             <option value="1">Aktif</option><option value="0">Nonaktif</option>

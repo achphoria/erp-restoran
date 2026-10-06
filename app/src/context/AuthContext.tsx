@@ -54,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const data = await rpc<Profile | null>('sys_get_my_profile');
           if (!cancelled) setProfile(data);
+          // catat login ke log aktivitas (server mengabaikan duplikat dalam 30 menit)
+          if (data) rpc('sys_log_login').catch(() => undefined);
         } catch {
           if (!cancelled) setProfile(null);
         }

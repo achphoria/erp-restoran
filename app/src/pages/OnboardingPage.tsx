@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { rpc } from '../lib/supabase';
 import { errorMessage } from '../lib/format';
+import Logo from '../components/Logo';
 
 interface Invitation {
   id: string;
@@ -63,8 +64,9 @@ export default function OnboardingPage() {
   if (invitations.length > 0 && !createNew) {
     return (
       <div className="auth-page">
-        <div className="card auth-card">
-          <h1>Anda diundang! ✉️</h1>
+        <div className="auth-card">
+          <Logo size={48} withName />
+          <h1>Anda diundang!</h1>
           <p className="muted">Login sebagai {session?.user.email}</p>
           <div className="grid" style={{ marginTop: 16 }}>
             {error && <div className="alert alert-error">{error}</div>}
@@ -89,8 +91,9 @@ export default function OnboardingPage() {
 
   return (
     <div className="auth-page">
-      <div className="card auth-card">
-        <h1>Selamat datang! 👋</h1>
+      <div className="auth-card">
+        <Logo size={48} withName />
+        <h1>Siapkan restoran Anda</h1>
         <p className="muted">Siapkan restoran Anda. Login sebagai {session?.user.email}</p>
         <form onSubmit={submit}>
           {error && <div className="alert alert-error">{error}</div>}

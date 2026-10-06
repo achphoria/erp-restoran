@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useNotice } from '../components/Feedback';
 import { errorMessage, formatRupiah, todayISO } from '../lib/format';
 import Modal from '../components/Modal';
+import MoneyInput from '../components/MoneyInput';
 
 type Tab = 'reports' | 'journals' | 'expenses' | 'payables' | 'accounts' | 'ledger';
 
@@ -39,7 +41,7 @@ export default function FinancePage() {
   const [tab, setTab] = useState<Tab>('reports');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
 
   const loadAccounts = useCallback(async () => {
     try {
@@ -78,7 +80,6 @@ export default function FinancePage() {
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
       {tab === 'reports' && <ReportsTab {...ctx} />}
       {tab === 'journals' && <JournalsTab {...ctx} />}
       {tab === 'expenses' && <ExpensesTab {...ctx} />}
@@ -430,8 +431,8 @@ function ManualJournalModal({ accounts, onClose, onSaved }: { accounts: Account[
           {lines.map((l, idx) => (
             <tr key={idx}>
               <td><AccountSelect accounts={accounts} value={l.account_id} onChange={(v) => update(idx, { account_id: v })} /></td>
-              <td><input type="number" value={l.debit} onChange={(e) => update(idx, { debit: e.target.value, credit: '' })} style={{ width: 130 }} /></td>
-              <td><input type="number" value={l.credit} onChange={(e) => update(idx, { credit: e.target.value, debit: '' })} style={{ width: 130 }} /></td>
+              <td><MoneyInput value={l.debit} onChange={(v) => update(idx, { debit: v, credit: '' })} style={{ width: 130 }} /></td>
+              <td><MoneyInput value={l.credit} onChange={(v) => update(idx, { credit: v, debit: '' })} style={{ width: 130 }} /></td>
               <td>{lines.length > 2 && <button className="btn-sm btn-danger" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>✕</button>}</td>
             </tr>
           ))}
@@ -474,11 +475,11 @@ function ExpensesTab({ accounts, setError, setNotice }: Ctx) {
     setBusy(true);
     setError('');
     try {
-      await rpc('fin_record_expense', {
+      const journalId = await rpc<string | null>('fin_record_expense', {
         p_date: date, p_expense_account_id: expenseId, p_paid_from_account_id: paidFromId,
         p_amount: Number(amount), p_description: description, p_outlet_id: outlet?.id ?? null,
       });
-      setNotice(`Biaya ${formatRupiah(amount)} tercatat.`);
+      setNotice(journalId ? `Biaya ${formatRupiah(amount)} tercatat.` : `Biaya ${formatRupiah(amount)} diajukan ke atasan untuk disetujui.`);
       setAmount('');
       setDescription('');
       await load();
@@ -502,7 +503,7 @@ function ExpensesTab({ accounts, setError, setNotice }: Ctx) {
           <label className="field"><span>Dibayar dari</span>
             <AccountSelect accounts={accounts} value={paidFromId} onChange={setPaidFromId} filter={isCashAccount} />
           </label>
-          <label className="field"><span>Nominal (Rp)</span><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+          <label className="field"><span>Nominal (Rp)</span><MoneyInput value={amount} onChange={(v) => setAmount(v)} /></label>
           <label className="field"><span>Keterangan</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="contoh: Bayar listrik Oktober" /></label>
           <button className="btn-primary" disabled={busy || !expenseId || !paidFromId || !(Number(amount) > 0)} onClick={save}>Simpan Biaya</button>
         </div>
@@ -658,8 +659,8 @@ function PaySupplierModal({ supplierId, supplierName, payables, accounts, onClos
               <td className="bold">{p.receipt_number}</td>
               <td>{p.due_date}</td>
               <td className="right">{formatRupiah(p.outstanding_amount)}</td>
-              <td><input type="number" value={amounts[p.goods_receipt_id]} max={Number(p.outstanding_amount)}
-                onChange={(e) => setAmounts({ ...amounts, [p.goods_receipt_id]: e.target.value })} style={{ width: 140 }} /></td>
+              <td><MoneyInput value={amounts[p.goods_receipt_id]} max={Number(p.outstanding_amount)}
+                onChange={(v) => setAmounts({ ...amounts, [p.goods_receipt_id]: v })} style={{ width: 140 }} /></td>
             </tr>
           ))}
         </tbody>

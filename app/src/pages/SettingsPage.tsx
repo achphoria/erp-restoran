@@ -1,10 +1,17 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime } from '../lib/format';
 import Modal from '../components/Modal';
+import Avatar from '../components/Avatar';
+import ProfileModal from '../components/ProfileModal';
+import CompanyTab from '../components/settings/CompanyTab';
+import ApprovalRulesTab from '../components/settings/ApprovalRulesTab';
+import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
+import ActivityLogTab from '../components/settings/ActivityLogTab';
 
-type Tab = 'users' | 'roles' | 'outlets';
+type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs';
 
 interface Role { id: string; code: string; name: string; permissions: string[] }
 interface OutletRow {
@@ -13,7 +20,7 @@ interface OutletRow {
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
 }
 interface UserRow {
-  id: string; full_name: string; email: string; is_active: boolean;
+  id: string; full_name: string; email: string; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
   role_id: string; role_name: string; role_code: string; outlet_ids: string[]; created_at: string;
 }
 interface Invitation { id: string; email: string; role_id: string; outlet_ids: string[]; status: string; created_at: string }
@@ -33,19 +40,25 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'finance.view', label: 'Lihat laporan keuangan', group: 'Keuangan' },
   { key: 'finance.manage', label: 'Input biaya, jurnal, bayar supplier', group: 'Keuangan' },
   { key: 'user.manage', label: 'Kelola user & role', group: 'Admin' },
-  { key: 'settings.manage', label: 'Kelola outlet & perusahaan', group: 'Admin' },
+  { key: 'settings.manage', label: 'Kelola perusahaan, outlet, approval & pembayaran online', group: 'Admin' },
+  { key: 'audit.view', label: 'Lihat log aktivitas', group: 'Admin' },
+  { key: 'approval.purchase_order', label: 'Menyetujui purchase order', group: 'Persetujuan' },
+  { key: 'approval.expense', label: 'Menyetujui biaya operasional', group: 'Persetujuan' },
+  { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
+  { key: 'approval.stock_opname', label: 'Menyetujui stock opname', group: 'Persetujuan' },
+  { key: 'approval.refund', label: 'Menyetujui refund', group: 'Persetujuan' },
 ];
 
 export default function SettingsPage() {
   const { profile, can, refreshProfile } = useAuth();
   const companyId = profile!.company_id;
-  const [tab, setTab] = useState<Tab>(can('user.manage') ? 'users' : 'outlets');
+  const [tab, setTab] = useState<Tab>(can('settings.manage') ? 'company' : can('user.manage') ? 'users' : 'logs');
   const [roles, setRoles] = useState<Role[]>([]);
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
 
   const load = useCallback(async () => {
     try {
@@ -85,9 +98,13 @@ export default function SettingsPage() {
   };
 
   const tabs: [Tab, string, boolean][] = [
+    ['company', 'Perusahaan & Logo', can('settings.manage')],
     ['users', 'User & Undangan', can('user.manage')],
     ['roles', 'Role & Hak Akses', can('user.manage')],
     ['outlets', 'Outlet', can('settings.manage')],
+    ['approvals', 'Approval', can('settings.manage')],
+    ['payment', 'Pembayaran Online', can('settings.manage')],
+    ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage'])],
   ];
 
   return (
@@ -104,7 +121,6 @@ export default function SettingsPage() {
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
 
       {tab === 'users' && (
         <UsersTab companyId={companyId} users={users} invitations={invitations} roles={roles} outlets={outlets}
@@ -112,6 +128,10 @@ export default function SettingsPage() {
       )}
       {tab === 'roles' && <RolesTab companyId={companyId} roles={roles} act={act} />}
       {tab === 'outlets' && <OutletsTab outlets={outlets} act={act} onCreated={refreshProfile} />}
+      {tab === 'company' && <CompanyTab />}
+      {tab === 'approvals' && <ApprovalRulesTab />}
+      {tab === 'payment' && <PaymentGatewayTab />}
+      {tab === 'logs' && <ActivityLogTab />}
     </>
   );
 }
@@ -125,6 +145,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
 }) {
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
+  const [editingProfile, setEditingProfile] = useState<UserRow | null>(null);
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? '-';
   const outletNames = (ids: string[]) => ids.map((id) => outlets.find((o) => o.id === id)?.name).filter(Boolean).join(', ');
 
@@ -136,16 +157,27 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
           <button className="btn-primary" onClick={() => setInviting(true)}>+ Undang Staf</button>
         </div>
         <table className="table">
-          <thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Outlet</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>User</th><th>Kontak</th><th>Role</th><th>Outlet</th><th>Login terakhir</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
-                <td className="bold">{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</td>
-                <td>{u.email}</td>
+                <td>
+                  <div className="row" style={{ flexWrap: 'nowrap' }}>
+                    <Avatar name={u.full_name} src={u.avatar_url} size={36} />
+                    <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
+                  </div>
+                </td>
+                <td className="small">{u.email}<div className="muted">{u.phone ?? '—'}</div></td>
                 <td><span className="badge badge-primary">{u.role_name}</span></td>
                 <td className="small">{u.role_code === 'owner' ? 'Semua outlet' : outletNames(u.outlet_ids) || '-'}</td>
+                <td className="small muted">{u.last_login_at ? formatDateTime(u.last_login_at) : 'Belum pernah'}</td>
                 <td>{u.is_active ? <span className="badge badge-success">Aktif</span> : <span className="badge">Nonaktif</span>}</td>
-                <td className="right">{u.id !== currentUserId && <button className="btn-sm" onClick={() => setEditing(u)}>Edit</button>}</td>
+                <td className="right">
+                  <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                    <button className="btn-sm" onClick={() => setEditingProfile(u)}>Profil</button>
+                    {u.id !== currentUserId && <button className="btn-sm" onClick={() => setEditing(u)}>Akses</button>}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -193,6 +225,10 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
               return `Undangan untuk ${email} dibuat. Minta staf mendaftar dengan email tersebut.`;
             });
           }} />
+      )}
+
+      {editingProfile && (
+        <ProfileModal user={editingProfile} onClose={() => setEditingProfile(null)} onSaved={() => act(async () => undefined)} />
       )}
 
       {editing && (
@@ -267,6 +303,7 @@ function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive
 
 // ---------------------------------------------------------------- Role
 function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[]; act: Act }) {
+  const { prompt } = useFeedback();
   const groups = [...new Set(PERMISSIONS.map((p) => p.group))];
 
   const toggle = (role: Role, key: string) =>
@@ -279,8 +316,8 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
     <div className="card table-wrap">
       <div className="card-header">
         <h2>Hak Akses per Role</h2>
-        <button onClick={() => {
-          const name = prompt('Nama role baru (contoh: Supervisor)');
+        <button onClick={async () => {
+          const name = await prompt({ title: 'Role baru', label: 'Nama role', placeholder: 'contoh: Supervisor' });
           if (name?.trim()) {
             act(async () => {
               await must(supabase.from('sys_roles').insert({

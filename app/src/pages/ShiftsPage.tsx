@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime, formatRupiah } from '../lib/format';
 import type { Shift } from '../lib/types';
+import MoneyInput from '../components/MoneyInput';
 
 export default function ShiftsPage() {
   const { outlet, session } = useAuth();
@@ -10,7 +12,7 @@ export default function ShiftsPage() {
   const [openingCash, setOpeningCash] = useState('');
   const [closingCash, setClosingCash] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -54,7 +56,6 @@ export default function ShiftsPage() {
         </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
 
       <div className="card">
         {openShift ? (
@@ -66,7 +67,7 @@ export default function ShiftsPage() {
             <div className="grid">
               <label className="field">
                 <span>Uang tunai di laci saat tutup (hitung fisik)</span>
-                <input type="number" value={closingCash} onChange={(e) => setClosingCash(e.target.value)} />
+                <MoneyInput value={closingCash} onChange={(v) => setClosingCash(v)} />
               </label>
               <button className="btn-primary" disabled={busy || closingCash === ''}
                 onClick={() => run(async () => {
@@ -86,7 +87,7 @@ export default function ShiftsPage() {
           <div className="row">
             <label className="field" style={{ flex: 1 }}>
               <span>Modal awal kas (Rp)</span>
-              <input type="number" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="500000" />
+              <MoneyInput value={openingCash} onChange={(v) => setOpeningCash(v)} placeholder="500000" />
             </label>
             <button className="btn-primary" style={{ alignSelf: 'end' }} disabled={busy}
               onClick={() => run(async () => {

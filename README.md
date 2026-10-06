@@ -1,4 +1,4 @@
-# ERP Resto
+# Santap ERP
 
 ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) dengan **Supabase** + **React**.
 
@@ -6,11 +6,12 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–010)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–013)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
   - [`supabase/update_fase5.sql`](supabase/update_fase5.sql) (010: foto menu, menu habis, pindah/gabung/split bill, refund)
+  - [`supabase/update_fase6.sql`](supabase/update_fase6.sql) (011–013: logo & profil, log aktivitas, approval, iPay88)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -111,6 +112,17 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 - **QR order**: Menu → tab *Meja & QR* → cetak QR. Tamu scan → pesan → kasir dapat notifikasi 🔔 →
   **Konfirmasi QR** di Daftar Order → masuk Layar Dapur. Order dengan item belum dikonfirmasi tidak bisa dibayar.
   QR hanya bisa di-scan dari HP setelah aplikasi di-deploy ke internet (bukan `localhost`).
+
+## Fase 6: logo, profil, log, approval, iPay88
+- **Logo & identitas**: Pengaturan → Perusahaan & Logo. Default: logo & nama *Santap ERP* (`app/public/favicon.svg`, `app/src/lib/brand.ts`).
+- **Profil user**: klik nama di sidebar → foto & nomor HP. Owner bisa mengubah profil staf di Pengaturan → User.
+- **Log aktivitas**: Pengaturan → Log Aktivitas. Mencatat login, perubahan data penting (nilai lama → baru), status order, dan keputusan approval.
+- **Approval**: Pengaturan → Approval untuk menyalakan aturan & batas nominal (PO, biaya, penyesuaian stok/waste, opname, refund).
+  Penyetuju diatur per role (grup *Persetujuan*). Kotak masuk di menu **Persetujuan**; aksi baru dijalankan saat disetujui.
+- **iPay88** (disiapkan, belum aktif): Pengaturan → Pembayaran Online. Langkah:
+  1. Deploy fungsi: `supabase functions deploy ipay88-checkout` dan `supabase functions deploy ipay88-callback --no-verify-jwt`
+  2. Secret `APP_URL` = alamat aplikasi; daftarkan Backend URL `https://<project>.supabase.co/functions/v1/ipay88-callback` di iPay88
+  3. **Cocokkan rumus tanda tangan** di `supabase/functions/_shared/ipay88.ts` dengan dokumen teknis iPay88 Anda.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

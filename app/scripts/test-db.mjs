@@ -60,6 +60,11 @@ await db.exec(`
   grant usage on schema storage to anon, authenticated;
   grant all on storage.objects to authenticated;
   grant select on storage.buckets to anon, authenticated;
+  create function storage.filename(name text) returns text language sql immutable as
+    $$ select (string_to_array(name, '/'))[array_length(string_to_array(name, '/'), 1)] $$;
+  create role service_role nologin;
+  grant usage on schema public, auth to service_role;
+  alter default privileges in schema public grant all on tables to service_role;
   grant usage on schema public to anon, authenticated;
   alter default privileges in schema public grant all on tables to anon, authenticated;
   alter default privileges in schema public grant all on sequences to anon, authenticated;
@@ -82,6 +87,7 @@ await runMigrations(allMigrations.filter((f) => f < '006'));
 
 const U1 = '11111111-1111-1111-1111-111111111111';
 const U2 = '22222222-2222-2222-2222-222222222222';
+const U6 = '66666666-6666-6666-6666-666666666666';
 await db.exec(`insert into auth.users values ('${U1}', 'owner1@test.com'), ('${U2}', 'owner2@test.com')`);
 
 console.log('\nOnboarding:');
@@ -636,7 +642,7 @@ await check('fase 1-3 tetap jalan: order biasa POS', async () => {
 // FASE 5: foto menu, sold out, pindah/gabung/split bill, refund
 // =====================================================================
 console.log('\nMenjalankan migrasi fase 5 (di atas data fase 1-4):');
-await runMigrations(allMigrations.filter((f) => f >= '010'));
+await runMigrations(allMigrations.filter((f) => f >= '010' && f < '011'));
 
 const tableId = async (code) => val(`select id from mst_tables where code = $1 and outlet_id = $2`, [code, outletId]);
 const openOrderOn = async (code) => val(`select id from pos_orders where table_id = $1 and status = 'open'`, [await tableId(code)]);
@@ -752,7 +758,7 @@ await check('laporan refund & void terisi', async () => {
   assert((await val(`select count(*)::int from rpt_voids`)) >= 3, 'void');
 });
 await check('pelayan (tanpa izin refund) tidak bisa refund', async () => {
-  const U6 = '66666666-6666-6666-6666-666666666666';
+
   const company = await val(`select sys_current_company_id()`);
   const waiter = await val(`select id from sys_roles where code = 'waiter'`);
   await db.query(`insert into sys_user_invitations (company_id, email, role_id, outlet_ids) values ($1, 'pelayan@test.com', $2, array[$3::uuid])`, [company, waiter, outletId]);
@@ -760,6 +766,212 @@ await check('pelayan (tanpa izin refund) tidak bisa refund', async () => {
   await loginAs(U6);
   await db.query(`select sys_accept_invitation((select (sys_get_my_invitations()->0->>'id')::uuid), 'Rudi')`);
   await expectError(`select pos_refund_order($1, 'x')`, [splitOrder.id], /izin/);
+});
+
+// =====================================================================
+// FASE 6: logo & profil, log aktivitas, approval, payment gateway
+// =====================================================================
+console.log('\nMenjalankan migrasi fase 6 (di atas data fase 1-5):');
+await runMigrations(allMigrations.filter((f) => f >= '011'));
+
+const asServiceRole = () => db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role service_role;`);
+let company1;
+
+console.log('\nLogo & profil:');
+await check('owner ubah profil (nama, HP, foto) & logo perusahaan', async () => {
+  await loginAs(U1);
+  company1 = await val(`select sys_current_company_id()`);
+  await db.query(`select sys_update_my_profile('Andi Owner', '0812-1111-2222', 'https://x/avatar.webp')`);
+  await db.query(`update sys_companies set logo_url = 'https://x/logo.webp' where id = $1`, [company1]);
+  const p = await val(`select sys_get_my_profile()`);
+  assert(p.full_name === 'Andi Owner' && p.phone === '081211112222' && p.avatar_url && p.company_logo_url, JSON.stringify(p));
+});
+await check('upload logo hanya untuk yang berizin, foto profil hanya milik sendiri', async () => {
+  await db.query(`insert into storage.objects (bucket_id, name) values ('company-assets', $1)`, [`${company1}/logo/logo.webp`]);
+  await loginAs(U6);   // pelayan
+  await expectError(`insert into storage.objects (bucket_id, name) values ('company-assets', $1)`, [`${company1}/logo/hack.webp`], /row-level security/);
+  await db.query(`insert into storage.objects (bucket_id, name) values ('company-assets', $1)`, [`${company1}/avatars/${U6}-1.webp`]);
+  await expectError(`insert into storage.objects (bucket_id, name) values ('company-assets', $1)`, [`${company1}/avatars/${U1}-1.webp`], /row-level security/);
+});
+await check('pelayan tidak bisa ubah profil user lain', () =>
+  expectError(`select sys_update_user_profile($1, 'Hack', null, null)`, [U1], /izin/));
+
+console.log('\nLog aktivitas:');
+await check('login tercatat sekali (tidak dobel saat reload)', async () => {
+  await loginAs(U1);
+  await db.query(`select sys_log_login()`);
+  await db.query(`select sys_log_login()`);
+  assert((await val(`select count(*)::int from sys_activity_logs where user_id = $1 and action = 'login'`, [U1])) === 1, 'login dobel');
+});
+await check('perubahan harga menu tercatat (lama -> baru, siapa)', async () => {
+  await db.query(`update mst_menu_items set base_price = 37000 where code = 'MKN01'`);
+  const log = await one(`select * from sys_activity_logs where entity_type = 'mst_menu_items' and action = 'update' order by id desc limit 1`);
+  assert(log.entity_label === 'Nasi Goreng Spesial' && log.user_name === 'Andi Owner', JSON.stringify(log));
+  assert(JSON.stringify(log.changes.base_price) === JSON.stringify([35000, 37000]), JSON.stringify(log.changes));
+  await db.query(`update mst_menu_items set base_price = 35000 where code = 'MKN01'`);
+});
+await check('order lunas / refund tercatat sebagai aksi', async () => {
+  const actions = (await db.query(`select distinct action from sys_activity_logs where entity_type = 'pos_orders'`)).rows.map((r) => r.action);
+  assert(actions.length === 0 || actions.every((a) => ['paid', 'void', 'refunded', 'merged'].includes(a)), JSON.stringify(actions));
+  const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM01') }] })]);
+  await db.query(`select pos_void_order($1, 'tes log')`, [o.id]);
+  assert((await val(`select count(*)::int from sys_activity_logs where entity_id = $1 and action = 'void'`, [o.id])) === 1, 'void tidak tercatat');
+});
+await check('daftar user menampilkan login terakhir', async () => {
+  const users = await val(`select sys_list_users()`);
+  assert(users.find((u) => u.id === U1).last_login_at, 'last_login_at kosong');
+});
+await check('pelayan tidak bisa membaca log', async () => {
+  await loginAs(U6);
+  assert((await val(`select count(*)::int from sys_activity_logs`)) === 0, 'pelayan bisa baca log');
+});
+
+console.log('\nApproval:');
+const U7 = '77777777-7777-7777-7777-777777777777';
+await check('siapkan manajer & aktifkan aturan approval', async () => {
+  await loginAs(U1);
+  assert((await val(`select count(*)::int from sys_approval_rules where not is_enabled`)) === 5, 'aturan default harus nonaktif');
+  await db.query(`update sys_approval_rules set is_enabled = true`);
+  await db.query(`update sys_roles set permissions = permissions || '["finance.manage"]'::jsonb where code = 'manager'`);
+  const role = await val(`select id from sys_roles where code = 'manager'`);
+  await db.query(`insert into sys_user_invitations (company_id, email, role_id, outlet_ids) values ($1, 'manajer@test.com', $2, array[$3::uuid])`, [company1, role, outletId]);
+  await db.exec(`reset role; insert into auth.users values ('${U7}', 'manajer@test.com')`);
+  await loginAs(U7);
+  await db.query(`select sys_accept_invitation((sys_get_my_invitations()->0->>'id')::uuid, 'Maya Manajer')`);
+});
+let bigPo;
+await check('PO besar oleh manajer -> menunggu persetujuan', async () => {
+  const sup = await val(`select id from pur_suppliers where code = 'SUP01'`);
+  const wh = await val(`select id from inv_warehouses where outlet_id = $1`, [outletId]);
+  const item = await val(`select id from inv_items where code = 'BHN05'`);
+  const kg = await val(`select id from inv_units where code = 'kg'`);
+  bigPo = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, sup, wh])).id;
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, conversion_qty, quantity, unit_price)
+                  values ($1, $2, $3, $4, 1000, 200, 45000)`, [company1, bigPo, item, kg]);
+  const r = await val(`select pur_approve_purchase_order($1)`, [bigPo]);
+  assert(r.pending_approval === true && r.status === 'pending_approval', JSON.stringify(r));
+  await expectError(`select pur_create_goods_receipt_from_po($1)`, [bigPo], /approved/);
+});
+await check('PO kecil oleh manajer langsung disetujui', async () => {
+  const sup = await val(`select id from pur_suppliers where code = 'SUP02'`);
+  const wh = await val(`select id from inv_warehouses where outlet_id = $1`, [outletId]);
+  const item = await val(`select id from inv_items where code = 'BHN04'`);
+  const g = await val(`select id from inv_units where code = 'g'`);
+  const po = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, sup, wh])).id;
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 1000, 17)`, [company1, po, item, g]);
+  assert((await val(`select pur_approve_purchase_order($1)`, [po])).status === 'approved', 'tidak langsung approved');
+});
+await check('owner melihat badge & menyetujui PO besar', async () => {
+  await loginAs(U1);
+  assert((await val(`select sys_count_my_pending_approvals()`)) >= 1, 'badge 0');
+  const req = await val(`select id from sys_approval_requests where document_id = $1`, [bigPo]);
+  await db.query(`select sys_decide_approval($1, true, 'OK')`, [req]);
+  const po = await one(`select status, po_number from pur_purchase_orders where id = $1`, [bigPo]);
+  assert(po.status === 'approved' && po.po_number, JSON.stringify(po));
+});
+await check('biaya besar: ditolak -> tidak ada jurnal; disetujui -> jurnal dibuat', async () => {
+  await loginAs(U7);
+  const exp = await val(`select id from fin_accounts where code = '6-1200'`);
+  const cash = await val(`select id from fin_accounts where system_key = 'cash'`);
+  assert((await val(`select fin_record_expense(current_date, $1, $2, 3000000, 'Sewa Oktober')`, [exp, cash])) === null, 'harusnya pending');
+  assert((await val(`select fin_record_expense(current_date, $1, $2, 3000000, 'Sewa Oktober (2)')`, [exp, cash])) === null, 'harusnya pending');
+  await loginAs(U1);
+  const reqs = (await db.query(`select id from sys_approval_requests where document_type = 'expense' and status = 'pending' order by requested_at`)).rows;
+  await db.query(`select sys_decide_approval($1, false, 'Dobel')`, [reqs[1].id]);
+  await db.query(`select sys_decide_approval($1, true)`, [reqs[0].id]);
+  const n = await val(`select count(*)::int from fin_journals where source_type = 'expense' and description like 'Sewa Oktober%'`);
+  assert(n === 1, `jurnal sewa ${n}`);
+});
+await check('waste besar perlu persetujuan; yang kecil langsung', async () => {
+  await loginAs(U7);
+  const wh = await val(`select id from inv_warehouses where outlet_id = $1`, [outletId]);
+  const small = (await one(`insert into inv_stock_adjustments (company_id, warehouse_id, adjustment_type) values ($1, $2, 'waste') returning id`, [company1, wh])).id;
+  await db.query(`insert into inv_stock_adjustment_items (company_id, stock_adjustment_id, item_id, quantity) values ($1, $2, (select id from inv_items where code = 'BHN06'), 2)`, [company1, small]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [small]);
+  assert((await val(`select status from inv_stock_adjustments where id = $1`, [small])) === 'posted', 'kecil harus langsung');
+  const big = (await one(`insert into inv_stock_adjustments (company_id, warehouse_id, adjustment_type) values ($1, $2, 'waste') returning id`, [company1, wh])).id;
+  await db.query(`insert into inv_stock_adjustment_items (company_id, stock_adjustment_id, item_id, quantity) values ($1, $2, (select id from inv_items where code = 'BHN05'), 20000)`, [company1, big]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [big]);
+  assert((await val(`select status from inv_stock_adjustments where id = $1`, [big])) === 'pending_approval', 'besar harus pending');
+  // manajer diberi hak approval stok, tapi tetap tidak boleh menyetujui permintaannya sendiri
+  await loginAs(U1);
+  await db.query(`update sys_roles set permissions = permissions || '["approval.stock_adjustment"]'::jsonb where code = 'manager'`);
+  await loginAs(U7);
+  const req = await val(`select id from sys_approval_requests where document_id = $1`, [big]);
+  await expectError(`select sys_decide_approval($1, true)`, [req], /sendiri/);
+  await db.query(`select sys_cancel_approval($1)`, [req]);
+  assert((await val(`select status from inv_stock_adjustments where id = $1`, [big])) === 'draft', 'batal harus kembali draft');
+});
+let qrisOrder;
+await check('pelayan mengajukan refund, owner menyetujui', async () => {
+  await loginAs(U1);
+  const shift = await val(`select pos_open_shift($1, 0)`, [outletId]);
+  const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM03') }] })]);
+  await db.query(`select pos_pay_order($1, $2::jsonb)`, [o.id, JSON.stringify([{ payment_method_id: await val(`select id from mst_payment_methods where code = 'qris'`), amount: o.grand_total }])]);
+  qrisOrder = o.id;
+  await loginAs(U6);
+  const r = await val(`select pos_refund_order($1, 'Kopi tumpah')`, [o.id]);
+  assert(r.pending_approval === true, JSON.stringify(r));
+  assert((await val(`select status from pos_orders where id = $1`, [o.id])) === 'paid', 'belum boleh refund');
+  await loginAs(U1);
+  await db.query(`select sys_decide_approval((select id from sys_approval_requests where document_id = $1), true)`, [o.id]);
+  const after = await one(`select o.status, r.refunded_by from pos_orders o join pos_refunds r on r.order_id = o.id where o.id = $1`, [o.id]);
+  assert(after.status === 'refunded' && after.refunded_by === U6, JSON.stringify(after));
+  await db.query(`select pos_close_shift($1, 0)`, [shift.id]);
+});
+await check('keputusan approval tercatat di log', async () => {
+  const n = await val(`select count(*)::int from sys_activity_logs where entity_type = 'sys_approval_requests' and action in ('approved', 'rejected')`);
+  assert(n >= 3, `log approval ${n}`);
+});
+
+console.log('\nPayment gateway (iPay88):');
+let gatewayId;
+let gwOrder;
+let gwShift;
+await check('aktifkan gateway -> metode "Online (iPay88)" muncul', async () => {
+  await loginAs(U1);
+  gatewayId = (await one(`insert into sys_payment_gateways (company_id, merchant_code, is_active) values ($1, 'ID00001', true) returning id`, [company1])).id;
+  const m = await one(`select type, is_active, account_id from mst_payment_methods where code = 'ipay88'`);
+  assert(m.type === 'gateway' && m.is_active && m.account_id, JSON.stringify(m));
+});
+await check('merchant key: bisa disimpan, tidak bisa dibaca dari aplikasi', async () => {
+  await db.query(`select sys_set_payment_gateway_secret($1, 'RAHASIA123')`, [gatewayId]);
+  assert((await val(`select has_merchant_key from sys_payment_gateways where id = $1`, [gatewayId])) === true, 'flag');
+  assert((await val(`select count(*)::int from sys_payment_gateway_secrets`)) === 0, 'secret terbaca!');
+  await expectError(`update sys_payment_gateways set has_merchant_key = false`, [], /permission denied/);
+});
+await check('kasir buat permintaan bayar online; tidak bisa "lunas manual"', async () => {
+  gwShift = await val(`select pos_open_shift($1, 0)`, [outletId]);
+  gwOrder = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN03') }] })]);
+  const r = await val(`select pos_create_gateway_payment($1)`, [gwOrder.id]);
+  assert(r.status === 'pending' && r.ref_no.endsWith('-1') && Number(r.amount) === Number(gwOrder.grand_total), JSON.stringify(r));
+  await expectError(`select pos_pay_order($1, $2::jsonb)`,
+    [gwOrder.id, JSON.stringify([{ payment_method_id: await val(`select id from mst_payment_methods where code = 'ipay88'`), amount: gwOrder.grand_total }])],
+    /otomatis/);
+  await expectError(`select pos_complete_gateway_payment('x', true, 1, null, null, null, null)`, [], /permission denied/);
+});
+await check('callback iPay88: nominal salah ditolak, nominal benar -> lunas & terjurnal', async () => {
+  await loginAs(U1);
+  const ref1 = await val(`select ref_no from pos_payment_requests where order_id = $1`, [gwOrder.id]);
+  await asServiceRole();
+  const bad = await val(`select pos_complete_gateway_payment($1, true, 1, 'T1', 'A1', null, '{}')`, [ref1]);
+  assert(bad.status === 'failed', JSON.stringify(bad));
+  await loginAs(U1);
+  const ref2 = (await val(`select pos_create_gateway_payment($1)`, [gwOrder.id])).ref_no;
+  await asServiceRole();
+  const ok = await val(`select pos_complete_gateway_payment($1, true, $2, 'T2', 'A2', null, '{}')`, [ref2, gwOrder.grand_total]);
+  assert(ok.status === 'success', JSON.stringify(ok));
+  await val(`select pos_complete_gateway_payment($1, true, $2, 'T2', 'A2', null, '{}')`, [ref2, gwOrder.grand_total]);   // callback dobel
+  await loginAs(U1);
+  const o = await one(`select status, (select count(*)::int from pos_payments where order_id = $1) payments,
+                              (select count(*)::int from fin_journals where source_type = 'sales' and source_id = $1) journals
+                       from pos_orders where id = $1`, [gwOrder.id]);
+  assert(o.status === 'paid' && o.payments === 1 && o.journals === 1, JSON.stringify(o));
+  await db.query(`select pos_close_shift($1, 0)`, [gwShift.id]);
+});
+await check('neraca tetap seimbang di akhir semua skenario', async () => {
+  const r = await one(`select sum(debit) d, sum(credit) c from fin_journal_lines`);
+  assert(Number(r.d) === Number(r.c), JSON.stringify(r));
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

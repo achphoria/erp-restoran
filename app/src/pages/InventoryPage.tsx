@@ -378,7 +378,7 @@ function DocumentsTab({ companyId, warehouses, items, setError }: Ctx) {
                 <td>{DOC_LABEL[d.type]}</td>
                 <td>{d.posted_at ? formatDateTime(d.posted_at) : d.date}</td>
                 <td className="muted">{d.note}</td>
-                <td><span className={`badge ${d.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{d.status}</span></td>
+                <td><span className={`badge ${d.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{({ posted: 'Diposting', draft: 'Draft', pending_approval: 'Menunggu persetujuan' } as Record<string, string>)[d.status] ?? d.status}</span></td>
               </tr>
             ))}
             {!docs.length && <tr><td colSpan={5} className="empty">Belum ada dokumen.</td></tr>}

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
+import { Printer } from 'lucide-react';
 import { must, rpc, supabase } from '../lib/supabase';
 import { errorMessage } from '../lib/format';
+import { useFeedback } from './Feedback';
 
 interface TableRow { id: string; code: string; capacity: number; status: string; qr_token: string }
 
@@ -12,6 +14,7 @@ export default function TableQrList({ companyId, outletId, outletName }: { compa
   const [code, setCode] = useState('');
   const [capacity, setCapacity] = useState('4');
   const [error, setError] = useState('');
+  const { confirm, prompt } = useFeedback();
 
   const urlFor = (token: string) => `${window.location.origin}${import.meta.env.BASE_URL}order/${token}`;
 
@@ -43,13 +46,13 @@ export default function TableQrList({ companyId, outletId, outletName }: { compa
     <div className="card">
       <div className="card-header no-print">
         <h2>Meja & QR Order · {outletName}</h2>
-        <button className="btn-primary" onClick={() => window.print()} disabled={!tables.length}>🖨️ Cetak Semua QR</button>
+        <button className="btn-primary" onClick={() => window.print()} disabled={!tables.length}><Printer size={16} /> Cetak Semua QR</button>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       {isLocal && (
         <div className="alert alert-info small no-print">
           QR ini masih mengarah ke <b>{window.location.origin}</b>, yang hanya bisa dibuka dari komputer ini.
-          Supaya bisa di-scan dari HP tamu, aplikasi perlu di-deploy ke internet (mis. Vercel / Netlify), lalu cetak ulang QR dari alamat tersebut.
+          Cetak QR dari alamat online (achphoria.github.io/erp-restoran) supaya bisa di-scan dari HP tamu.
         </div>
       )}
 
@@ -74,14 +77,20 @@ export default function TableQrList({ companyId, outletId, outletName }: { compa
             <div className="row no-print" style={{ justifyContent: 'center', marginTop: 8 }}>
               <a className="btn btn-sm" href={urlFor(t.qr_token)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Buka</a>
               <button className="btn-sm" title="Buat QR baru, QR lama tidak berlaku"
-                onClick={() => confirm(`Ganti QR meja ${t.code}? QR lama yang sudah tercetak tidak akan berlaku lagi.`) &&
-                  run(() => rpc('pos_regenerate_table_qr', { p_table_id: t.id }))}>↻ QR</button>
-              <button className="btn-sm" onClick={() => {
-                const v = prompt('Kode meja', t.code);
-                if (v?.trim()) run(() => must(supabase.from('mst_tables').update({ code: v.trim().toUpperCase() }).eq('id', t.id)));
+                onClick={async () => {
+                  if (await confirm({ title: `Ganti QR meja ${t.code}?`, message: 'QR lama yang sudah tercetak tidak akan berlaku lagi.', danger: true, confirmLabel: 'Ganti QR' })) {
+                    run(() => rpc('pos_regenerate_table_qr', { p_table_id: t.id }));
+                  }
+                }}>↻ QR</button>
+              <button className="btn-sm" onClick={async () => {
+                const v = await prompt({ title: 'Ubah kode meja', label: 'Kode meja', defaultValue: t.code });
+                if (v) run(() => must(supabase.from('mst_tables').update({ code: v.toUpperCase() }).eq('id', t.id)));
               }}>Ubah</button>
-              <button className="btn-sm btn-danger" onClick={() => confirm(`Hapus meja ${t.code}?`) &&
-                run(() => must(supabase.from('mst_tables').delete().eq('id', t.id)))}>Hapus</button>
+              <button className="btn-sm btn-danger" onClick={async () => {
+                if (await confirm({ title: `Hapus meja ${t.code}?`, danger: true, confirmLabel: 'Hapus' })) {
+                  run(() => must(supabase.from('mst_tables').delete().eq('id', t.id)));
+                }
+              }}>Hapus</button>
             </div>
           </div>
         ))}

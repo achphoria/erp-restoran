@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BellRing } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 function beep() {
@@ -46,8 +47,9 @@ export default function QrOrderAlert({ outletId }: { outletId: string }) {
 
   if (!count) return null;
   return (
-    <Link to="/orders" className="qr-alert">
-      🔔 {count} item pesanan QR menunggu konfirmasi
+    <Link to="/orders" className="qr-alert" title={`${count} item pesanan QR menunggu konfirmasi`}>
+      <BellRing size={20} style={{ flexShrink: 0 }} />
+      <span className="hide-collapsed">{count} pesanan QR menunggu konfirmasi</span>
     </Link>
   );
 }

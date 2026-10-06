@@ -160,8 +160,10 @@ function Refund({ order, busy, error, run, onClose }: InnerProps) {
         <button onClick={onClose}>Batal</button>
         <button className="btn-danger" disabled={busy || !reason.trim()}
           onClick={() => run(async () => {
-            const r = await rpc<{ refund_number: string }>('pos_refund_order', { p_order_id: order.id, p_reason: reason, p_return_stock: returnStock });
-            return `Refund ${r.refund_number} sebesar ${formatRupiah(order.grand_total)} tercatat.`;
+            const r = await rpc<{ refund_number?: string; pending_approval?: boolean }>('pos_refund_order', { p_order_id: order.id, p_reason: reason, p_return_stock: returnStock });
+            return r.pending_approval
+              ? `Refund ${order.order_number} diajukan ke atasan untuk disetujui.`
+              : `Refund ${r.refund_number} sebesar ${formatRupiah(order.grand_total)} tercatat.`;
           })}>Refund {formatRupiah(order.grand_total)}</button>
       </>}>
       {error && <div className="alert alert-error">{error}</div>}

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Globe, Printer } from 'lucide-react';
 import Modal from './Modal';
+import MoneyInput from './MoneyInput';
 import CustomerPicker from './CustomerPicker';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
@@ -39,6 +41,54 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PayResult | null>(null);
+  const [hasGateway, setHasGateway] = useState(false);
+  const [online, setOnline] = useState<{ requestId: string; status: string } | null>(null);
+
+  // Bayar online: buat RefNo -> Edge Function menandatangani -> buka halaman iPay88 di tab baru
+  const payOnline = async () => {
+    setBusy(true);
+    setError('');
+    const win = window.open('', '_blank');
+    try {
+      const req = await rpc<{ id: string }>('pos_create_gateway_payment', { p_order_id: order.id });
+      const { data, error: fnError } = await supabase.functions.invoke('ipay88-checkout', { body: { request_id: req.id } });
+      if (fnError || data?.error) throw new Error(data?.error ?? fnError?.message ?? 'Gagal menghubungi iPay88');
+      if (!win) throw new Error('Popup diblokir browser. Izinkan popup untuk halaman ini.');
+      const form = win.document.createElement('form');
+      form.method = 'POST';
+      form.action = data.action_url;
+      for (const [k, v] of Object.entries(data.fields as Record<string, string>)) {
+        const input = win.document.createElement('input');
+        input.type = 'hidden'; input.name = k; input.value = v;
+        form.appendChild(input);
+      }
+      win.document.body.appendChild(form);
+      form.submit();
+      setOnline({ requestId: req.id, status: 'pending' });
+    } catch (e) {
+      win?.close();
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // pantau status pembayaran online (realtime + cek berkala sebagai cadangan)
+  useEffect(() => {
+    if (!online || online.status !== 'pending') return;
+    const check = async () => {
+      const { data } = await supabase.from('pos_payment_requests').select('status, error_desc').eq('id', online.requestId).single();
+      if (!data || data.status === 'pending') return;
+      setOnline({ ...online, status: data.status });
+      if (data.status === 'success') setResult({ order_number: order.order_number, grand_total: order.grand_total, change_amount: 0 });
+      else setError(`Pembayaran online ${data.status === 'failed' ? 'gagal' : data.status}${data.error_desc ? `: ${data.error_desc}` : ''}`);
+    };
+    const ch = supabase.channel(`pay-${online.requestId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pos_payment_requests', filter: `id=eq.${online.requestId}` }, check)
+      .subscribe();
+    const t = setInterval(check, 4000);
+    return () => { supabase.removeChannel(ch); clearInterval(t); };
+  }, [online, order.order_number, order.grand_total]);
 
   useEffect(() => {
     Promise.all([
@@ -46,8 +96,12 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
       must(supabase.from('crm_settings').select('is_points_enabled, redeem_value, min_redeem_points').maybeSingle()),
     ])
       .then(([rows, s]) => {
-        setMethods(rows as PaymentMethod[]);
-        if (rows.length) setMethodId((rows as PaymentMethod[])[0].id);
+        const all = rows as PaymentMethod[];
+        // metode gateway (iPay88) tidak dipilih manual: hanya lewat tombol Bayar Online
+        const manual = all.filter((m) => m.type !== 'gateway');
+        setMethods(manual);
+        setHasGateway(all.some((m) => m.type === 'gateway'));
+        if (manual.length) setMethodId(manual[0].id);
         setSettings(s as PointSettings | null);
       })
       .catch((e) => setError(errorMessage(e)));
@@ -114,11 +168,11 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
   if (result) {
     return (
       <Modal
-        title="Pembayaran Berhasil ✅"
+        title="Pembayaran Berhasil"
         onClose={onPaid}
         footer={
           <>
-            <button onClick={() => printReceipt(order.id).catch((e) => setError(errorMessage(e)))}>🖨️ Cetak Struk</button>
+            <button onClick={() => printReceipt(order.id).catch((e) => setError(errorMessage(e)))}><Printer size={16} /> Cetak Struk</button>
             <button className="btn-primary" onClick={onPaid}>Selesai</button>
           </>
         }
@@ -144,7 +198,12 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
       footer={
         <>
           <button onClick={onClose}>Batal</button>
-          <button className="btn-success btn-lg" disabled={busy || !methodId || paid < total} onClick={pay}>
+          {hasGateway && (
+            <button className="btn-lg" disabled={busy || online?.status === 'pending'} onClick={payOnline}>
+              <Globe size={18} /> {online?.status === 'pending' ? 'Menunggu pembayaran online…' : 'Bayar Online'}
+            </button>
+          )}
+          <button className="btn-accent btn-lg" disabled={busy || !methodId || paid < total} onClick={pay}>
             {busy ? 'Memproses…' : `Bayar ${formatRupiah(total)}`}
           </button>
         </>
@@ -201,7 +260,7 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
           {can('pos.discount') && (
             <div className="row">
               <span className="muted small" style={{ width: 70 }}>Diskon</span>
-              <input type="number" min={0} placeholder="Rp" value={discount} onChange={(e) => setDiscount(e.target.value)} style={{ flex: 1 }} />
+              <MoneyInput placeholder="0" value={discount} onChange={setDiscount} style={{ flex: 1 }} className="flex-1" />
               <button disabled={busy} onClick={() => update(() => rpc<Order>('pos_set_order_discount', { p_order_id: order.id, p_discount_amount: Number(discount || 0) }))}>
                 Terapkan
               </button>
@@ -226,7 +285,7 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
             <>
               <label className="field">
                 <span>Uang diterima</span>
-                <input type="number" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} />
+                <MoneyInput autoFocus value={amount} onChange={setAmount} style={{ fontSize: 20 }} />
               </label>
               <div className="choice-list">
                 {quickCash.map((v) => (

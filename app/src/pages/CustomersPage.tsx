@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
+import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah, SALES_CHANNELS } from '../lib/format';
 import Modal from '../components/Modal';
+import MoneyInput from '../components/MoneyInput';
 
 type Tab = 'customers' | 'promotions' | 'loyalty';
 
@@ -25,7 +27,7 @@ export default function CustomersPage() {
   const [tab, setTab] = useState<Tab>('customers');
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const setNotice = useNotice();
 
   const loadTiers = useCallback(async () => {
     setTiers((await must(supabase.from('crm_membership_tiers').select('*').order('min_total_spent'))) as Tier[]);
@@ -51,7 +53,6 @@ export default function CustomersPage() {
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
-      {notice && <div className="alert alert-success">{notice}</div>}
       {tab === 'customers' && <CustomersTab {...ctx} />}
       {tab === 'promotions' && <PromotionsTab {...ctx} />}
       {tab === 'loyalty' && <LoyaltyTab {...ctx} />}
@@ -364,9 +365,9 @@ function PromotionForm({ promo, onClose, onSaved }: { promo: Partial<Promotion>;
         </label>
         <label className="field"><span>Besar potongan</span><input type="number" value={p.discount_value ?? ''} onChange={(e) => set({ discount_value: Number(e.target.value) })} /></label>
         {p.discount_type === 'percent' && (
-          <label className="field"><span>Maks potongan (Rp)</span><input type="number" value={p.max_discount ?? ''} onChange={(e) => set({ max_discount: e.target.value ? Number(e.target.value) : null })} /></label>
+          <label className="field"><span>Maks potongan (Rp)</span><MoneyInput value={p.max_discount ?? ''} onChange={(v) => set({ max_discount: v ? Number(v) : null })} /></label>
         )}
-        <label className="field"><span>Minimal belanja (Rp)</span><input type="number" value={p.min_subtotal ?? 0} onChange={(e) => set({ min_subtotal: Number(e.target.value) })} /></label>
+        <label className="field"><span>Minimal belanja (Rp)</span><MoneyInput value={p.min_subtotal ?? 0} onChange={(v) => set({ min_subtotal: Number(v) })} /></label>
         <label className="field"><span>Mulai tanggal</span><input type="date" value={p.start_date ?? ''} onChange={(e) => set({ start_date: e.target.value || null })} /></label>
         <label className="field"><span>Sampai tanggal</span><input type="date" value={p.end_date ?? ''} onChange={(e) => set({ end_date: e.target.value || null })} /></label>
         <label className="field"><span>Jam mulai</span><input type="time" value={p.start_time?.slice(0, 5) ?? ''} onChange={(e) => set({ start_time: e.target.value || null })} /></label>
@@ -397,6 +398,7 @@ function PromotionForm({ promo, onClose, onSaved }: { promo: Partial<Promotion>;
 
 // ---------------------------------------------------------------- Program poin
 function LoyaltyTab({ tiers, reloadTiers, setError, setNotice }: Ctx) {
+  const { prompt } = useFeedback();
   const { profile } = useAuth();
   const [s, setS] = useState<{ is_points_enabled: boolean; earn_amount: number; redeem_value: number; min_redeem_points: number } | null>(null);
   const [tierRows, setTierRows] = useState<Tier[]>(tiers);
@@ -427,8 +429,8 @@ function LoyaltyTab({ tiers, reloadTiers, setError, setNotice }: Ctx) {
         <h2 style={{ marginBottom: 12 }}>Aturan Poin</h2>
         <div className="grid">
           <label className="row"><input type="checkbox" checked={s.is_points_enabled} onChange={(e) => setS({ ...s, is_points_enabled: e.target.checked })} /> Program poin aktif</label>
-          <label className="field"><span>Setiap belanja (Rp) dapat 1 poin</span><input type="number" value={s.earn_amount} onChange={(e) => setS({ ...s, earn_amount: Number(e.target.value) })} /></label>
-          <label className="field"><span>Nilai 1 poin saat ditukar (Rp)</span><input type="number" value={s.redeem_value} onChange={(e) => setS({ ...s, redeem_value: Number(e.target.value) })} /></label>
+          <label className="field"><span>Setiap belanja (Rp) dapat 1 poin</span><MoneyInput value={s.earn_amount} onChange={(v) => setS({ ...s, earn_amount: Number(v) })} /></label>
+          <label className="field"><span>Nilai 1 poin saat ditukar (Rp)</span><MoneyInput value={s.redeem_value} onChange={(v) => setS({ ...s, redeem_value: Number(v) })} /></label>
           <label className="field"><span>Minimal tukar (poin)</span><input type="number" value={s.min_redeem_points} onChange={(e) => setS({ ...s, min_redeem_points: Number(e.target.value) })} /></label>
           <div className="alert alert-info small" style={{ margin: 0 }}>
             Contoh: belanja {formatRupiah(example)} → {Math.floor(example / (s.earn_amount || 1))} poin
@@ -449,7 +451,7 @@ function LoyaltyTab({ tiers, reloadTiers, setError, setNotice }: Ctx) {
             {tierRows.map((t, idx) => (
               <tr key={t.id}>
                 <td><input value={t.name} onChange={(e) => setTierRows(tierRows.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))} style={{ width: 100 }} /></td>
-                <td><input type="number" value={t.min_total_spent} onChange={(e) => setTierRows(tierRows.map((x, i) => i === idx ? { ...x, min_total_spent: Number(e.target.value) } : x))} style={{ width: 130 }} /></td>
+                <td><MoneyInput value={t.min_total_spent} onChange={(v) => setTierRows(tierRows.map((x, i) => i === idx ? { ...x, min_total_spent: Number(v) } : x))} style={{ width: 130 }} /></td>
                 <td><input type="number" step="0.05" value={t.point_multiplier} onChange={(e) => setTierRows(tierRows.map((x, i) => i === idx ? { ...x, point_multiplier: Number(e.target.value) } : x))} style={{ width: 80 }} />×</td>
                 <td><button className="btn-sm" onClick={() => run(() => must(supabase.from('crm_membership_tiers')
                   .update({ name: t.name, min_total_spent: t.min_total_spent, point_multiplier: t.point_multiplier }).eq('id', t.id)), `Level ${t.name} disimpan.`)}>Simpan</button></td>
@@ -457,8 +459,8 @@ function LoyaltyTab({ tiers, reloadTiers, setError, setNotice }: Ctx) {
             ))}
           </tbody>
         </table>
-        <button className="btn-sm" style={{ marginTop: 8 }} onClick={() => {
-          const name = prompt('Nama level baru (contoh: Platinum)');
+        <button className="btn-sm" style={{ marginTop: 8 }} onClick={async () => {
+          const name = await prompt({ title: 'Level member baru', label: 'Nama level', placeholder: 'contoh: Platinum' });
           if (name?.trim()) run(() => must(supabase.from('crm_membership_tiers').insert({ company_id: profile!.company_id, name: name.trim(), min_total_spent: 10000000, point_multiplier: 2 })), `Level ${name} dibuat.`);
         }}>+ Level</button>
         <p className="muted small">Level naik otomatis saat total belanja member mencapai batas. Member Gold dengan pengali 1.5× mendapat poin 50% lebih banyak.</p>

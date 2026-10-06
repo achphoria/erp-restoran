@@ -16,6 +16,9 @@ import FinancePage from './pages/FinancePage';
 import SettingsPage from './pages/SettingsPage';
 import CustomersPage from './pages/CustomersPage';
 import PublicOrderPage from './pages/PublicOrderPage';
+import ApprovalsPage from './pages/ApprovalsPage';
+import PaymentReturnPage from './pages/PaymentReturnPage';
+import { FeedbackProvider } from './components/Feedback';
 
 function Guard({ permission, children }: { permission: string | string[]; children: React.ReactNode }) {
   const { can } = useAuth();
@@ -37,7 +40,7 @@ function AppRoutes() {
   const { session, profile, loading } = useAuth();
 
   if (!session) return <LoginPage />;
-  if (loading) return <div className="auth-page"><p className="muted">Memuat…</p></div>;
+  if (loading) return <div className="auth-page"><div className="skeleton" style={{ width: 280, height: 160 }} /></div>;
   if (!profile) return <OnboardingPage />;
 
   return (
@@ -54,7 +57,8 @@ function AppRoutes() {
         <Route path="reports" element={<Guard permission="report.view"><ReportsPage /></Guard>} />
         <Route path="customers" element={<Guard permission="crm.manage"><CustomersPage /></Guard>} />
         <Route path="finance" element={<Guard permission={['finance.view', 'finance.manage']}><FinancePage /></Guard>} />
-        <Route path="settings" element={<Guard permission={['user.manage', 'settings.manage']}><SettingsPage /></Guard>} />
+        <Route path="settings" element={<Guard permission={['user.manage', 'settings.manage', 'audit.view']}><SettingsPage /></Guard>} />
+        <Route path="approvals" element={<ApprovalsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -63,14 +67,17 @@ function AppRoutes() {
 
 export default function App() {
   return (
+    <FeedbackProvider>
     <AuthProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
         <Routes>
           {/* publik, tanpa login: halaman pesan dari QR meja */}
           <Route path="/order/:token" element={<PublicOrderPage />} />
+          <Route path="/payment-return" element={<PaymentReturnPage />} />
           <Route path="*" element={<AppRoutes />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </FeedbackProvider>
   );
 }
