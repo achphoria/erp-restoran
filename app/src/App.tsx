@@ -1,0 +1,76 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Layout from './components/Layout';
+import LoginPage from './pages/LoginPage';
+import OnboardingPage from './pages/OnboardingPage';
+import DashboardPage from './pages/DashboardPage';
+import PosPage from './pages/PosPage';
+import OrdersPage from './pages/OrdersPage';
+import KitchenPage from './pages/KitchenPage';
+import ShiftsPage from './pages/ShiftsPage';
+import MenuPage from './pages/MenuPage';
+import InventoryPage from './pages/InventoryPage';
+import PurchasingPage from './pages/PurchasingPage';
+import ReportsPage from './pages/ReportsPage';
+import FinancePage from './pages/FinancePage';
+import SettingsPage from './pages/SettingsPage';
+import CustomersPage from './pages/CustomersPage';
+import PublicOrderPage from './pages/PublicOrderPage';
+
+function Guard({ permission, children }: { permission: string | string[]; children: React.ReactNode }) {
+  const { can } = useAuth();
+  if (!can(permission)) {
+    return <div className="card empty">Anda tidak punya akses ke halaman ini.</div>;
+  }
+  return <>{children}</>;
+}
+
+function Home() {
+  const { can } = useAuth();
+  if (can('report.view')) return <DashboardPage />;
+  if (can('pos.order')) return <Navigate to="/pos" replace />;
+  if (can('kds.update')) return <Navigate to="/kitchen" replace />;
+  return <div className="card empty">Role Anda belum punya akses ke menu apa pun.</div>;
+}
+
+function AppRoutes() {
+  const { session, profile, loading } = useAuth();
+
+  if (!session) return <LoginPage />;
+  if (loading) return <div className="auth-page"><p className="muted">Memuat…</p></div>;
+  if (!profile) return <OnboardingPage />;
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Home />} />
+        <Route path="pos" element={<Guard permission="pos.order"><PosPage /></Guard>} />
+        <Route path="orders" element={<Guard permission="pos.order"><OrdersPage /></Guard>} />
+        <Route path="kitchen" element={<Guard permission="kds.update"><KitchenPage /></Guard>} />
+        <Route path="shifts" element={<Guard permission="pos.pay"><ShiftsPage /></Guard>} />
+        <Route path="menu" element={<Guard permission="master.manage"><MenuPage /></Guard>} />
+        <Route path="inventory" element={<Guard permission="inventory.manage"><InventoryPage /></Guard>} />
+        <Route path="purchasing" element={<Guard permission="purchasing.manage"><PurchasingPage /></Guard>} />
+        <Route path="reports" element={<Guard permission="report.view"><ReportsPage /></Guard>} />
+        <Route path="customers" element={<Guard permission="crm.manage"><CustomersPage /></Guard>} />
+        <Route path="finance" element={<Guard permission={['finance.view', 'finance.manage']}><FinancePage /></Guard>} />
+        <Route path="settings" element={<Guard permission={['user.manage', 'settings.manage']}><SettingsPage /></Guard>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
+        <Routes>
+          {/* publik, tanpa login: halaman pesan dari QR meja */}
+          <Route path="/order/:token" element={<PublicOrderPage />} />
+          <Route path="*" element={<AppRoutes />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}

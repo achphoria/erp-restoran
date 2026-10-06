@@ -1,0 +1,3377 @@
+-- =====================================================================
+-- ERP RESTORAN - SETUP LENGKAP (gabungan migrations/001 s/d 009)
+-- Untuk database BARU. Jalankan SEKALI di Supabase SQL Editor.
+-- =====================================================================
+
+-- >>>>>>>>>> migrations/001_phase1_master_pos.sql
+-- =====================================================================
+-- ERP RESTORAN - 001: MASTER DATA + POS (TABEL)
+--
+-- KONVENSI PENAMAAN
+--   * Tabel   : snake_case, jamak, berprefix modul
+--               sys_ = sistem/pengaturan     mst_ = master data
+--               pos_ = kasir/penjualan       inv_ = inventory
+--               pur_ = purchasing            fin_ = finance (fase 3)
+--               crm_ = pelanggan (fase 4)    hr_  = SDM (fase 5)
+--               rpt_ = view laporan
+--   * Kolom   : snake_case, tunggal
+--   * PK      : id (uuid)
+--   * FK      : <tabel_tunggal>_id  -> outlet_id, menu_item_id
+--   * Boolean : is_ / has_            -> is_active
+--   * Waktu   : *_at (timestamptz)    -> created_at, paid_at
+--   * Tanggal : *_date (date)         -> business_date
+--   * Uang    : numeric(15,2)
+--   * Detail dokumen : <dokumen>_items -> pos_order_items
+--   * Fungsi  : <prefix>_<kata_kerja>_<objek> -> pos_pay_order
+-- =====================================================================
+
+create or replace function sys_set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end $$;
+
+-- =====================================================================
+-- SYS: PERUSAHAAN, BRAND, OUTLET, ROLE, USER
+-- =====================================================================
+create table sys_companies (
+  id          uuid primary key default gen_random_uuid(),
+  code        text not null unique,
+  name        text not null,
+  tax_number  text,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table sys_brands (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  code        text not null,
+  name        text not null,
+  logo_url    text,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table sys_outlets (
+  id                   uuid primary key default gen_random_uuid(),
+  company_id           uuid not null references sys_companies(id),
+  brand_id             uuid not null references sys_brands(id),
+  code                 text not null,
+  name                 text not null,
+  address              text,
+  phone                text,
+  timezone             text not null default 'Asia/Jakarta',
+  tax_rate             numeric(5,2) not null default 10,   -- PB1 %
+  service_charge_rate  numeric(5,2) not null default 0,    -- %
+  rounding_unit        int not null default 100,           -- pembulatan Rp
+  is_active            boolean not null default true,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table sys_roles (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  code        text not null,            -- owner, manager, cashier, kitchen
+  name        text not null,
+  permissions jsonb not null default '[]',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table sys_users (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  company_id  uuid not null references sys_companies(id),
+  role_id     uuid not null references sys_roles(id),
+  full_name   text not null,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table sys_user_outlets (
+  user_id     uuid not null references sys_users(id) on delete cascade,
+  outlet_id   uuid not null references sys_outlets(id) on delete cascade,
+  primary key (user_id, outlet_id)
+);
+
+-- Penomoran dokumen otomatis (INV/OUT01/20261006/0001, PO/..., dst)
+create table sys_document_sequences (
+  company_id   uuid not null references sys_companies(id),
+  sequence_key text not null,
+  last_number  int not null default 0,
+  primary key (company_id, sequence_key)
+);
+
+-- =====================================================================
+-- MST: MENU, MODIFIER, PEMBAYARAN, MEJA
+-- =====================================================================
+create table mst_menu_categories (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  brand_id    uuid not null references sys_brands(id),
+  name        text not null,
+  sort_order  int not null default 0,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table mst_menu_items (
+  id                uuid primary key default gen_random_uuid(),
+  company_id        uuid not null references sys_companies(id),
+  brand_id          uuid not null references sys_brands(id),
+  menu_category_id  uuid not null references mst_menu_categories(id),
+  code              text not null,
+  name              text not null,
+  description       text,
+  image_url         text,
+  base_price        numeric(15,2) not null default 0,
+  station           text not null default 'kitchen',  -- kitchen / bar / pastry
+  is_active         boolean not null default true,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+-- Harga khusus per outlet / kanal (dine_in, takeaway, gofood, grabfood)
+create table mst_menu_prices (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references sys_companies(id),
+  menu_item_id  uuid not null references mst_menu_items(id) on delete cascade,
+  outlet_id     uuid references sys_outlets(id),      -- null = semua outlet
+  sales_channel text not null default 'dine_in',
+  price         numeric(15,2) not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique nulls not distinct (menu_item_id, outlet_id, sales_channel)
+);
+
+create table mst_modifier_groups (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  name        text not null,            -- "Level Pedas", "Extra Topping"
+  min_select  int not null default 0,
+  max_select  int not null default 1,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table mst_modifiers (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  modifier_group_id  uuid not null references mst_modifier_groups(id) on delete cascade,
+  name               text not null,
+  extra_price        numeric(15,2) not null default 0,
+  sort_order         int not null default 0,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create table mst_menu_item_modifier_groups (
+  menu_item_id       uuid not null references mst_menu_items(id) on delete cascade,
+  modifier_group_id  uuid not null references mst_modifier_groups(id) on delete cascade,
+  company_id         uuid not null references sys_companies(id),
+  primary key (menu_item_id, modifier_group_id)
+);
+
+create table mst_payment_methods (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  code        text not null,            -- cash, qris, debit, gopay
+  name        text not null,
+  type        text not null default 'cash',  -- cash / card / ewallet / other
+  sort_order  int not null default 0,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table mst_table_areas (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  outlet_id   uuid not null references sys_outlets(id),
+  name        text not null,            -- Indoor, Outdoor, Lantai 2
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table mst_tables (
+  id             uuid primary key default gen_random_uuid(),
+  company_id     uuid not null references sys_companies(id),
+  outlet_id      uuid not null references sys_outlets(id),
+  table_area_id  uuid references mst_table_areas(id),
+  code           text not null,         -- A1, A2
+  capacity       int not null default 4,
+  status         text not null default 'available', -- available / occupied
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (outlet_id, code)
+);
+
+-- =====================================================================
+-- POS: SHIFT, ORDER, ITEM, PEMBAYARAN
+-- =====================================================================
+create table pos_shifts (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  outlet_id       uuid not null references sys_outlets(id),
+  user_id         uuid not null references sys_users(id),
+  business_date   date not null,
+  opening_cash    numeric(15,2) not null default 0,
+  closing_cash    numeric(15,2),
+  expected_cash   numeric(15,2),
+  opened_at       timestamptz not null default now(),
+  closed_at       timestamptz,
+  status          text not null default 'open',   -- open / closed
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table pos_orders (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references sys_companies(id),
+  outlet_id        uuid not null references sys_outlets(id),
+  shift_id         uuid references pos_shifts(id),
+  table_id         uuid references mst_tables(id),
+  order_number     text not null,
+  business_date    date not null,
+  sales_channel    text not null default 'dine_in',
+  customer_name    text,
+  guest_count      int not null default 1,
+  status           text not null default 'open', -- open / paid / void
+  subtotal         numeric(15,2) not null default 0,
+  discount_amount  numeric(15,2) not null default 0,
+  service_amount   numeric(15,2) not null default 0,
+  tax_amount       numeric(15,2) not null default 0,
+  rounding_amount  numeric(15,2) not null default 0,
+  grand_total      numeric(15,2) not null default 0,
+  note             text,
+  created_by       uuid references sys_users(id),
+  paid_at          timestamptz,
+  voided_at        timestamptz,
+  void_reason      text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  unique (outlet_id, order_number)
+);
+
+create table pos_order_items (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references sys_companies(id),
+  order_id         uuid not null references pos_orders(id) on delete cascade,
+  menu_item_id     uuid not null references mst_menu_items(id),
+  menu_item_name   text not null,          -- snapshot nama saat dijual
+  station          text not null default 'kitchen',
+  quantity         numeric(10,2) not null default 1,
+  unit_price       numeric(15,2) not null,
+  modifier_amount  numeric(15,2) not null default 0,
+  discount_amount  numeric(15,2) not null default 0,
+  line_total       numeric(15,2) not null,
+  note             text,
+  kitchen_status   text not null default 'pending', -- pending / cooking / ready / served
+  is_void          boolean not null default false,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+create table pos_order_item_modifiers (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  order_item_id   uuid not null references pos_order_items(id) on delete cascade,
+  modifier_id     uuid references mst_modifiers(id),
+  modifier_name   text not null,           -- snapshot
+  extra_price     numeric(15,2) not null default 0,
+  created_at      timestamptz not null default now()
+);
+
+create table pos_payments (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  order_id           uuid not null references pos_orders(id) on delete cascade,
+  payment_method_id  uuid not null references mst_payment_methods(id),
+  amount             numeric(15,2) not null,
+  change_amount      numeric(15,2) not null default 0,
+  reference_number   text,
+  paid_at            timestamptz not null default now(),
+  created_at         timestamptz not null default now()
+);
+
+-- =====================================================================
+-- INDEX
+-- =====================================================================
+create index idx_mst_menu_items_category  on mst_menu_items(menu_category_id);
+create index idx_pos_orders_outlet_date   on pos_orders(outlet_id, business_date);
+create index idx_pos_orders_status        on pos_orders(status);
+create index idx_pos_order_items_order    on pos_order_items(order_id);
+create index idx_pos_order_items_kitchen  on pos_order_items(kitchen_status);
+create index idx_pos_payments_order       on pos_payments(order_id);
+
+-- =====================================================================
+-- TRIGGER updated_at (otomatis untuk semua tabel yang punya kolomnya)
+-- =====================================================================
+create or replace function sys_attach_updated_at_triggers()
+returns void language plpgsql as $$
+declare t text;
+begin
+  for t in
+    select c.table_name from information_schema.columns c
+    where c.table_schema = 'public' and c.column_name = 'updated_at'
+      and not exists (
+        select 1 from information_schema.triggers tr
+        where tr.event_object_table = c.table_name
+          and tr.trigger_name = 'trg_' || c.table_name || '_updated_at')
+  loop
+    execute format(
+      'create trigger %I before update on %I
+       for each row execute function sys_set_updated_at()',
+      'trg_' || t || '_updated_at', t);
+  end loop;
+end $$;
+
+select sys_attach_updated_at_triggers();
+
+-- =====================================================================
+-- HAK AKSES & ROW LEVEL SECURITY
+--   Daftar permission:
+--     *                 semua akses (owner)
+--     settings.manage   perusahaan, brand, outlet
+--     user.manage       user & role
+--     master.manage     menu, harga, modifier, meja, metode bayar
+--     pos.order         membuat order
+--     pos.pay           menerima pembayaran
+--     pos.discount      memberi diskon
+--     pos.void          membatalkan order / item
+--     kds.update        mengubah status masak
+--     inventory.manage  bahan baku, resep, stok
+--     purchasing.manage supplier, PO, penerimaan barang
+--     report.view       melihat laporan
+-- =====================================================================
+create or replace function sys_current_company_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select company_id from sys_users where id = auth.uid() and is_active
+$$;
+
+create or replace function sys_has_permission(p_permission text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select r.permissions ? '*' or r.permissions ? p_permission
+    from sys_users u join sys_roles r on r.id = u.role_id
+    where u.id = auth.uid() and u.is_active
+  ), false)
+$$;
+
+create or replace function sys_can_access_outlet(p_outlet_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select sys_has_permission('*') and exists (
+           select 1 from sys_outlets
+           where id = p_outlet_id and company_id = sys_current_company_id())
+      or exists (
+           select 1 from sys_user_outlets
+           where user_id = auth.uid() and outlet_id = p_outlet_id)
+$$;
+
+-- Pasang policy standar: baca = satu company, tulis = butuh permission
+create or replace function sys_apply_company_policies(p_table text, p_write_permission text default null)
+returns void language plpgsql as $$
+begin
+  execute format('alter table %I enable row level security', p_table);
+  execute format(
+    'create policy %I on %I for select to authenticated
+     using (company_id = sys_current_company_id())',
+    p_table || '_select', p_table);
+  if p_write_permission is not null then
+    execute format(
+      'create policy %I on %I for insert to authenticated
+       with check (company_id = sys_current_company_id() and sys_has_permission(%L))',
+      p_table || '_insert', p_table, p_write_permission);
+    execute format(
+      'create policy %I on %I for update to authenticated
+       using (company_id = sys_current_company_id() and sys_has_permission(%L))
+       with check (company_id = sys_current_company_id())',
+      p_table || '_update', p_table, p_write_permission);
+    execute format(
+      'create policy %I on %I for delete to authenticated
+       using (company_id = sys_current_company_id() and sys_has_permission(%L))',
+      p_table || '_delete', p_table, p_write_permission);
+  end if;
+end $$;
+
+-- SYS
+alter table sys_companies enable row level security;
+create policy sys_companies_select on sys_companies for select to authenticated
+  using (id = sys_current_company_id());
+create policy sys_companies_update on sys_companies for update to authenticated
+  using (id = sys_current_company_id() and sys_has_permission('settings.manage'));
+
+select sys_apply_company_policies('sys_brands', 'settings.manage');
+select sys_apply_company_policies('sys_outlets', 'settings.manage');
+select sys_apply_company_policies('sys_roles', 'user.manage');
+select sys_apply_company_policies('sys_users', 'user.manage');
+select sys_apply_company_policies('sys_document_sequences');  -- hanya lewat fungsi
+
+alter table sys_user_outlets enable row level security;
+create policy sys_user_outlets_select on sys_user_outlets for select to authenticated
+  using (user_id in (select id from sys_users where company_id = sys_current_company_id()));
+create policy sys_user_outlets_write on sys_user_outlets for all to authenticated
+  using (sys_has_permission('user.manage')
+         and user_id in (select id from sys_users where company_id = sys_current_company_id()))
+  with check (sys_has_permission('user.manage')
+         and user_id in (select id from sys_users where company_id = sys_current_company_id()));
+
+-- MST
+select sys_apply_company_policies('mst_menu_categories', 'master.manage');
+select sys_apply_company_policies('mst_menu_items', 'master.manage');
+select sys_apply_company_policies('mst_menu_prices', 'master.manage');
+select sys_apply_company_policies('mst_modifier_groups', 'master.manage');
+select sys_apply_company_policies('mst_modifiers', 'master.manage');
+select sys_apply_company_policies('mst_menu_item_modifier_groups', 'master.manage');
+select sys_apply_company_policies('mst_payment_methods', 'master.manage');
+select sys_apply_company_policies('mst_table_areas', 'master.manage');
+select sys_apply_company_policies('mst_tables', 'master.manage');
+
+-- POS: hanya baca. Semua perubahan lewat fungsi pos_* (supaya total tidak bisa dimanipulasi)
+select sys_apply_company_policies('pos_shifts');
+select sys_apply_company_policies('pos_orders');
+select sys_apply_company_policies('pos_order_items');
+select sys_apply_company_policies('pos_order_item_modifiers');
+select sys_apply_company_policies('pos_payments');
+
+-- Pengecualian: dapur boleh mengubah kitchen_status saja
+create policy pos_order_items_kitchen_update on pos_order_items for update to authenticated
+  using (company_id = sys_current_company_id() and sys_has_permission('kds.update'))
+  with check (company_id = sys_current_company_id());
+revoke update on pos_order_items from authenticated, anon;
+grant update (kitchen_status) on pos_order_items to authenticated;
+
+-- Realtime untuk Kitchen Display & daftar order
+alter publication supabase_realtime add table pos_order_items;
+alter publication supabase_realtime add table pos_orders;
+
+-- >>>>>>>>>> migrations/002_phase2_inventory_purchasing.sql
+-- =====================================================================
+-- ERP RESTORAN - 002: INVENTORY, RESEP, PURCHASING (TABEL)
+-- =====================================================================
+
+-- =====================================================================
+-- INV: SATUAN, BAHAN BAKU, GUDANG
+-- =====================================================================
+create table inv_units (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  code        text not null,            -- g, kg, ml, l, pcs, pack
+  name        text not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table inv_item_categories (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  name        text not null,            -- Daging, Sayur, Bumbu, Minuman
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table inv_items (
+  id                    uuid primary key default gen_random_uuid(),
+  company_id            uuid not null references sys_companies(id),
+  item_category_id      uuid references inv_item_categories(id),
+  code                  text not null,
+  name                  text not null,
+  item_type             text not null default 'raw',  -- raw / semi_finished
+  base_unit_id          uuid not null references inv_units(id),  -- satuan stok
+  min_stock             numeric(15,4) not null default 0,
+  last_purchase_cost    numeric(15,4) not null default 0,       -- per base unit
+  is_active             boolean not null default true,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+-- Konversi satuan beli: 1 <unit> = conversion_qty <base_unit>
+--   contoh: 1 kg = 1000 g, 1 dus = 24 pcs
+create table inv_item_units (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  item_id         uuid not null references inv_items(id) on delete cascade,
+  unit_id         uuid not null references inv_units(id),
+  conversion_qty  numeric(15,4) not null check (conversion_qty > 0),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (item_id, unit_id)
+);
+
+create table inv_warehouses (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  outlet_id   uuid references sys_outlets(id),   -- null = gudang pusat / central kitchen
+  code        text not null,
+  name        text not null,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+-- Gudang yang dipotong stoknya saat outlet berjualan
+alter table sys_outlets add column default_warehouse_id uuid references inv_warehouses(id);
+
+-- =====================================================================
+-- INV: STOK & KARTU STOK
+-- =====================================================================
+create table inv_stocks (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references sys_companies(id),
+  warehouse_id  uuid not null references inv_warehouses(id),
+  item_id       uuid not null references inv_items(id),
+  quantity      numeric(15,4) not null default 0,      -- dalam base unit
+  average_cost  numeric(15,4) not null default 0,      -- per base unit
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (warehouse_id, item_id)
+);
+
+-- Kartu stok: setiap perubahan stok WAJIB lewat tabel ini
+create table inv_stock_movements (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  warehouse_id    uuid not null references inv_warehouses(id),
+  item_id         uuid not null references inv_items(id),
+  movement_type   text not null,
+    -- purchase_receipt / sales / adjustment / waste / opname
+    -- transfer_in / transfer_out / production_in / production_out
+  quantity        numeric(15,4) not null,   -- + masuk, - keluar (base unit)
+  unit_cost       numeric(15,4),
+  balance_after   numeric(15,4),
+  reference_type  text,                     -- pos_orders, pur_goods_receipts, ...
+  reference_id    uuid,
+  reference_number text,
+  note            text,
+  created_by      uuid references sys_users(id),
+  movement_at     timestamptz not null default now(),
+  created_at      timestamptz not null default now()
+);
+
+create index idx_inv_stock_movements_item on inv_stock_movements(warehouse_id, item_id, movement_at);
+create index idx_inv_stock_movements_ref  on inv_stock_movements(reference_type, reference_id);
+
+-- Setiap movement otomatis meng-update inv_stocks (moving average cost)
+create or replace function inv_apply_stock_movement()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_stock inv_stocks%rowtype;
+begin
+  insert into inv_stocks (company_id, warehouse_id, item_id)
+  values (new.company_id, new.warehouse_id, new.item_id)
+  on conflict (warehouse_id, item_id) do nothing;
+
+  select * into v_stock from inv_stocks
+  where warehouse_id = new.warehouse_id and item_id = new.item_id
+  for update;
+
+  if new.unit_cost is null then
+    new.unit_cost := v_stock.average_cost;
+  end if;
+
+  if new.quantity > 0 and greatest(v_stock.quantity, 0) + new.quantity > 0 then
+    v_stock.average_cost :=
+      (greatest(v_stock.quantity, 0) * v_stock.average_cost + new.quantity * new.unit_cost)
+      / (greatest(v_stock.quantity, 0) + new.quantity);
+  end if;
+
+  v_stock.quantity := v_stock.quantity + new.quantity;
+  new.balance_after := v_stock.quantity;
+
+  update inv_stocks
+     set quantity = v_stock.quantity, average_cost = v_stock.average_cost
+   where id = v_stock.id;
+
+  return new;
+end $$;
+
+create trigger trg_inv_stock_movements_apply
+  before insert on inv_stock_movements
+  for each row execute function inv_apply_stock_movement();
+
+-- =====================================================================
+-- INV: RESEP (BOM)
+--   Resep untuk menu (menu_item_id) atau bahan setengah jadi (item_id)
+-- =====================================================================
+create table inv_recipes (
+  id            uuid primary key default gen_random_uuid(),
+  company_id    uuid not null references sys_companies(id),
+  menu_item_id  uuid unique references mst_menu_items(id) on delete cascade,
+  item_id       uuid unique references inv_items(id) on delete cascade,
+  yield_qty     numeric(15,4) not null default 1,   -- hasil 1 resep (base unit)
+  note          text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  check ((menu_item_id is null) <> (item_id is null))
+);
+
+create table inv_recipe_items (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  recipe_id   uuid not null references inv_recipes(id) on delete cascade,
+  item_id     uuid not null references inv_items(id),
+  quantity    numeric(15,4) not null check (quantity > 0),   -- base unit
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (recipe_id, item_id)
+);
+
+-- =====================================================================
+-- INV: DOKUMEN STOK (penyesuaian, opname, transfer)
+-- =====================================================================
+create table inv_stock_adjustments (
+  id                uuid primary key default gen_random_uuid(),
+  company_id        uuid not null references sys_companies(id),
+  warehouse_id      uuid not null references inv_warehouses(id),
+  adjustment_number text,
+  adjustment_date   date not null default current_date,
+  adjustment_type   text not null default 'adjustment',  -- adjustment / waste
+  status            text not null default 'draft',       -- draft / posted
+  note              text,
+  created_by        uuid references sys_users(id),
+  posted_at         timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create table inv_stock_adjustment_items (
+  id                   uuid primary key default gen_random_uuid(),
+  company_id           uuid not null references sys_companies(id),
+  stock_adjustment_id  uuid not null references inv_stock_adjustments(id) on delete cascade,
+  item_id              uuid not null references inv_items(id),
+  quantity             numeric(15,4) not null,   -- + tambah, - kurang (base unit)
+  note                 text,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+create table inv_stock_opnames (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  warehouse_id    uuid not null references inv_warehouses(id),
+  opname_number   text,
+  opname_date     date not null default current_date,
+  status          text not null default 'draft',   -- draft / posted
+  note            text,
+  created_by      uuid references sys_users(id),
+  posted_at       timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table inv_stock_opname_items (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references sys_companies(id),
+  stock_opname_id  uuid not null references inv_stock_opnames(id) on delete cascade,
+  item_id          uuid not null references inv_items(id),
+  system_qty       numeric(15,4),             -- diisi saat posting
+  counted_qty      numeric(15,4) not null,
+  difference_qty   numeric(15,4),             -- counted - system
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  unique (stock_opname_id, item_id)
+);
+
+create table inv_stock_transfers (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  from_warehouse_id  uuid not null references inv_warehouses(id),
+  to_warehouse_id    uuid not null references inv_warehouses(id),
+  transfer_number    text,
+  transfer_date      date not null default current_date,
+  status             text not null default 'draft',   -- draft / posted
+  note               text,
+  created_by         uuid references sys_users(id),
+  posted_at          timestamptz,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  check (from_warehouse_id <> to_warehouse_id)
+);
+
+create table inv_stock_transfer_items (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  stock_transfer_id  uuid not null references inv_stock_transfers(id) on delete cascade,
+  item_id            uuid not null references inv_items(id),
+  quantity           numeric(15,4) not null check (quantity > 0),
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+-- =====================================================================
+-- PUR: SUPPLIER, PURCHASE ORDER, PENERIMAAN BARANG
+-- =====================================================================
+create table pur_suppliers (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  code            text not null,
+  name            text not null,
+  contact_name    text,
+  phone           text,
+  email           text,
+  address         text,
+  payment_term_days int not null default 0,
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (company_id, code)
+);
+
+create table pur_purchase_orders (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  supplier_id     uuid not null references pur_suppliers(id),
+  warehouse_id    uuid not null references inv_warehouses(id),
+  po_number       text,
+  po_date         date not null default current_date,
+  expected_date   date,
+  status          text not null default 'draft',
+    -- draft / approved / partially_received / received / cancelled
+  subtotal        numeric(15,2) not null default 0,
+  tax_amount      numeric(15,2) not null default 0,
+  grand_total     numeric(15,2) not null default 0,
+  note            text,
+  created_by      uuid references sys_users(id),
+  approved_by     uuid references sys_users(id),
+  approved_at     timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table pur_purchase_order_items (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  purchase_order_id  uuid not null references pur_purchase_orders(id) on delete cascade,
+  item_id            uuid not null references inv_items(id),
+  unit_id            uuid not null references inv_units(id),
+  conversion_qty     numeric(15,4) not null default 1,  -- ke base unit
+  quantity           numeric(15,4) not null check (quantity > 0),
+  received_qty       numeric(15,4) not null default 0,
+  unit_price         numeric(15,2) not null default 0,
+  line_total         numeric(15,2) not null default 0,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create table pur_goods_receipts (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  purchase_order_id  uuid references pur_purchase_orders(id),
+  supplier_id        uuid not null references pur_suppliers(id),
+  warehouse_id       uuid not null references inv_warehouses(id),
+  receipt_number     text,
+  receipt_date       date not null default current_date,
+  supplier_invoice_number text,
+  status             text not null default 'draft',   -- draft / posted
+  grand_total        numeric(15,2) not null default 0,
+  note               text,
+  created_by         uuid references sys_users(id),
+  posted_at          timestamptz,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create table pur_goods_receipt_items (
+  id                      uuid primary key default gen_random_uuid(),
+  company_id              uuid not null references sys_companies(id),
+  goods_receipt_id        uuid not null references pur_goods_receipts(id) on delete cascade,
+  purchase_order_item_id  uuid references pur_purchase_order_items(id),
+  item_id                 uuid not null references inv_items(id),
+  unit_id                 uuid not null references inv_units(id),
+  conversion_qty          numeric(15,4) not null default 1,
+  quantity                numeric(15,4) not null check (quantity > 0),
+  unit_price              numeric(15,2) not null default 0,
+  line_total              numeric(15,2) not null default 0,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now()
+);
+
+create index idx_pur_purchase_orders_status on pur_purchase_orders(status);
+create index idx_pur_goods_receipts_po      on pur_goods_receipts(purchase_order_id);
+
+-- =====================================================================
+-- TRIGGER & RLS
+-- =====================================================================
+select sys_attach_updated_at_triggers();
+
+select sys_apply_company_policies('inv_units', 'inventory.manage');
+select sys_apply_company_policies('inv_item_categories', 'inventory.manage');
+select sys_apply_company_policies('inv_items', 'inventory.manage');
+select sys_apply_company_policies('inv_item_units', 'inventory.manage');
+select sys_apply_company_policies('inv_warehouses', 'inventory.manage');
+select sys_apply_company_policies('inv_recipes', 'inventory.manage');
+select sys_apply_company_policies('inv_recipe_items', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_adjustments', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_adjustment_items', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_opnames', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_opname_items', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_transfers', 'inventory.manage');
+select sys_apply_company_policies('inv_stock_transfer_items', 'inventory.manage');
+-- stok & kartu stok hanya bisa diubah lewat fungsi posting
+select sys_apply_company_policies('inv_stocks');
+select sys_apply_company_policies('inv_stock_movements');
+
+select sys_apply_company_policies('pur_suppliers', 'purchasing.manage');
+select sys_apply_company_policies('pur_purchase_orders', 'purchasing.manage');
+select sys_apply_company_policies('pur_purchase_order_items', 'purchasing.manage');
+select sys_apply_company_policies('pur_goods_receipts', 'purchasing.manage');
+select sys_apply_company_policies('pur_goods_receipt_items', 'purchasing.manage');
+
+-- >>>>>>>>>> migrations/003_functions_pos.sql
+-- =====================================================================
+-- ERP RESTORAN - 003: FUNGSI POS (dipanggil dari aplikasi via supabase.rpc)
+-- =====================================================================
+
+-- Nomor urut dokumen, aman dari tabrakan (atomic) ----------------------
+create or replace function sys_next_sequence(p_company_id uuid, p_key text)
+returns int language plpgsql security definer set search_path = public as $$
+declare v_next int;
+begin
+  insert into sys_document_sequences (company_id, sequence_key, last_number)
+  values (p_company_id, p_key, 1)
+  on conflict (company_id, sequence_key)
+  do update set last_number = sys_document_sequences.last_number + 1
+  returning last_number into v_next;
+  return v_next;
+end $$;
+
+-- Contoh hasil: PO/20261006/0001
+create or replace function sys_next_document_number(p_company_id uuid, p_prefix text, p_date date default current_date)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_key text := p_prefix || '/' || to_char(p_date, 'YYYYMMDD');
+begin
+  return v_key || '/' || lpad(sys_next_sequence(p_company_id, v_key)::text, 4, '0');
+end $$;
+
+create or replace function sys_outlet_business_date(p_outlet_id uuid)
+returns date language sql stable security definer set search_path = public as $$
+  select (now() at time zone timezone)::date from sys_outlets where id = p_outlet_id
+$$;
+
+-- Info user login (dipakai aplikasi setelah login) ----------------------
+create or replace function sys_get_my_profile()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'user_id', u.id,
+    'full_name', u.full_name,
+    'company_id', c.id,
+    'company_name', c.name,
+    'role_code', r.code,
+    'role_name', r.name,
+    'permissions', r.permissions,
+    'outlets', coalesce((
+      select jsonb_agg(jsonb_build_object('id', o.id, 'code', o.code, 'name', o.name) order by o.code)
+      from sys_outlets o
+      where o.company_id = c.id and o.is_active
+        and (r.permissions ? '*' or exists (
+              select 1 from sys_user_outlets uo where uo.user_id = u.id and uo.outlet_id = o.id))
+    ), '[]'::jsonb)
+  )
+  from sys_users u
+  join sys_companies c on c.id = u.company_id
+  join sys_roles r on r.id = u.role_id
+  where u.id = auth.uid() and u.is_active
+$$;
+
+-- =====================================================================
+-- HITUNG ULANG TOTAL ORDER
+--   subtotal - diskon -> + service -> + pajak (PB1) -> pembulatan
+-- =====================================================================
+create or replace function pos_recalculate_order(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_order   pos_orders%rowtype;
+  v_outlet  sys_outlets%rowtype;
+  v_sub     numeric(15,2);
+  v_base    numeric(15,2);
+  v_service numeric(15,2);
+  v_tax     numeric(15,2);
+  v_raw     numeric(15,2);
+  v_total   numeric(15,2);
+begin
+  select * into v_order from pos_orders where id = p_order_id;
+  select * into v_outlet from sys_outlets where id = v_order.outlet_id;
+
+  select coalesce(sum(line_total), 0) into v_sub
+  from pos_order_items where order_id = p_order_id and not is_void;
+
+  v_base    := greatest(v_sub - v_order.discount_amount, 0);
+  v_service := round(v_base * v_outlet.service_charge_rate / 100);
+  v_tax     := round((v_base + v_service) * v_outlet.tax_rate / 100);
+  v_raw     := v_base + v_service + v_tax;
+  v_total   := case when v_outlet.rounding_unit > 1
+                    then round(v_raw / v_outlet.rounding_unit) * v_outlet.rounding_unit
+                    else v_raw end;
+
+  update pos_orders set
+    subtotal        = v_sub,
+    service_amount  = v_service,
+    tax_amount      = v_tax,
+    rounding_amount = v_total - v_raw,
+    grand_total     = v_total
+  where id = p_order_id;
+end $$;
+
+-- =====================================================================
+-- SIMPAN ORDER (buat baru, atau tambah item ke open bill)
+-- payload:
+-- {
+--   "order_id": null | uuid,          -- isi untuk menambah item
+--   "outlet_id": uuid,
+--   "table_id": uuid | null,
+--   "sales_channel": "dine_in",
+--   "customer_name": "Budi",
+--   "guest_count": 2,
+--   "note": "",
+--   "items": [
+--     { "menu_item_id": uuid, "quantity": 2, "note": "tanpa bawang",
+--       "modifier_ids": [uuid, ...] }
+--   ]
+-- }
+-- =====================================================================
+create or replace function pos_save_order(p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company   uuid := sys_current_company_id();
+  v_order_id  uuid := nullif(p_payload->>'order_id', '')::uuid;
+  v_outlet_id uuid;
+  v_order     pos_orders%rowtype;
+  v_outlet    sys_outlets%rowtype;
+  v_channel   text;
+  v_date      date;
+  v_item      jsonb;
+  v_menu      mst_menu_items%rowtype;
+  v_price     numeric(15,2);
+  v_mod_total numeric(15,2);
+  v_qty       numeric(10,2);
+  v_line_id   uuid;
+begin
+  if v_company is null then raise exception 'Anda belum login'; end if;
+  if not sys_has_permission('pos.order') then raise exception 'Tidak punya izin membuat order'; end if;
+  if jsonb_array_length(coalesce(p_payload->'items', '[]')) = 0 then
+    raise exception 'Order tidak punya item';
+  end if;
+
+  if v_order_id is null then
+    v_outlet_id := (p_payload->>'outlet_id')::uuid;
+    if not sys_can_access_outlet(v_outlet_id) then raise exception 'Tidak punya akses ke outlet ini'; end if;
+    select * into v_outlet from sys_outlets where id = v_outlet_id;
+    v_channel := coalesce(nullif(p_payload->>'sales_channel', ''), 'dine_in');
+    v_date := sys_outlet_business_date(v_outlet_id);
+
+    insert into pos_orders (
+      company_id, outlet_id, table_id, order_number, business_date, sales_channel,
+      customer_name, guest_count, note, created_by, shift_id
+    ) values (
+      v_company, v_outlet_id, nullif(p_payload->>'table_id', '')::uuid,
+      'INV/' || v_outlet.code || '/' || to_char(v_date, 'YYYYMMDD') || '/' ||
+        lpad(sys_next_sequence(v_company, 'INV/' || v_outlet.code || '/' || to_char(v_date, 'YYYYMMDD'))::text, 4, '0'),
+      v_date, v_channel,
+      nullif(p_payload->>'customer_name', ''),
+      coalesce((p_payload->>'guest_count')::int, 1),
+      nullif(p_payload->>'note', ''),
+      auth.uid(),
+      (select id from pos_shifts where outlet_id = v_outlet_id and user_id = auth.uid() and status = 'open' limit 1)
+    ) returning * into v_order;
+
+    if v_order.table_id is not null then
+      update mst_tables set status = 'occupied' where id = v_order.table_id and company_id = v_company;
+    end if;
+  else
+    select * into v_order from pos_orders where id = v_order_id and company_id = v_company for update;
+    if not found then raise exception 'Order tidak ditemukan'; end if;
+    if v_order.status <> 'open' then raise exception 'Order sudah ditutup'; end if;
+    v_outlet_id := v_order.outlet_id;
+    v_channel := v_order.sales_channel;
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_payload->'items') loop
+    select * into v_menu from mst_menu_items
+    where id = (v_item->>'menu_item_id')::uuid and company_id = v_company and is_active;
+    if not found then raise exception 'Menu tidak ditemukan / tidak aktif'; end if;
+
+    v_qty := coalesce((v_item->>'quantity')::numeric, 1);
+    if v_qty <= 0 then raise exception 'Jumlah harus lebih dari 0'; end if;
+
+    v_price := coalesce(
+      (select price from mst_menu_prices
+        where menu_item_id = v_menu.id and outlet_id = v_outlet_id and sales_channel = v_channel),
+      (select price from mst_menu_prices
+        where menu_item_id = v_menu.id and outlet_id is null and sales_channel = v_channel),
+      v_menu.base_price);
+
+    select coalesce(sum(m.extra_price), 0) into v_mod_total
+    from mst_modifiers m
+    where m.company_id = v_company
+      and m.id in (select jsonb_array_elements_text(coalesce(v_item->'modifier_ids', '[]'))::uuid);
+
+    insert into pos_order_items (
+      company_id, order_id, menu_item_id, menu_item_name, station,
+      quantity, unit_price, modifier_amount, line_total, note
+    ) values (
+      v_company, v_order.id, v_menu.id, v_menu.name, v_menu.station,
+      v_qty, v_price, v_mod_total, v_qty * (v_price + v_mod_total),
+      nullif(v_item->>'note', '')
+    ) returning id into v_line_id;
+
+    insert into pos_order_item_modifiers (company_id, order_item_id, modifier_id, modifier_name, extra_price)
+    select v_company, v_line_id, m.id, m.name, m.extra_price
+    from mst_modifiers m
+    where m.company_id = v_company
+      and m.id in (select jsonb_array_elements_text(coalesce(v_item->'modifier_ids', '[]'))::uuid);
+  end loop;
+
+  perform pos_recalculate_order(v_order.id);
+
+  select * into v_order from pos_orders where id = v_order.id;
+  return to_jsonb(v_order);
+end $$;
+
+-- =====================================================================
+-- DISKON ORDER (nominal Rp, sebelum service & pajak)
+-- =====================================================================
+create or replace function pos_set_order_discount(p_order_id uuid, p_discount_amount numeric)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_order pos_orders%rowtype;
+begin
+  if not sys_has_permission('pos.discount') then raise exception 'Tidak punya izin memberi diskon'; end if;
+  select * into v_order from pos_orders
+  where id = p_order_id and company_id = sys_current_company_id() for update;
+  if not found then raise exception 'Order tidak ditemukan'; end if;
+  if v_order.status <> 'open' then raise exception 'Order sudah ditutup'; end if;
+  if p_discount_amount < 0 or p_discount_amount > v_order.subtotal then
+    raise exception 'Diskon harus antara 0 dan subtotal';
+  end if;
+
+  update pos_orders set discount_amount = p_discount_amount where id = p_order_id;
+  perform pos_recalculate_order(p_order_id);
+  select * into v_order from pos_orders where id = p_order_id;
+  return to_jsonb(v_order);
+end $$;
+
+-- =====================================================================
+-- BAYAR ORDER
+-- payments: [ { "payment_method_id": uuid, "amount": 100000, "reference_number": "" } ]
+-- =====================================================================
+create or replace function pos_pay_order(
+  p_order_id uuid,
+  p_payments jsonb,
+  p_discount_amount numeric default null
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company  uuid := sys_current_company_id();
+  v_order    pos_orders%rowtype;
+  v_shift_id uuid;
+  v_paid     numeric(15,2);
+  v_change   numeric(15,2);
+  v_cash_id  uuid;
+  v_pay      jsonb;
+  v_method   mst_payment_methods%rowtype;
+begin
+  if not sys_has_permission('pos.pay') then raise exception 'Tidak punya izin menerima pembayaran'; end if;
+
+  select * into v_order from pos_orders where id = p_order_id and company_id = v_company for update;
+  if not found then raise exception 'Order tidak ditemukan'; end if;
+  if v_order.status <> 'open' then raise exception 'Order sudah dibayar / dibatalkan'; end if;
+
+  select id into v_shift_id from pos_shifts
+  where outlet_id = v_order.outlet_id and user_id = auth.uid() and status = 'open' limit 1;
+  if v_shift_id is null then raise exception 'Buka shift kasir terlebih dahulu'; end if;
+
+  if p_discount_amount is not null and p_discount_amount <> v_order.discount_amount then
+    if p_discount_amount > 0 and not sys_has_permission('pos.discount') then
+      raise exception 'Tidak punya izin memberi diskon';
+    end if;
+    update pos_orders set discount_amount = greatest(p_discount_amount, 0) where id = p_order_id;
+    perform pos_recalculate_order(p_order_id);
+    select * into v_order from pos_orders where id = p_order_id;
+  end if;
+
+  select coalesce(sum((p->>'amount')::numeric), 0) into v_paid
+  from jsonb_array_elements(coalesce(p_payments, '[]')) p;
+
+  if v_paid < v_order.grand_total then
+    raise exception 'Pembayaran kurang: total %, dibayar %', v_order.grand_total, v_paid;
+  end if;
+  v_change := v_paid - v_order.grand_total;
+
+  for v_pay in select * from jsonb_array_elements(p_payments) loop
+    select * into v_method from mst_payment_methods
+    where id = (v_pay->>'payment_method_id')::uuid and company_id = v_company and is_active;
+    if not found then raise exception 'Metode pembayaran tidak valid'; end if;
+    if (v_pay->>'amount')::numeric <= 0 then continue; end if;
+
+    insert into pos_payments (company_id, order_id, payment_method_id, amount, reference_number)
+    values (v_company, p_order_id, v_method.id, (v_pay->>'amount')::numeric, nullif(v_pay->>'reference_number', ''));
+  end loop;
+
+  if v_change > 0 then
+    select pp.id into v_cash_id from pos_payments pp
+    join mst_payment_methods m on m.id = pp.payment_method_id
+    where pp.order_id = p_order_id and m.type = 'cash' limit 1;
+    if v_cash_id is null then raise exception 'Kembalian hanya untuk pembayaran tunai'; end if;
+    update pos_payments set change_amount = v_change where id = v_cash_id;
+  end if;
+
+  update pos_orders
+     set status = 'paid', paid_at = now(), shift_id = v_shift_id
+   where id = p_order_id;
+
+  if v_order.table_id is not null and not exists (
+      select 1 from pos_orders where table_id = v_order.table_id and status = 'open') then
+    update mst_tables set status = 'available' where id = v_order.table_id;
+  end if;
+
+  return jsonb_build_object(
+    'order_id', v_order.id,
+    'order_number', v_order.order_number,
+    'grand_total', v_order.grand_total,
+    'paid_amount', v_paid,
+    'change_amount', v_change);
+end $$;
+
+-- =====================================================================
+-- VOID
+-- =====================================================================
+create or replace function pos_void_order(p_order_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_order pos_orders%rowtype;
+begin
+  if not sys_has_permission('pos.void') then raise exception 'Tidak punya izin void'; end if;
+  if coalesce(trim(p_reason), '') = '' then raise exception 'Alasan void wajib diisi'; end if;
+
+  select * into v_order from pos_orders
+  where id = p_order_id and company_id = sys_current_company_id() for update;
+  if not found then raise exception 'Order tidak ditemukan'; end if;
+  if v_order.status <> 'open' then raise exception 'Hanya order yang belum dibayar yang bisa di-void'; end if;
+
+  update pos_orders set status = 'void', voided_at = now(), void_reason = p_reason where id = p_order_id;
+  update pos_order_items set is_void = true where order_id = p_order_id;
+
+  if v_order.table_id is not null and not exists (
+      select 1 from pos_orders where table_id = v_order.table_id and status = 'open') then
+    update mst_tables set status = 'available' where id = v_order.table_id;
+  end if;
+end $$;
+
+create or replace function pos_void_order_item(p_order_item_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_order_id uuid;
+begin
+  if not sys_has_permission('pos.void') then raise exception 'Tidak punya izin void'; end if;
+
+  select i.order_id into v_order_id
+  from pos_order_items i join pos_orders o on o.id = i.order_id
+  where i.id = p_order_item_id and o.company_id = sys_current_company_id() and o.status = 'open';
+  if v_order_id is null then raise exception 'Item tidak ditemukan / order sudah ditutup'; end if;
+
+  update pos_order_items
+     set is_void = true, note = trim(coalesce(note, '') || ' [VOID: ' || coalesce(p_reason, '-') || ']')
+   where id = p_order_item_id;
+  perform pos_recalculate_order(v_order_id);
+end $$;
+
+-- =====================================================================
+-- SHIFT KASIR
+-- =====================================================================
+create or replace function pos_open_shift(p_outlet_id uuid, p_opening_cash numeric)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_shift pos_shifts%rowtype;
+begin
+  if not sys_has_permission('pos.pay') then raise exception 'Tidak punya izin membuka shift'; end if;
+  if not sys_can_access_outlet(p_outlet_id) then raise exception 'Tidak punya akses ke outlet ini'; end if;
+  if exists (select 1 from pos_shifts where outlet_id = p_outlet_id and user_id = auth.uid() and status = 'open') then
+    raise exception 'Anda masih punya shift yang terbuka';
+  end if;
+
+  insert into pos_shifts (company_id, outlet_id, user_id, business_date, opening_cash)
+  values (sys_current_company_id(), p_outlet_id, auth.uid(),
+          sys_outlet_business_date(p_outlet_id), coalesce(p_opening_cash, 0))
+  returning * into v_shift;
+  return to_jsonb(v_shift);
+end $$;
+
+create or replace function pos_close_shift(p_shift_id uuid, p_closing_cash numeric)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_shift    pos_shifts%rowtype;
+  v_cash_in  numeric(15,2);
+begin
+  select * into v_shift from pos_shifts
+  where id = p_shift_id and user_id = auth.uid() and status = 'open' for update;
+  if not found then raise exception 'Shift tidak ditemukan / sudah ditutup'; end if;
+
+  select coalesce(sum(p.amount - p.change_amount), 0) into v_cash_in
+  from pos_payments p
+  join pos_orders o on o.id = p.order_id
+  join mst_payment_methods m on m.id = p.payment_method_id
+  where o.shift_id = p_shift_id and o.status = 'paid' and m.type = 'cash';
+
+  update pos_shifts set
+    status        = 'closed',
+    closed_at     = now(),
+    closing_cash  = p_closing_cash,
+    expected_cash = v_shift.opening_cash + v_cash_in
+  where id = p_shift_id
+  returning * into v_shift;
+
+  return to_jsonb(v_shift) || jsonb_build_object('difference', v_shift.closing_cash - v_shift.expected_cash);
+end $$;
+
+-- >>>>>>>>>> migrations/004_functions_inventory_purchasing.sql
+-- =====================================================================
+-- ERP RESTORAN - 004: FUNGSI INVENTORY, PURCHASING & VIEW LAPORAN
+-- =====================================================================
+
+-- =====================================================================
+-- POTONG STOK OTOMATIS SAAT ORDER DIBAYAR (berdasarkan resep)
+-- =====================================================================
+create or replace function inv_post_order_consumption(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_order        pos_orders%rowtype;
+  v_warehouse_id uuid;
+begin
+  select * into v_order from pos_orders where id = p_order_id;
+  select default_warehouse_id into v_warehouse_id from sys_outlets where id = v_order.outlet_id;
+  if v_warehouse_id is null then return; end if;
+
+  insert into inv_stock_movements (
+    company_id, warehouse_id, item_id, movement_type, quantity,
+    reference_type, reference_id, reference_number, created_by
+  )
+  select v_order.company_id, v_warehouse_id, ri.item_id, 'sales',
+         -sum(oi.quantity * ri.quantity / r.yield_qty),
+         'pos_orders', v_order.id, v_order.order_number, auth.uid()
+  from pos_order_items oi
+  join inv_recipes r       on r.menu_item_id = oi.menu_item_id
+  join inv_recipe_items ri on ri.recipe_id = r.id
+  where oi.order_id = p_order_id and not oi.is_void
+  group by ri.item_id;
+end $$;
+
+create or replace function pos_on_order_paid()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform inv_post_order_consumption(new.id);
+  return new;
+end $$;
+
+create trigger trg_pos_orders_paid
+  after update of status on pos_orders
+  for each row
+  when (new.status = 'paid' and old.status is distinct from 'paid')
+  execute function pos_on_order_paid();
+
+-- =====================================================================
+-- POSTING DOKUMEN STOK
+-- =====================================================================
+create or replace function inv_post_stock_adjustment(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_doc inv_stock_adjustments%rowtype;
+begin
+  if not sys_has_permission('inventory.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_doc from inv_stock_adjustments
+  where id = p_id and company_id = sys_current_company_id() for update;
+  if not found or v_doc.status <> 'draft' then raise exception 'Dokumen tidak ditemukan / sudah diposting'; end if;
+
+  v_doc.adjustment_number := coalesce(v_doc.adjustment_number,
+    sys_next_document_number(v_doc.company_id, case when v_doc.adjustment_type = 'waste' then 'WST' else 'ADJ' end, v_doc.adjustment_date));
+
+  insert into inv_stock_movements (company_id, warehouse_id, item_id, movement_type, quantity,
+    reference_type, reference_id, reference_number, note, created_by)
+  select v_doc.company_id, v_doc.warehouse_id, i.item_id, v_doc.adjustment_type,
+         case when v_doc.adjustment_type = 'waste' then -abs(i.quantity) else i.quantity end,
+         'inv_stock_adjustments', v_doc.id, v_doc.adjustment_number, i.note, auth.uid()
+  from inv_stock_adjustment_items i
+  where i.stock_adjustment_id = p_id and i.quantity <> 0;
+
+  update inv_stock_adjustments
+     set status = 'posted', posted_at = now(), adjustment_number = v_doc.adjustment_number
+   where id = p_id;
+end $$;
+
+create or replace function inv_post_stock_opname(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_doc inv_stock_opnames%rowtype;
+begin
+  if not sys_has_permission('inventory.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_doc from inv_stock_opnames
+  where id = p_id and company_id = sys_current_company_id() for update;
+  if not found or v_doc.status <> 'draft' then raise exception 'Dokumen tidak ditemukan / sudah diposting'; end if;
+
+  v_doc.opname_number := coalesce(v_doc.opname_number,
+    sys_next_document_number(v_doc.company_id, 'OPN', v_doc.opname_date));
+
+  update inv_stock_opname_items i set
+    system_qty = coalesce((select s.quantity from inv_stocks s
+                           where s.warehouse_id = v_doc.warehouse_id and s.item_id = i.item_id), 0)
+  where i.stock_opname_id = p_id;
+
+  update inv_stock_opname_items set difference_qty = counted_qty - system_qty
+  where stock_opname_id = p_id;
+
+  insert into inv_stock_movements (company_id, warehouse_id, item_id, movement_type, quantity,
+    reference_type, reference_id, reference_number, created_by)
+  select v_doc.company_id, v_doc.warehouse_id, i.item_id, 'opname', i.difference_qty,
+         'inv_stock_opnames', v_doc.id, v_doc.opname_number, auth.uid()
+  from inv_stock_opname_items i
+  where i.stock_opname_id = p_id and i.difference_qty <> 0;
+
+  update inv_stock_opnames
+     set status = 'posted', posted_at = now(), opname_number = v_doc.opname_number
+   where id = p_id;
+end $$;
+
+create or replace function inv_post_stock_transfer(p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_doc  inv_stock_transfers%rowtype;
+  v_line record;
+  v_cost numeric(15,4);
+begin
+  if not sys_has_permission('inventory.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_doc from inv_stock_transfers
+  where id = p_id and company_id = sys_current_company_id() for update;
+  if not found or v_doc.status <> 'draft' then raise exception 'Dokumen tidak ditemukan / sudah diposting'; end if;
+
+  v_doc.transfer_number := coalesce(v_doc.transfer_number,
+    sys_next_document_number(v_doc.company_id, 'TRF', v_doc.transfer_date));
+
+  for v_line in select * from inv_stock_transfer_items where stock_transfer_id = p_id loop
+    select average_cost into v_cost from inv_stocks
+    where warehouse_id = v_doc.from_warehouse_id and item_id = v_line.item_id;
+
+    insert into inv_stock_movements (company_id, warehouse_id, item_id, movement_type, quantity, unit_cost,
+      reference_type, reference_id, reference_number, created_by)
+    values
+      (v_doc.company_id, v_doc.from_warehouse_id, v_line.item_id, 'transfer_out', -v_line.quantity, v_cost,
+       'inv_stock_transfers', v_doc.id, v_doc.transfer_number, auth.uid()),
+      (v_doc.company_id, v_doc.to_warehouse_id, v_line.item_id, 'transfer_in', v_line.quantity, coalesce(v_cost, 0),
+       'inv_stock_transfers', v_doc.id, v_doc.transfer_number, auth.uid());
+  end loop;
+
+  update inv_stock_transfers
+     set status = 'posted', posted_at = now(), transfer_number = v_doc.transfer_number
+   where id = p_id;
+end $$;
+
+-- =====================================================================
+-- PURCHASING
+-- =====================================================================
+create or replace function pur_approve_purchase_order(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_doc pur_purchase_orders%rowtype;
+begin
+  if not sys_has_permission('purchasing.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_doc from pur_purchase_orders
+  where id = p_id and company_id = sys_current_company_id() for update;
+  if not found or v_doc.status <> 'draft' then raise exception 'PO tidak ditemukan / bukan draft'; end if;
+  if not exists (select 1 from pur_purchase_order_items where purchase_order_id = p_id) then
+    raise exception 'PO belum punya item';
+  end if;
+
+  update pur_purchase_order_items set line_total = quantity * unit_price where purchase_order_id = p_id;
+
+  update pur_purchase_orders set
+    po_number   = coalesce(po_number, sys_next_document_number(company_id, 'PO', po_date)),
+    subtotal    = (select coalesce(sum(line_total), 0) from pur_purchase_order_items where purchase_order_id = p_id),
+    grand_total = (select coalesce(sum(line_total), 0) from pur_purchase_order_items where purchase_order_id = p_id) + tax_amount,
+    status      = 'approved',
+    approved_by = auth.uid(),
+    approved_at = now()
+  where id = p_id
+  returning * into v_doc;
+
+  return to_jsonb(v_doc);
+end $$;
+
+-- Buat draft penerimaan barang dari sisa PO yang belum diterima
+create or replace function pur_create_goods_receipt_from_po(p_po_id uuid)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_po    pur_purchase_orders%rowtype;
+  v_gr_id uuid;
+begin
+  if not sys_has_permission('purchasing.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_po from pur_purchase_orders
+  where id = p_po_id and company_id = sys_current_company_id();
+  if not found or v_po.status not in ('approved', 'partially_received') then
+    raise exception 'PO harus berstatus approved';
+  end if;
+
+  insert into pur_goods_receipts (company_id, purchase_order_id, supplier_id, warehouse_id, created_by)
+  values (v_po.company_id, v_po.id, v_po.supplier_id, v_po.warehouse_id, auth.uid())
+  returning id into v_gr_id;
+
+  insert into pur_goods_receipt_items (company_id, goods_receipt_id, purchase_order_item_id,
+    item_id, unit_id, conversion_qty, quantity, unit_price, line_total)
+  select company_id, v_gr_id, id, item_id, unit_id, conversion_qty,
+         quantity - received_qty, unit_price, (quantity - received_qty) * unit_price
+  from pur_purchase_order_items
+  where purchase_order_id = p_po_id and quantity > received_qty;
+
+  return v_gr_id;
+end $$;
+
+create or replace function pur_post_goods_receipt(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_doc pur_goods_receipts%rowtype;
+begin
+  if not sys_has_permission('purchasing.manage') then raise exception 'Tidak punya izin'; end if;
+  select * into v_doc from pur_goods_receipts
+  where id = p_id and company_id = sys_current_company_id() for update;
+  if not found or v_doc.status <> 'draft' then raise exception 'Dokumen tidak ditemukan / sudah diposting'; end if;
+  if not exists (select 1 from pur_goods_receipt_items where goods_receipt_id = p_id) then
+    raise exception 'Penerimaan belum punya item';
+  end if;
+
+  update pur_goods_receipt_items set line_total = quantity * unit_price where goods_receipt_id = p_id;
+
+  v_doc.receipt_number := coalesce(v_doc.receipt_number,
+    sys_next_document_number(v_doc.company_id, 'GR', v_doc.receipt_date));
+
+  -- stok masuk (dikonversi ke base unit)
+  insert into inv_stock_movements (company_id, warehouse_id, item_id, movement_type, quantity, unit_cost,
+    reference_type, reference_id, reference_number, created_by)
+  select v_doc.company_id, v_doc.warehouse_id, i.item_id, 'purchase_receipt',
+         i.quantity * i.conversion_qty, i.unit_price / i.conversion_qty,
+         'pur_goods_receipts', v_doc.id, v_doc.receipt_number, auth.uid()
+  from pur_goods_receipt_items i where i.goods_receipt_id = p_id;
+
+  -- harga beli terakhir per base unit
+  update inv_items it set last_purchase_cost = i.unit_price / i.conversion_qty
+  from pur_goods_receipt_items i
+  where i.goods_receipt_id = p_id and it.id = i.item_id;
+
+  -- update qty diterima di PO
+  update pur_purchase_order_items poi
+     set received_qty = poi.received_qty + gri.total_qty
+  from (select purchase_order_item_id, sum(quantity) total_qty
+        from pur_goods_receipt_items
+        where goods_receipt_id = p_id and purchase_order_item_id is not null
+        group by purchase_order_item_id) gri
+  where poi.id = gri.purchase_order_item_id;
+
+  if v_doc.purchase_order_id is not null then
+    update pur_purchase_orders po set status =
+      case when exists (select 1 from pur_purchase_order_items
+                        where purchase_order_id = po.id and received_qty < quantity)
+           then 'partially_received' else 'received' end
+    where id = v_doc.purchase_order_id;
+  end if;
+
+  update pur_goods_receipts set
+    status = 'posted', posted_at = now(), receipt_number = v_doc.receipt_number,
+    grand_total = (select coalesce(sum(line_total), 0) from pur_goods_receipt_items where goods_receipt_id = p_id)
+  where id = p_id
+  returning * into v_doc;
+
+  return to_jsonb(v_doc);
+end $$;
+
+-- =====================================================================
+-- VIEW LAPORAN (rpt_)  -- security_invoker: tetap tunduk pada RLS
+-- =====================================================================
+create view rpt_daily_sales with (security_invoker = true) as
+select o.company_id, o.outlet_id, o.business_date,
+       count(*)               as order_count,
+       sum(o.guest_count)     as guest_count,
+       sum(o.subtotal)        as subtotal,
+       sum(o.discount_amount) as discount_amount,
+       sum(o.service_amount)  as service_amount,
+       sum(o.tax_amount)      as tax_amount,
+       sum(o.grand_total)     as grand_total
+from pos_orders o
+where o.status = 'paid'
+group by o.company_id, o.outlet_id, o.business_date;
+
+create view rpt_menu_sales with (security_invoker = true) as
+select o.company_id, o.outlet_id, o.business_date,
+       oi.menu_item_id, oi.menu_item_name,
+       sum(oi.quantity)   as quantity,
+       sum(oi.line_total) as revenue
+from pos_order_items oi
+join pos_orders o on o.id = oi.order_id
+where o.status = 'paid' and not oi.is_void
+group by o.company_id, o.outlet_id, o.business_date, oi.menu_item_id, oi.menu_item_name;
+
+create view rpt_payment_summary with (security_invoker = true) as
+select o.company_id, o.outlet_id, o.business_date,
+       m.id as payment_method_id, m.name as payment_method_name,
+       count(*) as transaction_count,
+       sum(p.amount - p.change_amount) as amount
+from pos_payments p
+join pos_orders o on o.id = p.order_id
+join mst_payment_methods m on m.id = p.payment_method_id
+where o.status = 'paid'
+group by o.company_id, o.outlet_id, o.business_date, m.id, m.name;
+
+-- HPP standar per menu (pakai harga beli terakhir)
+create view rpt_menu_food_costs with (security_invoker = true) as
+select mi.company_id, mi.id as menu_item_id, mi.code, mi.name, mi.base_price,
+       coalesce(sum(ri.quantity / r.yield_qty * it.last_purchase_cost), 0)::numeric(15,2) as food_cost,
+       case when mi.base_price > 0
+            then round(coalesce(sum(ri.quantity / r.yield_qty * it.last_purchase_cost), 0) / mi.base_price * 100, 1)
+       end as food_cost_pct,
+       count(ri.id) > 0 as has_recipe
+from mst_menu_items mi
+left join inv_recipes r       on r.menu_item_id = mi.id
+left join inv_recipe_items ri on ri.recipe_id = r.id
+left join inv_items it        on it.id = ri.item_id
+where mi.is_active
+group by mi.company_id, mi.id, mi.code, mi.name, mi.base_price;
+
+create view rpt_stock_balances with (security_invoker = true) as
+select s.company_id, s.warehouse_id, w.name as warehouse_name,
+       s.item_id, it.code as item_code, it.name as item_name,
+       u.code as unit_code, s.quantity, s.average_cost,
+       (s.quantity * s.average_cost)::numeric(15,2) as stock_value,
+       it.min_stock, s.quantity <= it.min_stock as is_low_stock
+from inv_stocks s
+join inv_warehouses w on w.id = s.warehouse_id
+join inv_items it     on it.id = s.item_id
+join inv_units u      on u.id = it.base_unit_id;
+
+-- =====================================================================
+-- KUNCI FUNGSI INTERNAL (tidak boleh dipanggil langsung dari aplikasi)
+-- =====================================================================
+revoke execute on function sys_next_sequence(uuid, text)                 from public, anon, authenticated;
+revoke execute on function sys_next_document_number(uuid, text, date)   from public, anon, authenticated;
+revoke execute on function pos_recalculate_order(uuid)                  from public, anon, authenticated;
+revoke execute on function inv_post_order_consumption(uuid)             from public, anon, authenticated;
+revoke execute on function sys_apply_company_policies(text, text)       from public, anon, authenticated;
+revoke execute on function sys_attach_updated_at_triggers()             from public, anon, authenticated;
+
+-- >>>>>>>>>> migrations/005_onboarding_demo_seed.sql
+-- =====================================================================
+-- ERP RESTORAN - 005: ONBOARDING PERUSAHAAN BARU (+ DATA DEMO)
+-- Dipanggil aplikasi setelah user pertama kali daftar:
+--   supabase.rpc('sys_onboard_company', { p_company_name, p_outlet_name, p_full_name, p_with_demo_data })
+-- =====================================================================
+
+create or replace function sys_onboard_company(
+  p_company_name   text,
+  p_outlet_name    text,
+  p_full_name      text,
+  p_with_demo_data boolean default true
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  c          uuid;   -- company_id
+  v_brand    uuid;
+  v_outlet   uuid;
+  v_wh       uuid;
+  v_owner    uuid;
+  v_area_in  uuid;
+  v_area_out uuid;
+begin
+  if auth.uid() is null then raise exception 'Anda belum login'; end if;
+  if exists (select 1 from sys_users where id = auth.uid()) then
+    raise exception 'Akun ini sudah terdaftar di sebuah perusahaan';
+  end if;
+  if coalesce(trim(p_company_name), '') = '' or coalesce(trim(p_outlet_name), '') = '' then
+    raise exception 'Nama perusahaan dan outlet wajib diisi';
+  end if;
+
+  -- ---------- perusahaan, brand, outlet, gudang ----------
+  insert into sys_companies (code, name)
+  values ('CMP-' || upper(substr(md5(gen_random_uuid()::text), 1, 8)), trim(p_company_name))
+  returning id into c;
+
+  insert into sys_brands (company_id, code, name) values (c, 'BR01', trim(p_company_name))
+  returning id into v_brand;
+
+  insert into sys_outlets (company_id, brand_id, code, name, tax_rate, service_charge_rate)
+  values (c, v_brand, 'OUT01', trim(p_outlet_name), 10, 5)
+  returning id into v_outlet;
+
+  insert into inv_warehouses (company_id, outlet_id, code, name)
+  values (c, v_outlet, 'WH-OUT01', 'Gudang ' || trim(p_outlet_name))
+  returning id into v_wh;
+
+  update sys_outlets set default_warehouse_id = v_wh where id = v_outlet;
+
+  -- ---------- role & user ----------
+  insert into sys_roles (company_id, code, name, permissions) values
+    (c, 'owner',   'Owner',   '["*"]'),
+    (c, 'manager', 'Manager', '["master.manage","pos.order","pos.pay","pos.discount","pos.void","kds.update","inventory.manage","purchasing.manage","report.view"]'),
+    (c, 'cashier', 'Kasir',   '["pos.order","pos.pay","kds.update"]'),
+    (c, 'waiter',  'Pelayan', '["pos.order","kds.update"]'),
+    (c, 'kitchen', 'Dapur',   '["kds.update"]');
+
+  select id into v_owner from sys_roles where company_id = c and code = 'owner';
+
+  insert into sys_users (id, company_id, role_id, full_name)
+  values (auth.uid(), c, v_owner, coalesce(nullif(trim(p_full_name), ''), 'Owner'));
+  insert into sys_user_outlets (user_id, outlet_id) values (auth.uid(), v_outlet);
+
+  -- ---------- metode bayar ----------
+  insert into mst_payment_methods (company_id, code, name, type, sort_order) values
+    (c, 'cash',  'Tunai',       'cash',    1),
+    (c, 'qris',  'QRIS',        'ewallet', 2),
+    (c, 'debit', 'Kartu Debit', 'card',    3),
+    (c, 'credit','Kartu Kredit','card',    4);
+
+  -- ---------- satuan dasar ----------
+  insert into inv_units (company_id, code, name) values
+    (c, 'g', 'Gram'), (c, 'kg', 'Kilogram'), (c, 'ml', 'Mililiter'),
+    (c, 'l', 'Liter'), (c, 'pcs', 'Pcs'), (c, 'pack', 'Pack');
+
+  if not p_with_demo_data then
+    return jsonb_build_object('company_id', c, 'outlet_id', v_outlet);
+  end if;
+
+  -- =================== DATA DEMO ===================
+
+  -- meja
+  insert into mst_table_areas (company_id, outlet_id, name) values (c, v_outlet, 'Indoor')  returning id into v_area_in;
+  insert into mst_table_areas (company_id, outlet_id, name) values (c, v_outlet, 'Outdoor') returning id into v_area_out;
+  insert into mst_tables (company_id, outlet_id, table_area_id, code, capacity)
+  select c, v_outlet, v_area_in, 'A' || n, 4 from generate_series(1, 6) n
+  union all
+  select c, v_outlet, v_area_out, 'B' || n, 2 from generate_series(1, 4) n;
+
+  -- kategori & menu
+  insert into mst_menu_categories (company_id, brand_id, name, sort_order) values
+    (c, v_brand, 'Makanan', 1), (c, v_brand, 'Minuman', 2), (c, v_brand, 'Snack', 3);
+
+  insert into mst_menu_items (company_id, brand_id, menu_category_id, code, name, base_price, station)
+  select c, v_brand, mc.id, m.code, m.name, m.price, m.station
+  from (values
+    ('Makanan', 'MKN01', 'Nasi Goreng Spesial',    35000, 'kitchen'),
+    ('Makanan', 'MKN02', 'Mie Goreng Jawa',        32000, 'kitchen'),
+    ('Makanan', 'MKN03', 'Ayam Bakar Madu',        45000, 'kitchen'),
+    ('Makanan', 'MKN04', 'Soto Ayam',              28000, 'kitchen'),
+    ('Minuman', 'MNM01', 'Es Teh Manis',            8000, 'bar'),
+    ('Minuman', 'MNM02', 'Es Jeruk',               12000, 'bar'),
+    ('Minuman', 'MNM03', 'Kopi Susu Gula Aren',    22000, 'bar'),
+    ('Snack',   'SNK01', 'Kentang Goreng',         20000, 'kitchen'),
+    ('Snack',   'SNK02', 'Pisang Goreng Keju',     18000, 'kitchen')
+  ) as m(category, code, name, price, station)
+  join mst_menu_categories mc on mc.company_id = c and mc.name = m.category;
+
+  -- harga khusus ojol (+20%)
+  insert into mst_menu_prices (company_id, menu_item_id, sales_channel, price)
+  select c, id, ch, round(base_price * 1.2 / 500) * 500
+  from mst_menu_items, unnest(array['gofood', 'grabfood']) ch
+  where company_id = c;
+
+  -- modifier
+  insert into mst_modifier_groups (company_id, name, min_select, max_select) values
+    (c, 'Level Pedas', 0, 1), (c, 'Extra Topping', 0, 3);
+
+  insert into mst_modifiers (company_id, modifier_group_id, name, extra_price, sort_order)
+  select c, g.id, m.name, m.price, m.sort
+  from (values
+    ('Level Pedas',   'Tidak Pedas', 0,    1),
+    ('Level Pedas',   'Sedang',      0,    2),
+    ('Level Pedas',   'Pedas',       0,    3),
+    ('Extra Topping', 'Telur',       5000, 1),
+    ('Extra Topping', 'Keju',        6000, 2),
+    ('Extra Topping', 'Kerupuk',     3000, 3)
+  ) as m(grp, name, price, sort)
+  join mst_modifier_groups g on g.company_id = c and g.name = m.grp;
+
+  insert into mst_menu_item_modifier_groups (company_id, menu_item_id, modifier_group_id)
+  select c, mi.id, g.id
+  from mst_menu_items mi, mst_modifier_groups g
+  where mi.company_id = c and g.company_id = c
+    and mi.code in ('MKN01', 'MKN02', 'MKN04');
+
+  -- bahan baku (harga per base unit)
+  insert into inv_item_categories (company_id, name) values
+    (c, 'Bahan Pokok'), (c, 'Protein'), (c, 'Sayur & Buah'), (c, 'Bumbu'), (c, 'Minuman');
+
+  insert into inv_items (company_id, item_category_id, code, name, base_unit_id, min_stock, last_purchase_cost)
+  select c, ic.id, b.code, b.name, u.id, b.min_stock, b.cost
+  from (values
+    ('Bahan Pokok',  'BHN01', 'Beras',            'g',   5000,  14),
+    ('Bahan Pokok',  'BHN02', 'Mie Telur',        'g',   2000,  30),
+    ('Bahan Pokok',  'BHN03', 'Minyak Goreng',    'ml',  3000,  18),
+    ('Bahan Pokok',  'BHN04', 'Gula Pasir',       'g',   2000,  17),
+    ('Protein',      'BHN05', 'Daging Ayam',      'g',   3000,  40),
+    ('Protein',      'BHN06', 'Telur Ayam',       'pcs',   30, 2000),
+    ('Protein',      'BHN07', 'Keju Cheddar',     'g',    500, 120),
+    ('Sayur & Buah', 'BHN08', 'Kentang',          'g',   3000,  20),
+    ('Sayur & Buah', 'BHN09', 'Pisang Kepok',     'pcs',   20, 1500),
+    ('Sayur & Buah', 'BHN10', 'Jeruk Peras',      'pcs',   30, 1200),
+    ('Bumbu',        'BHN11', 'Bawang Merah',     'g',   1000,  45),
+    ('Bumbu',        'BHN12', 'Kecap Manis',      'ml',  1000,  30),
+    ('Bumbu',        'BHN13', 'Madu',             'ml',   500, 120),
+    ('Minuman',      'BHN14', 'Teh Celup',        'pcs',   50,  250),
+    ('Minuman',      'BHN15', 'Biji Kopi',        'g',    500, 200),
+    ('Minuman',      'BHN16', 'Susu Segar',       'ml',  2000,  22),
+    ('Minuman',      'BHN17', 'Gula Aren Cair',   'ml',   500,  50)
+  ) as b(category, code, name, unit, min_stock, cost)
+  join inv_item_categories ic on ic.company_id = c and ic.name = b.category
+  join inv_units u on u.company_id = c and u.code = b.unit;
+
+  -- konversi satuan beli: kg -> g, l -> ml
+  insert into inv_item_units (company_id, item_id, unit_id, conversion_qty)
+  select c, it.id, u.id, 1000
+  from inv_items it
+  join inv_units bu on bu.id = it.base_unit_id
+  join inv_units u  on u.company_id = c and u.code = case bu.code when 'g' then 'kg' when 'ml' then 'l' end
+  where it.company_id = c;
+
+  -- resep per porsi
+  insert into inv_recipes (company_id, menu_item_id)
+  select c, id from mst_menu_items where company_id = c;
+
+  insert into inv_recipe_items (company_id, recipe_id, item_id, quantity)
+  select c, r.id, it.id, x.qty
+  from (values
+    ('MKN01', 'BHN01', 200), ('MKN01', 'BHN05',  80), ('MKN01', 'BHN06', 1), ('MKN01', 'BHN03', 20), ('MKN01', 'BHN11', 15), ('MKN01', 'BHN12', 15),
+    ('MKN02', 'BHN02', 150), ('MKN02', 'BHN05',  50), ('MKN02', 'BHN06', 1), ('MKN02', 'BHN03', 20), ('MKN02', 'BHN12', 20),
+    ('MKN03', 'BHN05', 250), ('MKN03', 'BHN13',  20), ('MKN03', 'BHN12', 15), ('MKN03', 'BHN01', 150),
+    ('MKN04', 'BHN05', 100), ('MKN04', 'BHN01', 150), ('MKN04', 'BHN06', 1), ('MKN04', 'BHN11', 10),
+    ('MNM01', 'BHN14',   1), ('MNM01', 'BHN04',  25),
+    ('MNM02', 'BHN10',   2), ('MNM02', 'BHN04',  20),
+    ('MNM03', 'BHN15',  18), ('MNM03', 'BHN16', 150), ('MNM03', 'BHN17', 25),
+    ('SNK01', 'BHN08', 200), ('SNK01', 'BHN03',  50),
+    ('SNK02', 'BHN09',   2), ('SNK02', 'BHN07',  20), ('SNK02', 'BHN03', 40)
+  ) as x(menu_code, item_code, qty)
+  join mst_menu_items mi on mi.company_id = c and mi.code = x.menu_code
+  join inv_recipes r     on r.menu_item_id = mi.id
+  join inv_items it      on it.company_id = c and it.code = x.item_code;
+
+  -- stok awal (= 4x stok minimum)
+  insert into inv_stock_movements (company_id, warehouse_id, item_id, movement_type, quantity,
+    unit_cost, reference_number, note, created_by)
+  select c, v_wh, id, 'adjustment', min_stock * 4, last_purchase_cost, 'STOK-AWAL', 'Stok awal demo', auth.uid()
+  from inv_items where company_id = c;
+
+  -- supplier
+  insert into pur_suppliers (company_id, code, name, contact_name, phone, payment_term_days) values
+    (c, 'SUP01', 'Pasar Induk Segar',   'Pak Joko', '081200000001', 0),
+    (c, 'SUP02', 'Toko Sembako Makmur', 'Bu Sari',  '081200000002', 14),
+    (c, 'SUP03', 'Kopi Nusantara',      'Mas Dimas','081200000003', 30);
+
+  return jsonb_build_object('company_id', c, 'outlet_id', v_outlet);
+end $$;
+
+-- >>>>>>>>>> migrations/006_users_settings.sql
+-- =====================================================================
+-- ERP RESTORAN - 006: USER, UNDANGAN, OUTLET
+--   Alur: owner mengundang email + role + outlet -> staf daftar akun
+--         dengan email tsb -> di halaman awal muncul undangan -> terima.
+-- =====================================================================
+
+create table sys_user_invitations (
+  id           uuid primary key default gen_random_uuid(),
+  company_id   uuid not null references sys_companies(id),
+  email        text not null check (email = lower(trim(email))),
+  role_id      uuid not null references sys_roles(id),
+  outlet_ids   uuid[] not null default '{}',
+  status       text not null default 'pending',   -- pending / accepted / cancelled
+  invited_by   uuid references sys_users(id),
+  accepted_by  uuid references sys_users(id),
+  accepted_at  timestamptz,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create unique index uq_sys_user_invitations_pending
+  on sys_user_invitations(company_id, email) where status = 'pending';
+
+select sys_attach_updated_at_triggers();
+select sys_apply_company_policies('sys_user_invitations', 'user.manage');
+
+-- Email user yang sedang login
+create or replace function sys_current_user_email()
+returns text language sql stable security definer set search_path = public as $$
+  select lower(email) from auth.users where id = auth.uid()
+$$;
+
+-- Undangan untuk email saya (dipanggil di halaman onboarding)
+create or replace function sys_get_my_invitations()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', i.id, 'company_name', c.name, 'role_name', r.name, 'created_at', i.created_at)
+         order by i.created_at desc), '[]'::jsonb)
+  from sys_user_invitations i
+  join sys_companies c on c.id = i.company_id
+  join sys_roles r on r.id = i.role_id
+  where i.status = 'pending' and i.email = sys_current_user_email()
+$$;
+
+create or replace function sys_accept_invitation(p_invitation_id uuid, p_full_name text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_inv sys_user_invitations%rowtype;
+begin
+  if auth.uid() is null then raise exception 'Anda belum login'; end if;
+  if exists (select 1 from sys_users where id = auth.uid()) then
+    raise exception 'Akun ini sudah terdaftar di sebuah perusahaan';
+  end if;
+
+  select * into v_inv from sys_user_invitations
+  where id = p_invitation_id and status = 'pending' and email = sys_current_user_email()
+  for update;
+  if not found then raise exception 'Undangan tidak ditemukan atau sudah tidak berlaku'; end if;
+
+  insert into sys_users (id, company_id, role_id, full_name)
+  values (auth.uid(), v_inv.company_id, v_inv.role_id, coalesce(nullif(trim(p_full_name), ''), split_part(v_inv.email, '@', 1)));
+
+  insert into sys_user_outlets (user_id, outlet_id)
+  select auth.uid(), o.id from sys_outlets o
+  where o.company_id = v_inv.company_id and o.id = any(v_inv.outlet_ids);
+
+  update sys_user_invitations
+     set status = 'accepted', accepted_by = auth.uid(), accepted_at = now()
+   where id = v_inv.id;
+end $$;
+
+-- Daftar user + email (email ada di auth.users, tidak bisa dibaca langsung dari aplikasi)
+create or replace function sys_list_users()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', u.id, 'full_name', u.full_name, 'email', au.email, 'is_active', u.is_active,
+           'role_id', u.role_id, 'role_name', r.name, 'role_code', r.code,
+           'outlet_ids', coalesce((select jsonb_agg(uo.outlet_id) from sys_user_outlets uo where uo.user_id = u.id), '[]'::jsonb),
+           'created_at', u.created_at)
+         order by u.created_at), '[]'::jsonb)
+  from sys_users u
+  join auth.users au on au.id = u.id
+  join sys_roles r on r.id = u.role_id
+  where u.company_id = sys_current_company_id() and sys_has_permission('user.manage')
+$$;
+
+-- Ubah role, outlet, status aktif user lain
+create or replace function sys_update_user(p_user_id uuid, p_role_id uuid, p_outlet_ids uuid[], p_is_active boolean)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_company uuid := sys_current_company_id();
+begin
+  if not sys_has_permission('user.manage') then raise exception 'Tidak punya izin mengelola user'; end if;
+  if p_user_id = auth.uid() then raise exception 'Tidak bisa mengubah akun sendiri'; end if;
+  if not exists (select 1 from sys_users where id = p_user_id and company_id = v_company) then
+    raise exception 'User tidak ditemukan';
+  end if;
+  if not exists (select 1 from sys_roles where id = p_role_id and company_id = v_company) then
+    raise exception 'Role tidak valid';
+  end if;
+
+  update sys_users set role_id = p_role_id, is_active = p_is_active where id = p_user_id;
+  delete from sys_user_outlets where user_id = p_user_id;
+  insert into sys_user_outlets (user_id, outlet_id)
+  select p_user_id, o.id from sys_outlets o where o.company_id = v_company and o.id = any(p_outlet_ids);
+end $$;
+
+-- Tambah outlet baru beserta gudangnya
+create or replace function sys_create_outlet(p_code text, p_name text, p_address text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company uuid := sys_current_company_id();
+  v_outlet  sys_outlets%rowtype;
+  v_wh      uuid;
+begin
+  if not sys_has_permission('settings.manage') then raise exception 'Tidak punya izin'; end if;
+  if coalesce(trim(p_code), '') = '' or coalesce(trim(p_name), '') = '' then
+    raise exception 'Kode dan nama outlet wajib diisi';
+  end if;
+
+  insert into sys_outlets (company_id, brand_id, code, name, address)
+  values (v_company, (select id from sys_brands where company_id = v_company order by created_at limit 1),
+          upper(trim(p_code)), trim(p_name), p_address)
+  returning * into v_outlet;
+
+  insert into inv_warehouses (company_id, outlet_id, code, name)
+  values (v_company, v_outlet.id, 'WH-' || v_outlet.code, 'Gudang ' || v_outlet.name)
+  returning id into v_wh;
+
+  update sys_outlets set default_warehouse_id = v_wh where id = v_outlet.id;
+  insert into sys_user_outlets (user_id, outlet_id) values (auth.uid(), v_outlet.id) on conflict do nothing;
+
+  return to_jsonb(v_outlet);
+end $$;
+
+revoke execute on function sys_current_user_email() from public, anon, authenticated;
+
+-- >>>>>>>>>> migrations/007_finance.sql
+-- =====================================================================
+-- ERP RESTORAN - 007: KEUANGAN (AKUNTANSI)
+--   * Bagan akun (COA) standar restoran
+--   * Jurnal OTOMATIS dari: penjualan (+HPP), penerimaan barang,
+--     penyesuaian/waste/opname stok, pembayaran supplier, biaya
+--   * Jurnal manual, laporan Laba Rugi / Neraca / Buku Besar
+--   Permission baru: finance.manage (input), finance.view (laporan)
+-- =====================================================================
+
+-- =====================================================================
+-- TABEL
+-- =====================================================================
+create table fin_accounts (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  parent_id       uuid references fin_accounts(id),
+  code            text not null,
+  name            text not null,
+  account_type    text not null,      -- asset / liability / equity / revenue / cogs / expense
+  normal_balance  text not null,      -- debit / credit
+  is_header       boolean not null default false,   -- header = pengelompokan, tidak bisa dijurnal
+  system_key      text,               -- dipakai jurnal otomatis: cash, bank, inventory, ap, ...
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (company_id, code),
+  unique (company_id, system_key),
+  check (account_type in ('asset', 'liability', 'equity', 'revenue', 'cogs', 'expense')),
+  check (normal_balance in ('debit', 'credit'))
+);
+
+create table fin_journals (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  outlet_id       uuid references sys_outlets(id),
+  journal_number  text not null,
+  journal_date    date not null,
+  source_type     text not null,
+    -- sales / purchase_receipt / stock_adjustment / stock_opname / supplier_payment
+    -- expense / manual / opening_stock
+  source_id       uuid,
+  description     text,
+  total_amount    numeric(15,2) not null default 0,
+  created_by      uuid references sys_users(id),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (company_id, journal_number)
+);
+
+create unique index uq_fin_journals_source on fin_journals(source_type, source_id)
+  where source_id is not null and source_type not in ('manual', 'expense');
+create index idx_fin_journals_date on fin_journals(company_id, journal_date);
+
+create table fin_journal_lines (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references sys_companies(id),
+  journal_id  uuid not null references fin_journals(id) on delete cascade,
+  account_id  uuid not null references fin_accounts(id),
+  outlet_id   uuid references sys_outlets(id),
+  debit       numeric(15,2) not null default 0 check (debit >= 0),
+  credit      numeric(15,2) not null default 0 check (credit >= 0),
+  note        text,
+  created_at  timestamptz not null default now(),
+  check (debit = 0 or credit = 0)
+);
+
+create index idx_fin_journal_lines_account on fin_journal_lines(account_id);
+create index idx_fin_journal_lines_journal on fin_journal_lines(journal_id);
+
+-- Akun kas/bank tujuan untuk setiap metode bayar
+alter table mst_payment_methods add column account_id uuid references fin_accounts(id);
+
+-- Hutang supplier
+alter table pur_goods_receipts add column paid_amount numeric(15,2) not null default 0;
+alter table pur_goods_receipts add column due_date date;
+
+create table fin_supplier_payments (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  supplier_id     uuid not null references pur_suppliers(id),
+  account_id      uuid not null references fin_accounts(id),   -- dibayar dari kas/bank
+  payment_number  text not null,
+  payment_date    date not null default current_date,
+  amount          numeric(15,2) not null check (amount > 0),
+  reference_number text,
+  note            text,
+  created_by      uuid references sys_users(id),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table fin_supplier_payment_items (
+  id                   uuid primary key default gen_random_uuid(),
+  company_id           uuid not null references sys_companies(id),
+  supplier_payment_id  uuid not null references fin_supplier_payments(id) on delete cascade,
+  goods_receipt_id     uuid not null references pur_goods_receipts(id),
+  amount               numeric(15,2) not null check (amount > 0),
+  created_at           timestamptz not null default now()
+);
+
+select sys_attach_updated_at_triggers();
+
+select sys_apply_company_policies('fin_accounts', 'finance.manage');
+select sys_apply_company_policies('fin_journals');              -- hanya lewat fungsi
+select sys_apply_company_policies('fin_journal_lines');
+select sys_apply_company_policies('fin_supplier_payments');
+select sys_apply_company_policies('fin_supplier_payment_items');
+
+-- Data keuangan hanya bisa dibaca role yang punya finance.view / finance.manage
+do $$
+declare t text;
+begin
+  foreach t in array array['fin_accounts', 'fin_journals', 'fin_journal_lines',
+                           'fin_supplier_payments', 'fin_supplier_payment_items'] loop
+    execute format('drop policy %I on %I', t || '_select', t);
+    execute format(
+      'create policy %I on %I for select to authenticated
+       using (company_id = sys_current_company_id()
+              and (sys_has_permission(''finance.view'') or sys_has_permission(''finance.manage'')))',
+      t || '_select', t);
+  end loop;
+end $$;
+
+-- =====================================================================
+-- COA STANDAR RESTORAN
+-- =====================================================================
+create or replace function fin_setup_default_accounts(p_company_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from fin_accounts where company_id = p_company_id) then return; end if;
+
+  insert into fin_accounts (company_id, code, name, account_type, normal_balance, is_header, system_key)
+  select p_company_id, a.code, a.name, a.type,
+         coalesce(a.normal, case when a.type in ('asset', 'cogs', 'expense') then 'debit' else 'credit' end),
+         a.header, a.skey
+  from (values
+    ('1-0000', 'ASET',                              'asset',     null::text, true,  null::text),
+    ('1-1100', 'Kas',                               'asset',     null, false, 'cash'),
+    ('1-1200', 'Bank',                              'asset',     null, false, 'bank'),
+    ('1-1300', 'Piutang Usaha',                     'asset',     null, false, 'ar'),
+    ('1-1400', 'Persediaan Bahan Baku',             'asset',     null, false, 'inventory'),
+    ('1-1500', 'Biaya Dibayar di Muka',             'asset',     null, false, null),
+    ('1-2100', 'Peralatan Dapur & Restoran',        'asset',     null, false, null),
+    ('1-2200', 'Akumulasi Penyusutan',              'asset',     'credit', false, null),
+    ('2-0000', 'KEWAJIBAN',                         'liability', null, true,  null),
+    ('2-1100', 'Hutang Usaha',                      'liability', null, false, 'ap'),
+    ('2-1200', 'Hutang Pajak Restoran (PB1)',       'liability', null, false, 'tax_payable'),
+    ('2-1300', 'Hutang Gaji',                       'liability', null, false, null),
+    ('3-0000', 'EKUITAS',                           'equity',    null, true,  null),
+    ('3-1100', 'Modal Pemilik',                     'equity',    null, false, 'owner_equity'),
+    ('3-1200', 'Ekuitas Saldo Awal',                'equity',    null, false, 'opening_equity'),
+    ('3-1300', 'Prive / Penarikan Pemilik',         'equity',    'debit', false, null),
+    ('4-0000', 'PENDAPATAN',                        'revenue',   null, true,  null),
+    ('4-1100', 'Penjualan Makanan & Minuman',       'revenue',   null, false, 'sales_revenue'),
+    ('4-1200', 'Pendapatan Service Charge',         'revenue',   null, false, 'service_revenue'),
+    ('4-1300', 'Diskon Penjualan',                  'revenue',   'debit', false, 'sales_discount'),
+    ('4-1400', 'Selisih Pembulatan',                'revenue',   null, false, 'rounding'),
+    ('4-1500', 'Pendapatan Lain-lain',              'revenue',   null, false, null),
+    ('5-0000', 'HARGA POKOK PENJUALAN',             'cogs',      null, true,  null),
+    ('5-1100', 'HPP Bahan Baku',                    'cogs',      null, false, 'cogs'),
+    ('5-1200', 'Bahan Terbuang (Waste)',            'cogs',      null, false, 'waste_expense'),
+    ('5-1300', 'Selisih Stok',                      'cogs',      null, false, 'inventory_adjustment'),
+    ('6-0000', 'BEBAN OPERASIONAL',                 'expense',   null, true,  null),
+    ('6-1100', 'Beban Gaji & Upah',                 'expense',   null, false, null),
+    ('6-1200', 'Beban Sewa Tempat',                 'expense',   null, false, null),
+    ('6-1300', 'Beban Listrik, Air & Gas',          'expense',   null, false, null),
+    ('6-1400', 'Beban Internet & Telepon',          'expense',   null, false, null),
+    ('6-1500', 'Beban Pemasaran & Promosi',         'expense',   null, false, null),
+    ('6-1600', 'Beban Perlengkapan & Kemasan',      'expense',   null, false, null),
+    ('6-1700', 'Beban Komisi Ojek Online',          'expense',   null, false, null),
+    ('6-1800', 'Beban Admin Bank & MDR',            'expense',   null, false, null),
+    ('6-1900', 'Beban Perbaikan & Perawatan',       'expense',   null, false, null),
+    ('6-2000', 'Beban Penyusutan',                  'expense',   null, false, null),
+    ('6-9900', 'Beban Lain-lain',                   'expense',   null, false, null)
+  ) as a(code, name, type, normal, header, skey);
+
+  -- induk = header dengan digit pertama yang sama
+  update fin_accounts a set parent_id = h.id
+  from fin_accounts h
+  where a.company_id = p_company_id and h.company_id = p_company_id
+    and h.is_header and not a.is_header and left(a.code, 1) = left(h.code, 1);
+
+  -- metode bayar: tunai -> Kas, lainnya -> Bank
+  update mst_payment_methods m set account_id = (
+    select id from fin_accounts
+    where company_id = p_company_id and system_key = case when m.type = 'cash' then 'cash' else 'bank' end)
+  where m.company_id = p_company_id and m.account_id is null;
+end $$;
+
+create or replace function fin_account_id(p_company_id uuid, p_key text)
+returns uuid language plpgsql stable security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  select id into v_id from fin_accounts where company_id = p_company_id and system_key = p_key;
+  if v_id is null then raise exception 'Akun sistem "%" belum ada. Jalankan setup akun.', p_key; end if;
+  return v_id;
+end $$;
+
+-- =====================================================================
+-- MESIN JURNAL
+-- p_lines: [{ "account_id": uuid, "debit": 0, "credit": 0, "note": "" }]
+-- Baris bernilai 0 dilewati. Debit harus = kredit.
+-- =====================================================================
+create or replace function fin_create_journal(
+  p_company_id uuid, p_outlet_id uuid, p_date date, p_source_type text, p_source_id uuid,
+  p_description text, p_lines jsonb
+)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_id     uuid;
+  v_debit  numeric(15,2);
+  v_credit numeric(15,2);
+begin
+  select coalesce(sum(round(coalesce((l->>'debit')::numeric, 0), 2)), 0),
+         coalesce(sum(round(coalesce((l->>'credit')::numeric, 0), 2)), 0)
+    into v_debit, v_credit
+  from jsonb_array_elements(p_lines) l;
+
+  if v_debit <> v_credit then
+    raise exception 'Jurnal tidak seimbang: debit % <> kredit %', v_debit, v_credit;
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(p_lines) l
+    where round(coalesce((l->>'debit')::numeric, 0), 2) <> 0 or round(coalesce((l->>'credit')::numeric, 0), 2) <> 0) then
+    return null;
+  end if;
+
+  insert into fin_journals (company_id, outlet_id, journal_number, journal_date, source_type, source_id,
+                            description, created_by)
+  values (p_company_id, p_outlet_id, sys_next_document_number(p_company_id, 'JRN', p_date), p_date,
+          p_source_type, p_source_id, p_description, auth.uid())
+  returning id into v_id;
+
+  insert into fin_journal_lines (company_id, journal_id, account_id, outlet_id, debit, credit, note)
+  select p_company_id, v_id, (l->>'account_id')::uuid, p_outlet_id,
+         -- angka negatif dipindah ke sisi seberangnya
+         greatest(round(coalesce((l->>'debit')::numeric, 0), 2), 0) + greatest(-round(coalesce((l->>'credit')::numeric, 0), 2), 0),
+         greatest(round(coalesce((l->>'credit')::numeric, 0), 2), 0) + greatest(-round(coalesce((l->>'debit')::numeric, 0), 2), 0),
+         nullif(l->>'note', '')
+  from jsonb_array_elements(p_lines) l
+  where round(coalesce((l->>'debit')::numeric, 0), 2) <> 0 or round(coalesce((l->>'credit')::numeric, 0), 2) <> 0;
+
+  update fin_journals set total_amount = (select sum(debit) from fin_journal_lines where journal_id = v_id)
+  where id = v_id;
+
+  return v_id;
+end $$;
+
+-- Nilai persediaan dari kartu stok sebuah dokumen (negatif = keluar)
+create or replace function fin_stock_value(p_reference_type text, p_reference_id uuid)
+returns numeric language sql stable security definer set search_path = public as $$
+  select coalesce(round(sum(quantity * coalesce(unit_cost, 0)), 2), 0)
+  from inv_stock_movements where reference_type = p_reference_type and reference_id = p_reference_id
+$$;
+
+-- =====================================================================
+-- JURNAL OTOMATIS
+-- =====================================================================
+
+-- Penjualan:  Dr Kas/Bank, Dr Diskon | Cr Penjualan, Cr Service, Cr PB1, +/- Pembulatan
+-- HPP:        Dr HPP | Cr Persediaan
+create or replace function fin_post_sales_journal(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  o       pos_orders%rowtype;
+  c       uuid;
+  v_lines jsonb;
+  v_cogs  numeric;
+begin
+  select * into o from pos_orders where id = p_order_id and status = 'paid';
+  if not found then return; end if;
+  if exists (select 1 from fin_journals where source_type = 'sales' and source_id = o.id) then return; end if;
+  c := o.company_id;
+  if not exists (select 1 from fin_accounts where company_id = c) then return; end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'account_id', coalesce(m.account_id, fin_account_id(c, 'cash')),
+           'debit', p.amount - p.change_amount, 'note', m.name)), '[]'::jsonb)
+    into v_lines
+  from pos_payments p join mst_payment_methods m on m.id = p.payment_method_id
+  where p.order_id = o.id;
+
+  v_cogs := -fin_stock_value('pos_orders', o.id);
+
+  v_lines := v_lines || jsonb_build_array(
+    jsonb_build_object('account_id', fin_account_id(c, 'sales_discount'),  'debit',  o.discount_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'sales_revenue'),   'credit', o.subtotal),
+    jsonb_build_object('account_id', fin_account_id(c, 'service_revenue'), 'credit', o.service_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'tax_payable'),     'credit', o.tax_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'rounding'),        'credit', o.rounding_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'cogs'),            'debit',  v_cogs),
+    jsonb_build_object('account_id', fin_account_id(c, 'inventory'),       'credit', v_cogs)
+  );
+
+  perform fin_create_journal(c, o.outlet_id, o.business_date, 'sales', o.id,
+                             'Penjualan ' || o.order_number, v_lines);
+end $$;
+
+-- Penerimaan barang: Dr Persediaan | Cr Hutang Usaha
+create or replace function fin_post_goods_receipt_journal(p_receipt_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  g pur_goods_receipts%rowtype;
+  v_supplier text;
+begin
+  select * into g from pur_goods_receipts where id = p_receipt_id and status = 'posted';
+  if not found or not exists (select 1 from fin_accounts where company_id = g.company_id) then return; end if;
+  if exists (select 1 from fin_journals where source_type = 'purchase_receipt' and source_id = g.id) then return; end if;
+  select name into v_supplier from pur_suppliers where id = g.supplier_id;
+
+  perform fin_create_journal(g.company_id, null, g.receipt_date, 'purchase_receipt', g.id,
+    'Pembelian ' || g.receipt_number || ' - ' || v_supplier,
+    jsonb_build_array(
+      jsonb_build_object('account_id', fin_account_id(g.company_id, 'inventory'), 'debit', g.grand_total),
+      jsonb_build_object('account_id', fin_account_id(g.company_id, 'ap'), 'credit', g.grand_total)));
+end $$;
+
+-- Penyesuaian / waste / opname:  selisih nilai stok vs akun Selisih Stok / Waste
+create or replace function fin_post_stock_document_journal(
+  p_company_id uuid, p_reference_type text, p_reference_id uuid, p_date date,
+  p_number text, p_counter_key text, p_source_type text
+)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_value numeric;
+begin
+  if not exists (select 1 from fin_accounts where company_id = p_company_id) then return; end if;
+  if exists (select 1 from fin_journals where source_type = p_source_type and source_id = p_reference_id) then return; end if;
+  v_value := fin_stock_value(p_reference_type, p_reference_id);
+
+  perform fin_create_journal(p_company_id, null, p_date, p_source_type, p_reference_id,
+    'Stok ' || p_number,
+    jsonb_build_array(
+      jsonb_build_object('account_id', fin_account_id(p_company_id, 'inventory'),  'debit',  v_value),
+      jsonb_build_object('account_id', fin_account_id(p_company_id, p_counter_key), 'credit', v_value)));
+end $$;
+
+-- Trigger: dipanggil setelah dokumen berstatus posted
+create or replace function fin_on_document_posted()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'pur_goods_receipts' then
+    perform fin_post_goods_receipt_journal(new.id);
+  elsif tg_table_name = 'inv_stock_adjustments' then
+    perform fin_post_stock_document_journal(new.company_id, 'inv_stock_adjustments', new.id, new.adjustment_date,
+      new.adjustment_number,
+      case when new.adjustment_type = 'waste' then 'waste_expense' else 'inventory_adjustment' end,
+      'stock_adjustment');
+  elsif tg_table_name = 'inv_stock_opnames' then
+    perform fin_post_stock_document_journal(new.company_id, 'inv_stock_opnames', new.id, new.opname_date,
+      new.opname_number, 'inventory_adjustment', 'stock_opname');
+  end if;
+  return new;
+end $$;
+
+create trigger trg_pur_goods_receipts_journal after update of status on pur_goods_receipts
+  for each row when (new.status = 'posted' and old.status is distinct from 'posted')
+  execute function fin_on_document_posted();
+create trigger trg_inv_stock_adjustments_journal after update of status on inv_stock_adjustments
+  for each row when (new.status = 'posted' and old.status is distinct from 'posted')
+  execute function fin_on_document_posted();
+create trigger trg_inv_stock_opnames_journal after update of status on inv_stock_opnames
+  for each row when (new.status = 'posted' and old.status is distinct from 'posted')
+  execute function fin_on_document_posted();
+
+-- Order lunas: potong stok DULU, baru jurnal (supaya HPP terhitung)
+create or replace function pos_on_order_paid()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform inv_post_order_consumption(new.id);
+  perform fin_post_sales_journal(new.id);
+  return new;
+end $$;
+
+-- Jatuh tempo hutang = tanggal terima + termin supplier
+create or replace function pur_set_receipt_due_date()
+returns trigger language plpgsql as $$
+begin
+  if new.status = 'posted' and new.due_date is null then
+    new.due_date := new.receipt_date + coalesce(
+      (select payment_term_days from pur_suppliers where id = new.supplier_id), 0);
+  end if;
+  return new;
+end $$;
+
+create trigger trg_pur_goods_receipts_due_date before update of status on pur_goods_receipts
+  for each row execute function pur_set_receipt_due_date();
+
+-- Stok awal (movement tanpa dokumen): Dr Persediaan | Cr Ekuitas Saldo Awal
+create or replace function fin_post_opening_stock_journal(p_company_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_value numeric;
+begin
+  if exists (select 1 from fin_journals where company_id = p_company_id and source_type = 'opening_stock') then return; end if;
+  select coalesce(round(sum(quantity * coalesce(unit_cost, 0)), 2), 0) into v_value
+  from inv_stock_movements where company_id = p_company_id and reference_id is null;
+
+  perform fin_create_journal(p_company_id, null, current_date, 'opening_stock', p_company_id,
+    'Saldo awal persediaan',
+    jsonb_build_array(
+      jsonb_build_object('account_id', fin_account_id(p_company_id, 'inventory'), 'debit', v_value),
+      jsonb_build_object('account_id', fin_account_id(p_company_id, 'opening_equity'), 'credit', v_value)));
+end $$;
+
+-- =====================================================================
+-- FUNGSI UNTUK APLIKASI
+-- =====================================================================
+
+-- Catat biaya operasional: Dr Beban | Cr Kas/Bank
+create or replace function fin_record_expense(
+  p_date date, p_expense_account_id uuid, p_paid_from_account_id uuid,
+  p_amount numeric, p_description text, p_outlet_id uuid default null
+)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_company uuid := sys_current_company_id();
+begin
+  if not sys_has_permission('finance.manage') then raise exception 'Tidak punya izin'; end if;
+  if p_amount is null or p_amount <= 0 then raise exception 'Nominal harus lebih dari 0'; end if;
+  if not exists (select 1 from fin_accounts where id = p_expense_account_id and company_id = v_company and not is_header)
+     or not exists (select 1 from fin_accounts where id = p_paid_from_account_id and company_id = v_company and not is_header) then
+    raise exception 'Akun tidak valid';
+  end if;
+
+  return fin_create_journal(v_company, p_outlet_id, coalesce(p_date, current_date), 'expense', null,
+    coalesce(nullif(trim(p_description), ''), 'Biaya operasional'),
+    jsonb_build_array(
+      jsonb_build_object('account_id', p_expense_account_id, 'debit', p_amount),
+      jsonb_build_object('account_id', p_paid_from_account_id, 'credit', p_amount)));
+end $$;
+
+-- Jurnal manual (bebas, harus seimbang)
+create or replace function fin_post_manual_journal(p_date date, p_description text, p_lines jsonb)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_company uuid := sys_current_company_id();
+begin
+  if not sys_has_permission('finance.manage') then raise exception 'Tidak punya izin'; end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_lines) l
+    where not exists (select 1 from fin_accounts a
+                      where a.id = (l->>'account_id')::uuid and a.company_id = v_company and not a.is_header)) then
+    raise exception 'Ada akun yang tidak valid / akun header';
+  end if;
+  return fin_create_journal(v_company, null, coalesce(p_date, current_date), 'manual', null, p_description, p_lines);
+end $$;
+
+-- Bayar hutang supplier
+-- p_allocations: [{ "goods_receipt_id": uuid, "amount": 100000 }]
+create or replace function fin_pay_supplier(
+  p_supplier_id uuid, p_account_id uuid, p_payment_date date, p_allocations jsonb, p_reference_number text default null
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company uuid := sys_current_company_id();
+  v_total   numeric(15,2);
+  v_pay     fin_supplier_payments%rowtype;
+  v_alloc   jsonb;
+  v_gr      pur_goods_receipts%rowtype;
+begin
+  if not sys_has_permission('finance.manage') then raise exception 'Tidak punya izin'; end if;
+  if not exists (select 1 from fin_accounts
+                 where id = p_account_id and company_id = v_company and account_type = 'asset' and not is_header) then
+    raise exception 'Akun pembayaran tidak valid';
+  end if;
+
+  select coalesce(sum((a->>'amount')::numeric), 0) into v_total from jsonb_array_elements(p_allocations) a;
+  if v_total <= 0 then raise exception 'Nominal pembayaran harus lebih dari 0'; end if;
+
+  insert into fin_supplier_payments (company_id, supplier_id, account_id, payment_number, payment_date,
+                                     amount, reference_number, created_by)
+  values (v_company, p_supplier_id, p_account_id,
+          sys_next_document_number(v_company, 'PAY', coalesce(p_payment_date, current_date)),
+          coalesce(p_payment_date, current_date), v_total, p_reference_number, auth.uid())
+  returning * into v_pay;
+
+  for v_alloc in select * from jsonb_array_elements(p_allocations) loop
+    if (v_alloc->>'amount')::numeric <= 0 then continue; end if;
+    select * into v_gr from pur_goods_receipts
+    where id = (v_alloc->>'goods_receipt_id')::uuid and company_id = v_company
+      and supplier_id = p_supplier_id and status = 'posted'
+    for update;
+    if not found then raise exception 'Penerimaan barang tidak valid untuk supplier ini'; end if;
+    if v_gr.paid_amount + (v_alloc->>'amount')::numeric > v_gr.grand_total then
+      raise exception 'Pembayaran % melebihi sisa hutang', v_gr.receipt_number;
+    end if;
+
+    insert into fin_supplier_payment_items (company_id, supplier_payment_id, goods_receipt_id, amount)
+    values (v_company, v_pay.id, v_gr.id, (v_alloc->>'amount')::numeric);
+    update pur_goods_receipts set paid_amount = paid_amount + (v_alloc->>'amount')::numeric where id = v_gr.id;
+  end loop;
+
+  perform fin_create_journal(v_company, null, v_pay.payment_date, 'supplier_payment', v_pay.id,
+    'Pembayaran supplier ' || v_pay.payment_number,
+    jsonb_build_array(
+      jsonb_build_object('account_id', fin_account_id(v_company, 'ap'), 'debit', v_total),
+      jsonb_build_object('account_id', p_account_id, 'credit', v_total)));
+
+  return to_jsonb(v_pay);
+end $$;
+
+-- Saldo akun untuk Neraca Saldo / Laba Rugi / Neraca
+--   opening = saldo sebelum p_from, period = mutasi p_from..p_to, closing = opening + period
+--   Saldo bertanda sesuai normal balance (positif = saldo normal)
+create or replace function fin_get_account_balances(p_from date, p_to date, p_outlet_id uuid default null)
+returns table (
+  account_id uuid, code text, name text, account_type text, normal_balance text, is_header boolean,
+  system_key text, opening_balance numeric, period_debit numeric, period_credit numeric,
+  period_balance numeric, closing_balance numeric
+)
+language sql stable security invoker set search_path = public as $$
+  with mv as (
+    select l.account_id,
+           sum(case when j.journal_date <  p_from then l.debit - l.credit else 0 end) as opening_dc,
+           sum(case when j.journal_date >= p_from then l.debit  else 0 end)          as period_debit,
+           sum(case when j.journal_date >= p_from then l.credit else 0 end)          as period_credit
+    from fin_journal_lines l
+    join fin_journals j on j.id = l.journal_id
+    where j.journal_date <= p_to and (p_outlet_id is null or l.outlet_id = p_outlet_id)
+    group by l.account_id
+  )
+  select a.id, a.code, a.name, a.account_type, a.normal_balance, a.is_header, a.system_key,
+         s.sign * coalesce(mv.opening_dc, 0),
+         coalesce(mv.period_debit, 0), coalesce(mv.period_credit, 0),
+         s.sign * (coalesce(mv.period_debit, 0) - coalesce(mv.period_credit, 0)),
+         s.sign * (coalesce(mv.opening_dc, 0) + coalesce(mv.period_debit, 0) - coalesce(mv.period_credit, 0))
+  from fin_accounts a
+  cross join lateral (select case when a.normal_balance = 'debit' then 1 else -1 end as sign) s
+  left join mv on mv.account_id = a.id
+  order by a.code
+$$;
+
+-- Daftar hutang per penerimaan barang
+create view rpt_payables with (security_invoker = true) as
+select g.company_id, g.id as goods_receipt_id, g.receipt_number, g.receipt_date, g.due_date,
+       g.supplier_id, s.name as supplier_name, g.supplier_invoice_number,
+       g.grand_total, g.paid_amount, g.grand_total - g.paid_amount as outstanding_amount,
+       coalesce(g.due_date < current_date, false) and g.grand_total > g.paid_amount as is_overdue
+from pur_goods_receipts g
+join pur_suppliers s on s.id = g.supplier_id
+where g.status = 'posted';
+
+-- =====================================================================
+-- ONBOARDING: tambah COA + jurnal stok awal untuk perusahaan baru
+-- =====================================================================
+-- Metode bayar baru otomatis diarahkan ke akun Kas / Bank
+create or replace function mst_on_payment_method_created()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.account_id is null and exists (select 1 from fin_accounts where company_id = new.company_id) then
+    new.account_id := fin_account_id(new.company_id, case when new.type = 'cash' then 'cash' else 'bank' end);
+  end if;
+  return new;
+end $$;
+
+create trigger trg_mst_payment_methods_account before insert on mst_payment_methods
+  for each row execute function mst_on_payment_method_created();
+
+-- Bungkus fungsi onboarding lama: setelah selesai, siapkan keuangan
+alter function sys_onboard_company(text, text, text, boolean) rename to sys_onboard_company_base;
+revoke execute on function sys_onboard_company_base(text, text, text, boolean) from public, anon, authenticated;
+
+create or replace function sys_onboard_company(
+  p_company_name text, p_outlet_name text, p_full_name text, p_with_demo_data boolean default true
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_result jsonb;
+begin
+  v_result := sys_onboard_company_base(p_company_name, p_outlet_name, p_full_name, p_with_demo_data);
+  perform fin_setup_default_accounts((v_result->>'company_id')::uuid);
+  perform fin_post_opening_stock_journal((v_result->>'company_id')::uuid);
+  return v_result;
+end $$;
+
+-- =====================================================================
+-- PERMISSION & DATA LAMA
+-- =====================================================================
+-- Manager boleh melihat laporan keuangan
+update sys_roles set permissions = permissions || '["finance.view"]'::jsonb
+where code = 'manager' and not permissions ? 'finance.view';
+
+-- Siapkan COA & jurnal untuk perusahaan yang sudah ada (idempotent)
+do $$
+declare r record;
+begin
+  for r in select id from sys_companies loop
+    perform fin_setup_default_accounts(r.id);
+    perform fin_post_opening_stock_journal(r.id);
+  end loop;
+  for r in select id from pur_goods_receipts where status = 'posted' order by posted_at loop
+    perform fin_post_goods_receipt_journal(r.id);
+  end loop;
+  for r in select id, company_id, adjustment_date, adjustment_number, adjustment_type
+           from inv_stock_adjustments where status = 'posted' loop
+    perform fin_post_stock_document_journal(r.company_id, 'inv_stock_adjustments', r.id, r.adjustment_date,
+      r.adjustment_number, case when r.adjustment_type = 'waste' then 'waste_expense' else 'inventory_adjustment' end,
+      'stock_adjustment');
+  end loop;
+  for r in select id, company_id, opname_date, opname_number from inv_stock_opnames where status = 'posted' loop
+    perform fin_post_stock_document_journal(r.company_id, 'inv_stock_opnames', r.id, r.opname_date,
+      r.opname_number, 'inventory_adjustment', 'stock_opname');
+  end loop;
+  for r in select id from pos_orders where status = 'paid' order by paid_at loop
+    perform fin_post_sales_journal(r.id);
+  end loop;
+  update pur_goods_receipts g set due_date = g.receipt_date + s.payment_term_days
+  from pur_suppliers s where s.id = g.supplier_id and g.status = 'posted' and g.due_date is null;
+end $$;
+
+-- =====================================================================
+-- KUNCI FUNGSI INTERNAL
+-- =====================================================================
+revoke execute on function fin_setup_default_accounts(uuid)                                         from public, anon, authenticated;
+revoke execute on function fin_account_id(uuid, text)                                               from public, anon, authenticated;
+revoke execute on function fin_create_journal(uuid, uuid, date, text, uuid, text, jsonb)            from public, anon, authenticated;
+revoke execute on function fin_stock_value(text, uuid)                                              from public, anon, authenticated;
+revoke execute on function fin_post_sales_journal(uuid)                                             from public, anon, authenticated;
+revoke execute on function fin_post_goods_receipt_journal(uuid)                                     from public, anon, authenticated;
+revoke execute on function fin_post_stock_document_journal(uuid, text, uuid, date, text, text, text) from public, anon, authenticated;
+revoke execute on function fin_post_opening_stock_journal(uuid)                                     from public, anon, authenticated;
+
+-- >>>>>>>>>> migrations/008_crm_promotions.sql
+-- =====================================================================
+-- ERP RESTORAN - 008: PELANGGAN (MEMBER & POIN) + PROMO / VOUCHER
+--   Permission baru: crm.manage (kelola pelanggan, promo, pengaturan poin)
+-- =====================================================================
+
+-- =====================================================================
+-- TABEL
+-- =====================================================================
+create table crm_settings (
+  company_id           uuid primary key references sys_companies(id),
+  is_points_enabled    boolean not null default true,
+  earn_amount          numeric(15,2) not null default 10000,  -- belanja Rp X = 1 poin
+  redeem_value         numeric(15,2) not null default 100,    -- 1 poin = Rp Y
+  min_redeem_points    int not null default 100,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now(),
+  check (earn_amount > 0 and redeem_value >= 0 and min_redeem_points >= 0)
+);
+
+create table crm_membership_tiers (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references sys_companies(id),
+  name               text not null,                 -- Regular, Silver, Gold
+  min_total_spent    numeric(15,2) not null default 0,
+  point_multiplier   numeric(5,2) not null default 1,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (company_id, name)
+);
+
+create table crm_customers (
+  id              uuid primary key default gen_random_uuid(),
+  company_id      uuid not null references sys_companies(id),
+  code            text not null,
+  name            text not null,
+  phone           text not null check (phone ~ '^[0-9]{8,15}$'),   -- hanya angka, mis. 6281234567890
+  email           text,
+  birth_date      date,
+  note            text,
+  tier_id         uuid references crm_membership_tiers(id),
+  points_balance  int not null default 0,
+  total_spent     numeric(15,2) not null default 0,
+  visit_count     int not null default 0,
+  last_visit_at   timestamptz,
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (company_id, code),
+  unique (company_id, phone)
+);
+
+create table crm_point_transactions (
+  id                uuid primary key default gen_random_uuid(),
+  company_id        uuid not null references sys_companies(id),
+  customer_id       uuid not null references crm_customers(id) on delete cascade,
+  order_id          uuid references pos_orders(id),
+  transaction_type  text not null,     -- earn / redeem / adjust
+  points            int not null,      -- + masuk, - keluar
+  balance_after     int not null,
+  note              text,
+  created_by        uuid references sys_users(id),
+  created_at        timestamptz not null default now()
+);
+
+create index idx_crm_point_transactions_customer on crm_point_transactions(customer_id, created_at);
+
+create table crm_promotions (
+  id                        uuid primary key default gen_random_uuid(),
+  company_id                uuid not null references sys_companies(id),
+  name                      text not null,
+  voucher_code              text,             -- null = promo otomatis
+  discount_type             text not null default 'percent',   -- percent / amount
+  discount_value            numeric(15,2) not null check (discount_value > 0),
+  max_discount              numeric(15,2),    -- batas maksimal potongan (untuk persen)
+  min_subtotal              numeric(15,2) not null default 0,
+  start_date                date,
+  end_date                  date,
+  days_of_week              int[],            -- 1=Senin ... 7=Minggu, null = setiap hari
+  start_time                time,             -- happy hour, null = sepanjang hari
+  end_time                  time,
+  outlet_ids                uuid[],           -- null = semua outlet
+  sales_channels            text[],           -- null = semua kanal
+  menu_item_ids             uuid[],           -- null & category null = semua menu
+  menu_category_ids         uuid[],
+  requires_member           boolean not null default false,
+  usage_limit               int,              -- kuota total, null = tanpa batas
+  usage_count               int not null default 0,
+  per_customer_limit        int,
+  is_active                 boolean not null default true,
+  created_at                timestamptz not null default now(),
+  updated_at                timestamptz not null default now(),
+  check (discount_type in ('percent', 'amount')),
+  check (discount_type <> 'percent' or discount_value <= 100)
+);
+
+create unique index uq_crm_promotions_voucher on crm_promotions(company_id, upper(voucher_code)) where voucher_code is not null;
+
+-- Kolom baru di order
+alter table pos_orders add column customer_id      uuid references crm_customers(id);
+alter table pos_orders add column promotion_id     uuid references crm_promotions(id);
+alter table pos_orders add column promotion_amount numeric(15,2) not null default 0;
+alter table pos_orders add column points_redeemed  int not null default 0;
+alter table pos_orders add column points_amount    numeric(15,2) not null default 0;
+alter table pos_orders add column points_earned    int not null default 0;
+create index idx_pos_orders_customer on pos_orders(customer_id);
+
+select sys_attach_updated_at_triggers();
+
+select sys_apply_company_policies('crm_settings', 'crm.manage');
+select sys_apply_company_policies('crm_membership_tiers', 'crm.manage');
+select sys_apply_company_policies('crm_promotions', 'crm.manage');
+select sys_apply_company_policies('crm_point_transactions');   -- hanya lewat fungsi
+select sys_apply_company_policies('crm_customers', 'crm.manage');
+
+-- Saldo poin & statistik tidak boleh diubah langsung
+revoke update on crm_customers from authenticated, anon;
+grant update (name, phone, email, birth_date, note, is_active) on crm_customers to authenticated;
+
+-- =====================================================================
+-- HELPER
+-- =====================================================================
+create or replace function crm_get_settings(p_company_id uuid)
+returns crm_settings language plpgsql security definer set search_path = public as $$
+declare v crm_settings%rowtype;
+begin
+  insert into crm_settings (company_id) values (p_company_id) on conflict do nothing;
+  select * into v from crm_settings where company_id = p_company_id;
+  return v;
+end $$;
+
+-- Daftarkan member (boleh dilakukan kasir dari POS)
+create or replace function crm_register_customer(p_name text, p_phone text, p_email text default null, p_birth_date date default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company uuid := sys_current_company_id();
+  v_phone   text := regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g');
+  v_cust    crm_customers%rowtype;
+begin
+  if not (sys_has_permission('pos.order') or sys_has_permission('crm.manage')) then
+    raise exception 'Tidak punya izin mendaftarkan pelanggan';
+  end if;
+  if coalesce(trim(p_name), '') = '' then raise exception 'Nama wajib diisi'; end if;
+  if v_phone like '0%' then v_phone := '62' || substr(v_phone, 2); end if;
+  if v_phone !~ '^[0-9]{8,15}$' then raise exception 'Nomor HP tidak valid'; end if;
+  if exists (select 1 from crm_customers where company_id = v_company and phone = v_phone) then
+    raise exception 'Nomor HP % sudah terdaftar', v_phone;
+  end if;
+
+  insert into crm_customers (company_id, code, name, phone, email, birth_date, tier_id)
+  values (v_company, 'MBR-' || lpad(sys_next_sequence(v_company, 'MBR')::text, 6, '0'),
+          trim(p_name), v_phone, nullif(trim(p_email), ''), p_birth_date,
+          (select id from crm_membership_tiers where company_id = v_company order by min_total_spent limit 1))
+  returning * into v_cust;
+  return to_jsonb(v_cust);
+end $$;
+
+-- Cari member dari POS (kasir tidak perlu crm.manage)
+create or replace function crm_search_customers(p_query text)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(x order by x->>'name'), '[]'::jsonb) from (
+    select jsonb_build_object('id', c.id, 'code', c.code, 'name', c.name, 'phone', c.phone,
+                              'points_balance', c.points_balance, 'tier_name', t.name) x
+    from crm_customers c left join crm_membership_tiers t on t.id = c.tier_id
+    where c.company_id = sys_current_company_id() and c.is_active
+      and (sys_has_permission('pos.order') or sys_has_permission('crm.manage'))
+      and length(trim(coalesce(p_query, ''))) >= 2
+      and (c.name ilike '%' || trim(p_query) || '%' or c.phone like '%' || regexp_replace(p_query, '[^0-9]', '', 'g') || '%'
+           or c.code ilike '%' || trim(p_query) || '%')
+    limit 20
+  ) s
+$$;
+
+-- Hitung potongan sebuah promo untuk sebuah order. null = tidak memenuhi syarat.
+create or replace function crm_calculate_promotion(p_order_id uuid, p_promotion_id uuid)
+returns numeric language plpgsql stable security definer set search_path = public as $$
+declare
+  p          crm_promotions%rowtype;
+  o          pos_orders%rowtype;
+  v_local    timestamp;
+  v_eligible numeric(15,2);
+  v_disc     numeric(15,2);
+begin
+  select * into p from crm_promotions where id = p_promotion_id and is_active;
+  if not found then return null; end if;
+  select * into o from pos_orders where id = p_order_id and company_id = p.company_id;
+  if not found then return null; end if;
+
+  select now() at time zone timezone into v_local from sys_outlets where id = o.outlet_id;
+
+  if p.start_date is not null and v_local::date < p.start_date then return null; end if;
+  if p.end_date   is not null and v_local::date > p.end_date   then return null; end if;
+  if p.days_of_week is not null and not (extract(isodow from v_local)::int = any(p.days_of_week)) then return null; end if;
+  if p.start_time is not null and v_local::time < p.start_time then return null; end if;
+  if p.end_time   is not null and v_local::time > p.end_time   then return null; end if;
+  if p.outlet_ids is not null and not (o.outlet_id = any(p.outlet_ids)) then return null; end if;
+  if p.sales_channels is not null and not (o.sales_channel = any(p.sales_channels)) then return null; end if;
+  if p.usage_limit is not null and p.usage_count >= p.usage_limit then return null; end if;
+  if p.requires_member and o.customer_id is null then return null; end if;
+  if p.per_customer_limit is not null and o.customer_id is not null and (
+       select count(*) from pos_orders
+       where customer_id = o.customer_id and promotion_id = p.id and status = 'paid') >= p.per_customer_limit then
+    return null;
+  end if;
+
+  select coalesce(sum(oi.line_total), 0) into v_eligible
+  from pos_order_items oi join mst_menu_items mi on mi.id = oi.menu_item_id
+  where oi.order_id = o.id and not oi.is_void
+    and ((p.menu_item_ids is null and p.menu_category_ids is null)
+         or mi.id = any(coalesce(p.menu_item_ids, '{}'))
+         or mi.menu_category_id = any(coalesce(p.menu_category_ids, '{}')));
+
+  if v_eligible <= 0 or v_eligible < p.min_subtotal then return null; end if;
+
+  v_disc := case when p.discount_type = 'percent' then round(v_eligible * p.discount_value / 100)
+                 else least(p.discount_value, v_eligible) end;
+  if p.max_discount is not null then v_disc := least(v_disc, p.max_discount); end if;
+  return v_disc;
+end $$;
+
+-- =====================================================================
+-- HITUNG ULANG ORDER (versi baru: + promo + tukar poin)
+--   subtotal - diskon manual - promo - poin -> + service -> + pajak -> pembulatan
+--   Tanpa voucher, promo otomatis terbaik dipilih sendiri (mis. happy hour).
+-- =====================================================================
+create or replace function pos_recalculate_order(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_order    pos_orders%rowtype;
+  v_outlet   sys_outlets%rowtype;
+  v_settings crm_settings%rowtype;
+  v_sub      numeric(15,2);
+  v_promo_id uuid;
+  v_promo    numeric(15,2) := 0;
+  v_points   numeric(15,2) := 0;
+  v_base     numeric(15,2);
+  v_service  numeric(15,2);
+  v_tax      numeric(15,2);
+  v_raw      numeric(15,2);
+  v_total    numeric(15,2);
+begin
+  select * into v_order from pos_orders where id = p_order_id;
+  select * into v_outlet from sys_outlets where id = v_order.outlet_id;
+  v_settings := crm_get_settings(v_order.company_id);
+
+  select coalesce(sum(line_total), 0) into v_sub
+  from pos_order_items where order_id = p_order_id and not is_void;
+
+  -- voucher yang dipilih kasir
+  v_promo_id := v_order.promotion_id;
+  if v_promo_id is not null and exists (select 1 from crm_promotions where id = v_promo_id and voucher_code is not null) then
+    v_promo := crm_calculate_promotion(p_order_id, v_promo_id);
+    if v_promo is null then v_promo_id := null; v_promo := 0; end if;   -- tidak lagi memenuhi syarat
+  else
+    v_promo_id := null;
+  end if;
+
+  -- promo otomatis terbaik
+  if v_promo_id is null then
+    select id, d into v_promo_id, v_promo from (
+      select p.id, crm_calculate_promotion(p_order_id, p.id) d
+      from crm_promotions p
+      where p.company_id = v_order.company_id and p.is_active and p.voucher_code is null
+    ) x where d is not null order by d desc limit 1;
+    v_promo := coalesce(v_promo, 0);
+  end if;
+
+  v_promo := least(v_promo, greatest(v_sub - v_order.discount_amount, 0));
+
+  if v_order.points_redeemed > 0 then
+    v_points := least(v_order.points_redeemed * v_settings.redeem_value,
+                      greatest(v_sub - v_order.discount_amount - v_promo, 0));
+  end if;
+
+  v_base    := greatest(v_sub - v_order.discount_amount - v_promo - v_points, 0);
+  v_service := round(v_base * v_outlet.service_charge_rate / 100);
+  v_tax     := round((v_base + v_service) * v_outlet.tax_rate / 100);
+  v_raw     := v_base + v_service + v_tax;
+  v_total   := case when v_outlet.rounding_unit > 1
+                    then round(v_raw / v_outlet.rounding_unit) * v_outlet.rounding_unit
+                    else v_raw end;
+
+  update pos_orders set
+    subtotal         = v_sub,
+    promotion_id     = v_promo_id,
+    promotion_amount = v_promo,
+    points_amount    = v_points,
+    service_amount   = v_service,
+    tax_amount       = v_tax,
+    rounding_amount  = v_total - v_raw,
+    grand_total      = v_total
+  where id = p_order_id;
+end $$;
+
+-- =====================================================================
+-- FUNGSI POS UNTUK MEMBER / VOUCHER / POIN
+-- =====================================================================
+create or replace function pos_lock_open_order(p_order_id uuid)
+returns pos_orders language plpgsql security definer set search_path = public as $$
+declare v pos_orders%rowtype;
+begin
+  select * into v from pos_orders where id = p_order_id and company_id = sys_current_company_id() for update;
+  if not found then raise exception 'Order tidak ditemukan'; end if;
+  if v.status <> 'open' then raise exception 'Order sudah ditutup'; end if;
+  return v;
+end $$;
+
+create or replace function pos_set_order_customer(p_order_id uuid, p_customer_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v pos_orders%rowtype;
+begin
+  if not sys_has_permission('pos.order') then raise exception 'Tidak punya izin'; end if;
+  v := pos_lock_open_order(p_order_id);
+  if p_customer_id is not null and not exists (
+      select 1 from crm_customers where id = p_customer_id and company_id = v.company_id and is_active) then
+    raise exception 'Pelanggan tidak ditemukan';
+  end if;
+  update pos_orders set customer_id = p_customer_id,
+    points_redeemed = case when p_customer_id is distinct from v.customer_id then 0 else points_redeemed end,
+    customer_name = coalesce((select name from crm_customers where id = p_customer_id), customer_name)
+  where id = p_order_id;
+  perform pos_recalculate_order(p_order_id);
+  select * into v from pos_orders where id = p_order_id;
+  return to_jsonb(v);
+end $$;
+
+-- p_code null = hapus voucher
+create or replace function pos_apply_voucher(p_order_id uuid, p_code text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v       pos_orders%rowtype;
+  v_promo crm_promotions%rowtype;
+begin
+  if not sys_has_permission('pos.order') then raise exception 'Tidak punya izin'; end if;
+  v := pos_lock_open_order(p_order_id);
+
+  if coalesce(trim(p_code), '') = '' then
+    update pos_orders set promotion_id = null where id = p_order_id;
+  else
+    select * into v_promo from crm_promotions
+    where company_id = v.company_id and upper(voucher_code) = upper(trim(p_code));
+    if not found then raise exception 'Kode voucher tidak ditemukan'; end if;
+    if crm_calculate_promotion(p_order_id, v_promo.id) is null then
+      raise exception 'Voucher % tidak memenuhi syarat (cek periode, minimal belanja, member, atau kuota)', v_promo.voucher_code;
+    end if;
+    update pos_orders set promotion_id = v_promo.id where id = p_order_id;
+  end if;
+
+  perform pos_recalculate_order(p_order_id);
+  select * into v from pos_orders where id = p_order_id;
+  return to_jsonb(v);
+end $$;
+
+create or replace function pos_redeem_points(p_order_id uuid, p_points int)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v       pos_orders%rowtype;
+  v_cust  crm_customers%rowtype;
+  v_set   crm_settings%rowtype;
+begin
+  if not sys_has_permission('pos.pay') then raise exception 'Tidak punya izin'; end if;
+  v := pos_lock_open_order(p_order_id);
+  v_set := crm_get_settings(v.company_id);
+  p_points := coalesce(p_points, 0);
+
+  if p_points > 0 then
+    if not v_set.is_points_enabled then raise exception 'Program poin tidak aktif'; end if;
+    if v.customer_id is null then raise exception 'Pilih member terlebih dahulu'; end if;
+    select * into v_cust from crm_customers where id = v.customer_id;
+    if p_points > v_cust.points_balance then raise exception 'Poin tidak cukup (saldo %)', v_cust.points_balance; end if;
+    if p_points < v_set.min_redeem_points then raise exception 'Minimal tukar % poin', v_set.min_redeem_points; end if;
+  end if;
+
+  update pos_orders set points_redeemed = greatest(p_points, 0) where id = p_order_id;
+  perform pos_recalculate_order(p_order_id);
+  select * into v from pos_orders where id = p_order_id;
+  return to_jsonb(v);
+end $$;
+
+-- Koreksi / bonus poin manual
+create or replace function crm_adjust_points(p_customer_id uuid, p_points int, p_note text)
+returns int language plpgsql security definer set search_path = public as $$
+declare v_cust crm_customers%rowtype;
+begin
+  if not sys_has_permission('crm.manage') then raise exception 'Tidak punya izin'; end if;
+  if coalesce(p_points, 0) = 0 then raise exception 'Jumlah poin tidak boleh 0'; end if;
+  if coalesce(trim(p_note), '') = '' then raise exception 'Alasan wajib diisi'; end if;
+  select * into v_cust from crm_customers
+  where id = p_customer_id and company_id = sys_current_company_id() for update;
+  if not found then raise exception 'Pelanggan tidak ditemukan'; end if;
+  if v_cust.points_balance + p_points < 0 then raise exception 'Saldo poin tidak boleh minus'; end if;
+
+  update crm_customers set points_balance = points_balance + p_points where id = p_customer_id;
+  insert into crm_point_transactions (company_id, customer_id, transaction_type, points, balance_after, note, created_by)
+  values (v_cust.company_id, p_customer_id, 'adjust', p_points, v_cust.points_balance + p_points, trim(p_note), auth.uid());
+  return v_cust.points_balance + p_points;
+end $$;
+
+-- =====================================================================
+-- SAAT ORDER LUNAS: poin, statistik member, kuota promo
+-- =====================================================================
+create or replace function crm_post_order_paid(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  o        pos_orders%rowtype;
+  v_cust   crm_customers%rowtype;
+  v_set    crm_settings%rowtype;
+  v_mult   numeric;
+  v_earned int := 0;
+  v_balance int;
+begin
+  select * into o from pos_orders where id = p_order_id;
+
+  if o.promotion_id is not null then
+    update crm_promotions set usage_count = usage_count + 1 where id = o.promotion_id;
+  end if;
+
+  if o.customer_id is null then return; end if;
+  select * into v_cust from crm_customers where id = o.customer_id for update;
+  v_set := crm_get_settings(o.company_id);
+  v_balance := v_cust.points_balance;
+
+  if o.points_redeemed > 0 then
+    if o.points_redeemed > v_balance then
+      raise exception 'Poin member tidak cukup (saldo %, ditukar %)', v_balance, o.points_redeemed;
+    end if;
+    v_balance := v_balance - o.points_redeemed;
+    insert into crm_point_transactions (company_id, customer_id, order_id, transaction_type, points, balance_after, note, created_by)
+    values (o.company_id, o.customer_id, o.id, 'redeem', -o.points_redeemed, v_balance, 'Tukar poin ' || o.order_number, auth.uid());
+  end if;
+
+  if v_set.is_points_enabled then
+    select coalesce(point_multiplier, 1) into v_mult from crm_membership_tiers where id = v_cust.tier_id;
+    v_earned := floor((o.subtotal - o.discount_amount - o.promotion_amount - o.points_amount)
+                      / v_set.earn_amount * coalesce(v_mult, 1));
+    if v_earned > 0 then
+      v_balance := v_balance + v_earned;
+      insert into crm_point_transactions (company_id, customer_id, order_id, transaction_type, points, balance_after, note, created_by)
+      values (o.company_id, o.customer_id, o.id, 'earn', v_earned, v_balance, 'Belanja ' || o.order_number, auth.uid());
+    end if;
+  end if;
+
+  update pos_orders set points_earned = v_earned where id = o.id;
+
+  update crm_customers c set
+    points_balance = v_balance,
+    total_spent    = c.total_spent + o.grand_total,
+    visit_count    = c.visit_count + 1,
+    last_visit_at  = now(),
+    tier_id        = coalesce((select t.id from crm_membership_tiers t
+                               where t.company_id = c.company_id and t.min_total_spent <= c.total_spent + o.grand_total
+                               order by t.min_total_spent desc limit 1), c.tier_id)
+  where c.id = o.customer_id;
+end $$;
+
+-- Jurnal penjualan: semua potongan (manual + promo + poin) masuk akun Diskon Penjualan
+create or replace function fin_post_sales_journal(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  o       pos_orders%rowtype;
+  c       uuid;
+  v_lines jsonb;
+  v_cogs  numeric;
+begin
+  select * into o from pos_orders where id = p_order_id and status = 'paid';
+  if not found then return; end if;
+  if exists (select 1 from fin_journals where source_type = 'sales' and source_id = o.id) then return; end if;
+  c := o.company_id;
+  if not exists (select 1 from fin_accounts where company_id = c) then return; end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'account_id', coalesce(m.account_id, fin_account_id(c, 'cash')),
+           'debit', p.amount - p.change_amount, 'note', m.name)), '[]'::jsonb)
+    into v_lines
+  from pos_payments p join mst_payment_methods m on m.id = p.payment_method_id
+  where p.order_id = o.id;
+
+  v_cogs := -fin_stock_value('pos_orders', o.id);
+
+  v_lines := v_lines || jsonb_build_array(
+    jsonb_build_object('account_id', fin_account_id(c, 'sales_discount'),  'debit',  o.discount_amount + o.promotion_amount + o.points_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'sales_revenue'),   'credit', o.subtotal),
+    jsonb_build_object('account_id', fin_account_id(c, 'service_revenue'), 'credit', o.service_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'tax_payable'),     'credit', o.tax_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'rounding'),        'credit', o.rounding_amount),
+    jsonb_build_object('account_id', fin_account_id(c, 'cogs'),            'debit',  v_cogs),
+    jsonb_build_object('account_id', fin_account_id(c, 'inventory'),       'credit', v_cogs)
+  );
+
+  perform fin_create_journal(c, o.outlet_id, o.business_date, 'sales', o.id,
+                             'Penjualan ' || o.order_number, v_lines);
+end $$;
+
+create or replace function pos_on_order_paid()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform inv_post_order_consumption(new.id);
+  perform crm_post_order_paid(new.id);
+  perform fin_post_sales_journal(new.id);
+  return new;
+end $$;
+
+-- =====================================================================
+-- DATA AWAL & PERMISSION
+-- =====================================================================
+create or replace function crm_setup_defaults(p_company_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform crm_get_settings(p_company_id);
+  insert into crm_membership_tiers (company_id, name, min_total_spent, point_multiplier) values
+    (p_company_id, 'Regular', 0, 1),
+    (p_company_id, 'Silver',  1000000, 1.25),
+    (p_company_id, 'Gold',    5000000, 1.5)
+  on conflict do nothing;
+end $$;
+
+do $$
+declare r record;
+begin
+  for r in select id from sys_companies loop
+    perform crm_setup_defaults(r.id);
+  end loop;
+end $$;
+
+-- Perusahaan baru: bungkus lagi fungsi onboarding
+alter function sys_onboard_company(text, text, text, boolean) rename to sys_onboard_company_v2;
+revoke execute on function sys_onboard_company_v2(text, text, text, boolean) from public, anon, authenticated;
+
+create or replace function sys_onboard_company(
+  p_company_name text, p_outlet_name text, p_full_name text, p_with_demo_data boolean default true
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_result jsonb;
+begin
+  v_result := sys_onboard_company_v2(p_company_name, p_outlet_name, p_full_name, p_with_demo_data);
+  perform crm_setup_defaults((v_result->>'company_id')::uuid);
+  if p_with_demo_data then
+    insert into crm_promotions (company_id, name, discount_type, discount_value, days_of_week, start_time, end_time, sales_channels)
+    values ((v_result->>'company_id')::uuid, 'Happy Hour 14:00-17:00', 'percent', 15, '{1,2,3,4,5}', '14:00', '17:00', '{dine_in,takeaway}');
+    insert into crm_promotions (company_id, name, voucher_code, discount_type, discount_value, min_subtotal, requires_member, per_customer_limit)
+    values ((v_result->>'company_id')::uuid, 'Member Baru Rp 20.000', 'WELCOME20', 'amount', 20000, 75000, true, 1);
+  end if;
+  return v_result;
+end $$;
+
+update sys_roles set permissions = permissions || '["crm.manage"]'::jsonb
+where code = 'manager' and not permissions ? 'crm.manage';
+
+revoke execute on function crm_get_settings(uuid)                    from public, anon, authenticated;
+revoke execute on function crm_calculate_promotion(uuid, uuid)       from public, anon, authenticated;
+revoke execute on function crm_post_order_paid(uuid)                 from public, anon, authenticated;
+revoke execute on function crm_setup_defaults(uuid)                  from public, anon, authenticated;
+revoke execute on function pos_lock_open_order(uuid)                 from public, anon, authenticated;
+revoke execute on function fin_post_sales_journal(uuid)              from public, anon, authenticated;
+
+-- >>>>>>>>>> migrations/009_qr_order.sql
+-- =====================================================================
+-- ERP RESTORAN - 009: QR SELF-ORDER
+--   Tamu scan QR meja -> lihat menu -> pesan. Tanpa login.
+--   Item dari QR berstatus 'waiting' sampai kasir konfirmasi
+--   (bisa dimatikan per outlet: qr_requires_confirmation = false).
+-- =====================================================================
+
+alter table mst_tables add column qr_token text not null default replace(gen_random_uuid()::text, '-', '');
+create unique index uq_mst_tables_qr_token on mst_tables(qr_token);
+
+alter table sys_outlets add column is_qr_order_enabled      boolean not null default true;
+alter table sys_outlets add column qr_requires_confirmation boolean not null default true;
+
+alter table pos_orders add column order_source text not null default 'pos';   -- pos / qr
+
+-- =====================================================================
+-- INTERNAL: buat header order & tambah item (dipakai POS dan QR)
+-- =====================================================================
+create or replace function pos_create_order_header(
+  p_outlet_id uuid, p_table_id uuid, p_sales_channel text, p_customer_name text, p_guest_count int,
+  p_note text, p_customer_id uuid, p_order_source text, p_created_by uuid
+)
+returns pos_orders language plpgsql security definer set search_path = public as $$
+declare
+  v_outlet sys_outlets%rowtype;
+  v_date   date;
+  v_key    text;
+  v_order  pos_orders%rowtype;
+begin
+  select * into v_outlet from sys_outlets where id = p_outlet_id;
+  v_date := sys_outlet_business_date(p_outlet_id);
+  v_key := 'INV/' || v_outlet.code || '/' || to_char(v_date, 'YYYYMMDD');
+
+  insert into pos_orders (
+    company_id, outlet_id, table_id, order_number, business_date, sales_channel,
+    customer_name, guest_count, note, created_by, customer_id, order_source, shift_id
+  ) values (
+    v_outlet.company_id, p_outlet_id, p_table_id,
+    v_key || '/' || lpad(sys_next_sequence(v_outlet.company_id, v_key)::text, 4, '0'),
+    v_date, coalesce(nullif(p_sales_channel, ''), 'dine_in'),
+    nullif(trim(p_customer_name), ''), coalesce(p_guest_count, 1), nullif(p_note, ''), p_created_by,
+    p_customer_id, p_order_source,
+    (select id from pos_shifts where outlet_id = p_outlet_id and user_id = p_created_by and status = 'open' limit 1)
+  ) returning * into v_order;
+
+  if p_table_id is not null then
+    update mst_tables set status = 'occupied' where id = p_table_id and outlet_id = p_outlet_id;
+  end if;
+  return v_order;
+end $$;
+
+-- items: [{ "menu_item_id", "quantity", "note", "modifier_ids": [] }]
+create or replace function pos_add_order_items(p_order_id uuid, p_items jsonb, p_kitchen_status text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_order     pos_orders%rowtype;
+  v_item      jsonb;
+  v_menu      mst_menu_items%rowtype;
+  v_price     numeric(15,2);
+  v_mod_total numeric(15,2);
+  v_qty       numeric(10,2);
+  v_line_id   uuid;
+begin
+  select * into v_order from pos_orders where id = p_order_id;
+  if jsonb_array_length(coalesce(p_items, '[]')) = 0 then raise exception 'Order tidak punya item'; end if;
+  if jsonb_array_length(p_items) > 50 then raise exception 'Terlalu banyak item dalam satu pesanan'; end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    select * into v_menu from mst_menu_items
+    where id = (v_item->>'menu_item_id')::uuid and company_id = v_order.company_id and is_active;
+    if not found then raise exception 'Menu tidak ditemukan / tidak aktif'; end if;
+
+    v_qty := coalesce((v_item->>'quantity')::numeric, 1);
+    if v_qty <= 0 or v_qty > 99 then raise exception 'Jumlah tidak valid'; end if;
+
+    v_price := coalesce(
+      (select price from mst_menu_prices
+        where menu_item_id = v_menu.id and outlet_id = v_order.outlet_id and sales_channel = v_order.sales_channel),
+      (select price from mst_menu_prices
+        where menu_item_id = v_menu.id and outlet_id is null and sales_channel = v_order.sales_channel),
+      v_menu.base_price);
+
+    -- hanya modifier yang memang terhubung ke menu ini
+    select coalesce(sum(m.extra_price), 0) into v_mod_total
+    from mst_modifiers m
+    join mst_menu_item_modifier_groups l on l.modifier_group_id = m.modifier_group_id and l.menu_item_id = v_menu.id
+    where m.id in (select jsonb_array_elements_text(coalesce(v_item->'modifier_ids', '[]'))::uuid);
+
+    insert into pos_order_items (
+      company_id, order_id, menu_item_id, menu_item_name, station,
+      quantity, unit_price, modifier_amount, line_total, note, kitchen_status
+    ) values (
+      v_order.company_id, v_order.id, v_menu.id, v_menu.name, v_menu.station,
+      v_qty, v_price, v_mod_total, v_qty * (v_price + v_mod_total),
+      left(nullif(trim(v_item->>'note'), ''), 200), p_kitchen_status
+    ) returning id into v_line_id;
+
+    insert into pos_order_item_modifiers (company_id, order_item_id, modifier_id, modifier_name, extra_price)
+    select v_order.company_id, v_line_id, m.id, m.name, m.extra_price
+    from mst_modifiers m
+    join mst_menu_item_modifier_groups l on l.modifier_group_id = m.modifier_group_id and l.menu_item_id = v_menu.id
+    where m.id in (select jsonb_array_elements_text(coalesce(v_item->'modifier_ids', '[]'))::uuid);
+  end loop;
+
+  perform pos_recalculate_order(v_order.id);
+end $$;
+
+-- =====================================================================
+-- POS: simpan order (versi baru, mendukung customer_id)
+-- =====================================================================
+create or replace function pos_save_order(p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_company     uuid := sys_current_company_id();
+  v_order_id    uuid := nullif(p_payload->>'order_id', '')::uuid;
+  v_outlet_id   uuid;
+  v_customer_id uuid := nullif(p_payload->>'customer_id', '')::uuid;
+  v_order       pos_orders%rowtype;
+begin
+  if v_company is null then raise exception 'Anda belum login'; end if;
+  if not sys_has_permission('pos.order') then raise exception 'Tidak punya izin membuat order'; end if;
+
+  if v_customer_id is not null and not exists (
+      select 1 from crm_customers where id = v_customer_id and company_id = v_company and is_active) then
+    raise exception 'Pelanggan tidak ditemukan';
+  end if;
+
+  if v_order_id is null then
+    v_outlet_id := (p_payload->>'outlet_id')::uuid;
+    if not sys_can_access_outlet(v_outlet_id) then raise exception 'Tidak punya akses ke outlet ini'; end if;
+    v_order := pos_create_order_header(
+      v_outlet_id, nullif(p_payload->>'table_id', '')::uuid, p_payload->>'sales_channel',
+      coalesce(nullif(p_payload->>'customer_name', ''), (select name from crm_customers where id = v_customer_id)),
+      (p_payload->>'guest_count')::int, p_payload->>'note', v_customer_id, 'pos', auth.uid());
+  else
+    select * into v_order from pos_orders where id = v_order_id and company_id = v_company for update;
+    if not found then raise exception 'Order tidak ditemukan'; end if;
+    if v_order.status <> 'open' then raise exception 'Order sudah ditutup'; end if;
+  end if;
+
+  perform pos_add_order_items(v_order.id, p_payload->'items', 'pending');
+
+  select * into v_order from pos_orders where id = v_order.id;
+  return to_jsonb(v_order);
+end $$;
+
+-- Kasir mengonfirmasi item dari QR -> diteruskan ke dapur
+create or replace function pos_confirm_qr_items(p_order_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not sys_has_permission('pos.order') then raise exception 'Tidak punya izin'; end if;
+  update pos_order_items set kitchen_status = 'pending'
+  where order_id = p_order_id and kitchen_status = 'waiting' and company_id = sys_current_company_id();
+end $$;
+
+create or replace function pos_regenerate_table_qr(p_table_id uuid)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_token text := replace(gen_random_uuid()::text, '-', '');
+begin
+  if not sys_has_permission('master.manage') then raise exception 'Tidak punya izin'; end if;
+  update mst_tables set qr_token = v_token where id = p_table_id and company_id = sys_current_company_id();
+  if not found then raise exception 'Meja tidak ditemukan'; end if;
+  return v_token;
+end $$;
+
+-- =====================================================================
+-- PUBLIK (tanpa login) - diakses dengan token QR meja
+-- =====================================================================
+create or replace function public_get_table_menu(p_token text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_table  mst_tables%rowtype;
+  v_outlet sys_outlets%rowtype;
+begin
+  select * into v_table from mst_tables where qr_token = p_token;
+  if not found then raise exception 'QR tidak valid. Silakan minta bantuan pelayan.'; end if;
+  select * into v_outlet from sys_outlets where id = v_table.outlet_id;
+  if not v_outlet.is_active or not v_outlet.is_qr_order_enabled then
+    raise exception 'Pemesanan lewat QR sedang tidak tersedia.';
+  end if;
+
+  return jsonb_build_object(
+    'outlet', jsonb_build_object('name', v_outlet.name, 'tax_rate', v_outlet.tax_rate,
+                                 'service_charge_rate', v_outlet.service_charge_rate,
+                                 'requires_confirmation', v_outlet.qr_requires_confirmation),
+    'company_name', (select name from sys_companies where id = v_outlet.company_id),
+    'table', jsonb_build_object('code', v_table.code),
+    'categories', coalesce((
+      select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name) order by c.sort_order, c.name)
+      from mst_menu_categories c
+      where c.company_id = v_outlet.company_id and c.brand_id = v_outlet.brand_id and c.is_active
+        and exists (select 1 from mst_menu_items i where i.menu_category_id = c.id and i.is_active)), '[]'::jsonb),
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', i.id, 'name', i.name, 'description', i.description, 'image_url', i.image_url,
+        'menu_category_id', i.menu_category_id,
+        'price', coalesce(
+          (select price from mst_menu_prices where menu_item_id = i.id and outlet_id = v_outlet.id and sales_channel = 'dine_in'),
+          (select price from mst_menu_prices where menu_item_id = i.id and outlet_id is null and sales_channel = 'dine_in'),
+          i.base_price),
+        'modifier_groups', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'id', g.id, 'name', g.name, 'min_select', g.min_select, 'max_select', g.max_select,
+            'modifiers', coalesce((select jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name, 'extra_price', m.extra_price)
+                                                    order by m.sort_order) from mst_modifiers m where m.modifier_group_id = g.id), '[]'::jsonb)))
+          from mst_menu_item_modifier_groups l join mst_modifier_groups g on g.id = l.modifier_group_id
+          where l.menu_item_id = i.id), '[]'::jsonb)
+      ) order by i.name)
+      from mst_menu_items i
+      where i.company_id = v_outlet.company_id and i.brand_id = v_outlet.brand_id and i.is_active), '[]'::jsonb)
+  );
+end $$;
+
+-- Status pesanan yang sedang berjalan di meja ini
+create or replace function public_get_table_order(p_token text)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'order_number', o.order_number, 'grand_total', o.grand_total, 'subtotal', o.subtotal,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'name', i.menu_item_name, 'quantity', i.quantity, 'line_total', i.line_total, 'note', i.note,
+        'kitchen_status', i.kitchen_status,
+        'modifiers', (select coalesce(jsonb_agg(m.modifier_name), '[]'::jsonb) from pos_order_item_modifiers m where m.order_item_id = i.id))
+        order by i.created_at)
+      from pos_order_items i where i.order_id = o.id and not i.is_void), '[]'::jsonb))
+  from mst_tables t
+  join pos_orders o on o.table_id = t.id and o.status = 'open'
+  where t.qr_token = p_token
+  order by o.created_at desc
+  limit 1
+$$;
+
+-- p_items: [{ "menu_item_id", "quantity", "note", "modifier_ids": [] }]
+create or replace function public_submit_table_order(p_token text, p_customer_name text, p_items jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_table  mst_tables%rowtype;
+  v_outlet sys_outlets%rowtype;
+  v_order  pos_orders%rowtype;
+  v_recent int;
+begin
+  select * into v_table from mst_tables where qr_token = p_token for update;
+  if not found then raise exception 'QR tidak valid. Silakan minta bantuan pelayan.'; end if;
+  select * into v_outlet from sys_outlets where id = v_table.outlet_id;
+  if not v_outlet.is_active or not v_outlet.is_qr_order_enabled then
+    raise exception 'Pemesanan lewat QR sedang tidak tersedia.';
+  end if;
+
+  -- batas anti-spam: maks 40 item dari QR per meja dalam 10 menit
+  select count(*) into v_recent
+  from pos_order_items i join pos_orders o on o.id = i.order_id
+  where o.table_id = v_table.id and o.order_source = 'qr' and i.created_at > now() - interval '10 minutes';
+  if v_recent + jsonb_array_length(coalesce(p_items, '[]')) > 40 then
+    raise exception 'Terlalu banyak pesanan dalam waktu singkat. Silakan panggil pelayan.';
+  end if;
+
+  -- gabung ke order yang masih terbuka di meja ini, atau buat baru
+  select * into v_order from pos_orders
+  where table_id = v_table.id and status = 'open'
+  order by created_at desc limit 1 for update;
+
+  if not found then
+    v_order := pos_create_order_header(v_outlet.id, v_table.id, 'dine_in', left(p_customer_name, 60), 1,
+                                       null, null, 'qr', null);
+  end if;
+
+  perform pos_add_order_items(v_order.id, p_items,
+    case when v_outlet.qr_requires_confirmation then 'waiting' else 'pending' end);
+
+  return public_get_table_order(p_token);
+end $$;
+
+-- Order dengan item QR yang belum dikonfirmasi tidak boleh dibayar
+create or replace function pos_check_unconfirmed_items()
+returns trigger language plpgsql as $$
+begin
+  if exists (select 1 from pos_order_items where order_id = new.id and kitchen_status = 'waiting' and not is_void) then
+    raise exception 'Masih ada pesanan QR yang belum dikonfirmasi. Konfirmasi atau void dulu sebelum bayar.';
+  end if;
+  return new;
+end $$;
+
+create trigger trg_pos_orders_check_unconfirmed
+  before update of status on pos_orders
+  for each row when (new.status = 'paid' and old.status is distinct from 'paid')
+  execute function pos_check_unconfirmed_items();
+
+-- =====================================================================
+-- HAK EKSEKUSI
+-- =====================================================================
+revoke execute on function pos_create_order_header(uuid, uuid, text, text, int, text, uuid, text, uuid) from public, anon, authenticated;
+revoke execute on function pos_add_order_items(uuid, jsonb, text) from public, anon, authenticated;
+
+grant execute on function public_get_table_menu(text)                  to anon, authenticated;
+grant execute on function public_get_table_order(text)                 to anon, authenticated;
+grant execute on function public_submit_table_order(text, text, jsonb) to anon, authenticated;
+
+-- realtime untuk notifikasi pesanan QR (pos_order_items sudah terdaftar)

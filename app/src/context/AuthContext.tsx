@@ -1,0 +1,106 @@
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { rpc, supabase } from '../lib/supabase';
+import type { Outlet, Profile } from '../lib/types';
+
+interface AuthState {
+  session: Session | null;
+  profile: Profile | null;
+  loading: boolean;
+  outlet: Outlet | null;
+  setOutletId: (id: string) => void;
+  /** true bila user punya salah satu permission yang diberikan */
+  can: (permission: string | string[]) => boolean;
+  refreshProfile: () => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthState | null>(null);
+const OUTLET_KEY = 'erp.outlet_id';
+
+function readStoredOutlet() {
+  try {
+    return localStorage.getItem(OUTLET_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [outletId, setOutletIdState] = useState<string | null>(readStoredOutlet);
+
+  const refreshProfile = useCallback(async () => {
+    const data = await rpc<Profile | null>('sys_get_my_profile');
+    setProfile(data);
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => setSession(newSession));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const userId = session?.user.id;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      if (!userId) {
+        setProfile(null);
+      } else {
+        try {
+          const data = await rpc<Profile | null>('sys_get_my_profile');
+          if (!cancelled) setProfile(data);
+        } catch {
+          if (!cancelled) setProfile(null);
+        }
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const setOutletId = (id: string) => {
+    setOutletIdState(id);
+    try {
+      localStorage.setItem(OUTLET_KEY, id);
+    } catch {
+      /* abaikan */
+    }
+  };
+
+  const outlet = profile?.outlets.find((o) => o.id === outletId) ?? profile?.outlets[0] ?? null;
+
+  const can = useCallback(
+    (permission: string | string[]) =>
+      !!profile &&
+      (profile.permissions.includes('*') ||
+        (Array.isArray(permission) ? permission : [permission]).some((p) => profile.permissions.includes(p))),
+    [profile],
+  );
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setProfile(null);
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{ session, profile, loading, outlet, setOutletId, can, refreshProfile, signOut }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth harus dipakai di dalam AuthProvider');
+  return ctx;
+}
