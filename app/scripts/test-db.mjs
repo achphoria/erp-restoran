@@ -772,7 +772,7 @@ await check('pelayan (tanpa izin refund) tidak bisa refund', async () => {
 // FASE 6: logo & profil, log aktivitas, approval, payment gateway
 // =====================================================================
 console.log('\nMenjalankan migrasi fase 6 (di atas data fase 1-5):');
-await runMigrations(allMigrations.filter((f) => f >= '011'));
+await runMigrations(allMigrations.filter((f) => f >= '011' && f < '014'));
 
 const asServiceRole = () => db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role service_role;`);
 let company1;
@@ -973,6 +973,9 @@ await check('neraca tetap seimbang di akhir semua skenario', async () => {
   const r = await one(`select sum(debit) d, sum(credit) c from fin_journal_lines`);
   assert(Number(r.d) === Number(r.c), JSON.stringify(r));
 });
+
+console.log('\nMenjalankan migrasi fase 7 (master produk):');
+await runMigrations(allMigrations.filter((f) => f >= '014'));
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
