@@ -470,3 +470,8 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .log-item { display: flex; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #ecebef; cursor: default; }
 .log-item:last-child { border-bottom: none; }
 .flex-1 { flex: 1; }
+
+/* nama & detail user di sidebar: potong rapi dengan "…" */
+.user-chip .meta { flex: 1; overflow: hidden; }
+.user-chip .meta strong, .user-chip .meta small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-head .logo { overflow: hidden; }

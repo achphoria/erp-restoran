@@ -111,7 +111,7 @@ export default function Layout() {
 
       <aside className="sidebar" aria-label="Navigasi utama">
         <div className="sidebar-head">
-          <Logo src={profile?.company_logo_url} size={40} withName subtitle={profile?.company_name} />
+          <Logo src={profile?.company_logo_url} size={40} withName subtitle={profile?.company_name} textClassName="hide-collapsed" />
           <button className="icon-btn pin-btn hide-collapsed" onClick={togglePin} title={pinned ? 'Lepas pin (auto-hide)' : 'Pin sidebar'}>
             {pinned ? <PinOff size={16} /> : <Pin size={16} />}
           </button>
