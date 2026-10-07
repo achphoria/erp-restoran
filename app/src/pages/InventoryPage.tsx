@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { must, rpc, supabase } from '../lib/supabase';
+import { must, supabase } from '../lib/supabase';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib/format';
-import Modal from '../components/Modal';
 import ProductionTab from '../components/ProductionTab';
+import StockDocuments from '../components/inventory/StockDocuments';
+import PurposesTab from '../components/inventory/PurposesTab';
 
-type Tab = 'stock' | 'production' | 'documents' | 'movements';
+type Tab = 'stock' | 'production' | 'documents' | 'movements' | 'purposes';
 
 interface Unit { id: string; code: string; name: string }
 interface ItemCategory { id: string; name: string }
@@ -57,19 +58,20 @@ export default function InventoryPage() {
       <div className="page-header">
         <div>
           <h1>Inventory</h1>
-          <p>Stok per gudang, produksi, penyesuaian & opname. Data produk, resep & HPP ada di <b>Master Produk</b>.</p>
+          <p>Stok per gudang, produksi, penyesuaian, waste, pemakaian, penyusutan & opname. Data produk, resep & HPP ada di <b>Master Produk</b>.</p>
         </div>
       </div>
       <div className="tabs">
-        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Penyesuaian / Opname / Transfer'], ['movements', 'Kartu Stok']] as [Tab, string][]).map(([k, v]) => (
+        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Dokumen Stok'], ['movements', 'Kartu Stok'], ['purposes', 'Purpose & Akun']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       {tab === 'stock' && <StockTab {...ctx} />}
       {tab === 'production' && <ProductionTab warehouses={warehouses} />}
-      {tab === 'documents' && <DocumentsTab {...ctx} />}
+      {tab === 'documents' && <StockDocuments companyId={companyId} warehouses={warehouses} items={items} />}
       {tab === 'movements' && <MovementsTab {...ctx} />}
+      {tab === 'purposes' && <PurposesTab companyId={companyId} />}
     </>
   );
 }
@@ -138,156 +140,6 @@ function StockTab({ warehouses, setError }: Ctx) {
   );
 }
 
-// ---------------------------------------------------------------- Dokumen stok
-type DocType = 'adjustment' | 'waste' | 'opname' | 'transfer';
-const DOC_LABEL: Record<DocType, string> = {
-  adjustment: 'Penyesuaian (+/−)', waste: 'Waste / Rusak', opname: 'Stock Opname (hitung fisik)', transfer: 'Transfer Gudang',
-};
-
-interface DocRow { id: string; type: DocType; number: string | null; date: string; status: string; note: string | null; posted_at: string | null }
-
-function DocumentsTab({ companyId, warehouses, items, setError }: Ctx) {
-  const [docs, setDocs] = useState<DocRow[]>([]);
-  const [creating, setCreating] = useState<DocType | null>(null);
-
-  const load = useCallback(async () => {
-    const [adj, opn, trf] = await Promise.all([
-      must(supabase.from('inv_stock_adjustments').select('*').order('created_at', { ascending: false }).limit(30)),
-      must(supabase.from('inv_stock_opnames').select('*').order('created_at', { ascending: false }).limit(30)),
-      must(supabase.from('inv_stock_transfers').select('*').order('created_at', { ascending: false }).limit(30)),
-    ]);
-    type R = Record<string, string | null>;
-    setDocs([
-      ...(adj as R[]).map((d) => ({ id: d.id!, type: d.adjustment_type as DocType, number: d.adjustment_number, date: d.adjustment_date!, status: d.status!, note: d.note, posted_at: d.posted_at })),
-      ...(opn as R[]).map((d) => ({ id: d.id!, type: 'opname' as DocType, number: d.opname_number, date: d.opname_date!, status: d.status!, note: d.note, posted_at: d.posted_at })),
-      ...(trf as R[]).map((d) => ({ id: d.id!, type: 'transfer' as DocType, number: d.transfer_number, date: d.transfer_date!, status: d.status!, note: d.note, posted_at: d.posted_at })),
-    ].sort((a, b) => (b.posted_at ?? '').localeCompare(a.posted_at ?? '')));
-  }, []);
-
-  useEffect(() => {
-    load().catch((e) => setError(errorMessage(e)));
-  }, [load, setError]);
-
-  return (
-    <>
-      <div className="card">
-        <div className="row">
-          <span className="bold">Buat dokumen:</span>
-          {(Object.keys(DOC_LABEL) as DocType[]).map((t) => (
-            <button key={t} disabled={t === 'transfer' && warehouses.length < 2} onClick={() => setCreating(t)}>{DOC_LABEL[t]}</button>
-          ))}
-        </div>
-      </div>
-      <div className="card table-wrap">
-        <table className="table">
-          <thead><tr><th>Nomor</th><th>Jenis</th><th>Tanggal</th><th>Catatan</th><th>Status</th></tr></thead>
-          <tbody>
-            {docs.map((d) => (
-              <tr key={d.id}>
-                <td className="bold">{d.number ?? '(draft)'}</td>
-                <td>{DOC_LABEL[d.type]}</td>
-                <td>{d.posted_at ? formatDateTime(d.posted_at) : d.date}</td>
-                <td className="muted">{d.note}</td>
-                <td><span className={`badge ${d.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{({ posted: 'Diposting', draft: 'Draft', pending_approval: 'Menunggu persetujuan' } as Record<string, string>)[d.status] ?? d.status}</span></td>
-              </tr>
-            ))}
-            {!docs.length && <tr><td colSpan={5} className="empty">Belum ada dokumen.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {creating && (
-        <StockDocumentForm type={creating} companyId={companyId} warehouses={warehouses} items={items}
-          onClose={() => setCreating(null)}
-          onDone={() => {
-            setCreating(null);
-            load().catch((e) => setError(errorMessage(e)));
-          }} />
-      )}
-    </>
-  );
-}
-
-function StockDocumentForm({ type, companyId, warehouses, items, onClose, onDone }: {
-  type: DocType; companyId: string; warehouses: Warehouse[]; items: InvItem[]; onClose: () => void; onDone: () => void;
-}) {
-  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? '');
-  const [toWarehouseId, setToWarehouseId] = useState(warehouses[1]?.id ?? '');
-  const [note, setNote] = useState('');
-  const [lines, setLines] = useState<{ item_id: string; quantity: string }[]>([{ item_id: '', quantity: '' }]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const qtyLabel = { adjustment: 'Qty (+ tambah / − kurang)', waste: 'Qty terbuang', opname: 'Qty hasil hitung fisik', transfer: 'Qty dikirim' }[type];
-  const validLines = lines.filter((l) => l.item_id && l.quantity !== '');
-
-  const submit = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const qtyLines = validLines.map((l) => ({ company_id: companyId, item_id: l.item_id, quantity: Number(l.quantity) }));
-      if (type === 'opname') {
-        const doc = (await must(supabase.from('inv_stock_opnames').insert({ company_id: companyId, warehouse_id: warehouseId, note }).select('id').single())) as { id: string };
-        await must(supabase.from('inv_stock_opname_items').insert(
-          qtyLines.map(({ quantity, ...rest }) => ({ ...rest, stock_opname_id: doc.id, counted_qty: quantity }))));
-        await rpc('inv_post_stock_opname', { p_id: doc.id });
-      } else if (type === 'transfer') {
-        const doc = (await must(supabase.from('inv_stock_transfers').insert({ company_id: companyId, from_warehouse_id: warehouseId, to_warehouse_id: toWarehouseId, note }).select('id').single())) as { id: string };
-        await must(supabase.from('inv_stock_transfer_items').insert(qtyLines.map((l) => ({ ...l, stock_transfer_id: doc.id }))));
-        await rpc('inv_post_stock_transfer', { p_id: doc.id });
-      } else {
-        const doc = (await must(supabase.from('inv_stock_adjustments').insert({ company_id: companyId, warehouse_id: warehouseId, adjustment_type: type, note }).select('id').single())) as { id: string };
-        await must(supabase.from('inv_stock_adjustment_items').insert(qtyLines.map((l) => ({ ...l, stock_adjustment_id: doc.id }))));
-        await rpc('inv_post_stock_adjustment', { p_id: doc.id });
-      }
-      onDone();
-    } catch (e) {
-      setError(errorMessage(e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={DOC_LABEL[type]} onClose={onClose} large
-      footer={<><button onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy || !validLines.length} onClick={submit}>{busy ? 'Memproses…' : 'Simpan & Posting'}</button></>}>
-      {error && <div className="alert alert-error">{error}</div>}
-      <div className="form-grid">
-        <label className="field"><span>{type === 'transfer' ? 'Dari gudang' : 'Gudang'}</span>
-          <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        </label>
-        {type === 'transfer' && (
-          <label className="field"><span>Ke gudang</span>
-            <select value={toWarehouseId} onChange={(e) => setToWarehouseId(e.target.value)}>
-              {warehouses.filter((w) => w.id !== warehouseId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </label>
-        )}
-        <label className="field"><span>Catatan</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      </div>
-      <table className="table" style={{ marginTop: 16 }}>
-        <thead><tr><th>Bahan</th><th>{qtyLabel}</th><th></th></tr></thead>
-        <tbody>
-          {lines.map((l, idx) => (
-            <tr key={idx}>
-              <td>
-                <select value={l.item_id} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, item_id: e.target.value } : x))} style={{ width: '100%' }}>
-                  <option value="">— pilih bahan —</option>
-                  {items.map((i) => <option key={i.id} value={i.id}>{i.code} · {i.name} ({i.inv_units?.code})</option>)}
-                </select>
-              </td>
-              <td><input type="number" value={l.quantity} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))} /></td>
-              <td><button className="btn-sm btn-danger" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>✕</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button className="btn-sm" onClick={() => setLines([...lines, { item_id: '', quantity: '' }])}>+ Baris</button>
-      {type === 'opname' && <p className="muted small">Sistem akan menghitung selisih dengan stok di sistem dan menyesuaikannya otomatis.</p>}
-    </Modal>
-  );
-}
-
 // ---------------------------------------------------------------- Kartu stok
 interface Movement {
   id: string; movement_type: string; quantity: number; unit_cost: number | null; balance_after: number | null;
@@ -308,7 +160,7 @@ function MovementsTab({ items, setError }: Ctx) {
   }, [itemId, setError]);
 
   const typeLabel = useMemo<Record<string, string>>(() => ({
-    sales: 'Penjualan', purchase_receipt: 'Pembelian', adjustment: 'Penyesuaian', waste: 'Waste',
+    sales: 'Penjualan', purchase_receipt: 'Pembelian', adjustment: 'Penyesuaian', waste: 'Waste', usage: 'Pemakaian', shrinkage: 'Penyusutan',
     production_in: 'Hasil Produksi', production_out: 'Bahan Produksi', sales_return: 'Retur Penjualan',
     opname: 'Opname', transfer_in: 'Transfer Masuk', transfer_out: 'Transfer Keluar',
   }), []);
