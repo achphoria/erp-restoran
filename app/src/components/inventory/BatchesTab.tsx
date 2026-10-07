@@ -68,16 +68,20 @@ export default function BatchesTab({ warehouses }: { warehouses: Warehouse[] }) 
   return (
     <>
       <div className="grid grid-3" style={{ marginBottom: 16 }}>
-        <button className="card stat-card" style={{ textAlign: 'left' }} onClick={() => setFilter('expired')}>
+        <div className={`card stat-card stat-card-link ${filter === 'expired' ? 'active' : ''}`} role="button" tabIndex={0}
+          style={{ '--stat-color': 'var(--danger)' } as React.CSSProperties}
+          onClick={() => setFilter('expired')} onKeyDown={(e) => e.key === 'Enter' && setFilter('expired')}>
           <div className="stat-label">Sudah kedaluwarsa</div>
           <div className="stat-value" style={{ color: stats.expired ? 'var(--danger)' : undefined }}>{stats.expired} batch</div>
-          <div className="muted small">{formatRupiah(stats.expiredValue)} · segera buat dokumen Waste</div>
-        </button>
-        <button className="card stat-card" style={{ textAlign: 'left' }} onClick={() => setFilter('near')}>
+          <div className="muted small">{formatRupiah(stats.expiredValue)}{stats.expired ? ' · segera buat dokumen Waste' : ''}</div>
+        </div>
+        <div className={`card stat-card stat-card-link ${filter === 'near' ? 'active' : ''}`} role="button" tabIndex={0}
+          style={{ '--stat-color': 'var(--warning)' } as React.CSSProperties}
+          onClick={() => setFilter('near')} onKeyDown={(e) => e.key === 'Enter' && setFilter('near')}>
           <div className="stat-label">Kedaluwarsa ≤ {NEAR_EXPIRY_DAYS} hari</div>
           <div className="stat-value" style={{ color: stats.near ? 'var(--warning)' : undefined }}>{stats.near} batch</div>
-          <div className="muted small">{formatRupiah(stats.nearValue)} · pakai duluan</div>
-        </button>
+          <div className="muted small">{formatRupiah(stats.nearValue)}{stats.near ? ' · pakai duluan' : ''}</div>
+        </div>
         <div className="card stat-card">
           <div className="stat-label">Nilai stok (harga batch / FIFO)</div>
           <div className="stat-value">{formatRupiah(stats.value)}</div>
@@ -120,7 +124,7 @@ export default function BatchesTab({ warehouses }: { warehouses: Warehouse[] }) 
                   <td className="small">{b.warehouse_name}</td>
                   <td>{b.expiry_date ? <>{formatDate(b.expiry_date)}<div><span className={`badge ${cls}`}>{label}</span></div></> : <span className="muted small">-</span>}</td>
                   <td className="right">{formatNumber(b.qty_remaining)} / {formatNumber(b.qty_in)} {b.unit_code}</td>
-                  <td className="right small">{formatRupiah(b.unit_cost)}</td>
+                  <td className="right small">{formatRupiah(b.unit_cost)}/{b.unit_code}</td>
                   <td className="right">{formatRupiah(b.stock_value)}</td>
                 </tr>
               );
