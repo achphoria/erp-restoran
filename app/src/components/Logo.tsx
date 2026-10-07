@@ -1,8 +1,8 @@
-import { APP_NAME } from '../lib/brand';
+import { getAppName } from '../lib/brand';
 
 // Logo: pakai logo perusahaan bila sudah diunggah, selain itu logo default aplikasi
-export default function Logo({ src, size = 36, withName, subtitle, textClassName }: {
-  src?: string | null; size?: number; withName?: boolean; subtitle?: string; textClassName?: string;
+export default function Logo({ src, size = 36, withName, subtitle, textClassName, name }: {
+  src?: string | null; size?: number; withName?: boolean; subtitle?: string; textClassName?: string; name?: string | null;
 }) {
   return (
     <span className="logo">
@@ -15,7 +15,7 @@ export default function Logo({ src, size = 36, withName, subtitle, textClassName
       />
       {withName && (
         <span className={`logo-text ${textClassName ?? ''}`}>
-          <strong>{APP_NAME}</strong>
+          <strong>{name || getAppName()}</strong>
           {subtitle && <small>{subtitle}</small>}
         </span>
       )}
