@@ -560,3 +560,9 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .role-chip.on { background: var(--primary-soft); border-color: var(--fresh); color: var(--primary); }
 .role-chip.approver.on { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
 .role-chip:disabled { cursor: default; opacity: 1; }
+
+.credential-box { display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); }
+.credential-box > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.credential-box b { font-family: 'Courier New', monospace; font-size: 16px; }
+.password-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.password-box summary { cursor: pointer; font-weight: 600; font-size: 14px; }

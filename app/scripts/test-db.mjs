@@ -1819,6 +1819,34 @@ await check('settlement dengan selisih menunggu persetujuan; tanggal terkunci se
   await journalBalanced();
 });
 
+console.log('\nUser staf dibuat owner (username):');
+await check('validasi username, role owner ditolak, user staf tersimpan & tampil dengan username', async () => {
+  await loginAs(U1);
+  const cashier = await val(`select id from sys_roles where code = 'cashier' and company_id = $1`, [company1]);
+  const owner = await val(`select id from sys_roles where code = 'owner' and company_id = $1`, [company1]);
+  await expectError(`select sys_prepare_staff_user('Andi Kasir', 'Andi', $1, array[$2]::uuid[])`, [cashier, outletId], /Username/);
+  await expectError(`select sys_prepare_staff_user('andi.pluit', 'Andi', $1, array[$2]::uuid[])`, [owner, outletId], /Owner/);
+  const prep = await val(`select sys_prepare_staff_user(' Andi.Pluit ', 'Andi', $1, array[$2]::uuid[])`, [cashier, outletId]);
+  assert(prep.username === 'andi.pluit' && prep.email === 'andi.pluit@staff.santap.local', JSON.stringify(prep));
+  // simulasi Edge Function: akun login dibuat lalu didaftarkan dengan service role
+  const U9 = '99999999-9999-9999-9999-999999999999';
+  await db.exec(`reset role; insert into auth.users values ('${U9}', 'andi.pluit@staff.santap.local')`);
+  await db.exec(`set role authenticated`);
+  await expectError(`select sys_register_staff_user($1, $2, 'andi.pluit', 'Andi', $3, array[$4]::uuid[], $5)`, [U9, company1, cashier, outletId, U1], /permission denied/);
+  await db.exec(`reset role`);
+  await db.query(`select sys_register_staff_user($1, $2, 'andi.pluit', 'Andi', $3, array[$4]::uuid[], $5)`, [U9, company1, cashier, outletId, U1]);
+  await loginAs(U1);
+  await expectError(`select sys_prepare_staff_user('andi.pluit', 'Andi 2', $1, array[$2]::uuid[])`, [cashier, outletId], /sudah dipakai/);
+  const u = (await val(`select sys_list_users()`)).find((x) => x.id === U9);
+  assert(u && u.username === 'andi.pluit' && u.email === null && u.role_code === 'cashier', JSON.stringify(u));
+  assert((await val(`select sys_check_staff_reset($1)`, [U9])).username === 'andi.pluit', 'reset staf');
+  await expectError(`select sys_check_staff_reset($1)`, [U1], /login dengan email/);
+  await loginAs(U9);
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me && me.role_code === 'cashier', JSON.stringify(me));
+  await expectError(`select sys_prepare_staff_user('budi.pluit', 'Budi', $1, array[$2]::uuid[])`, [cashier, outletId], /izin/);
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

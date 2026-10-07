@@ -94,11 +94,6 @@ function activeItem(pathname: string, search: string) {
   return same.find((i) => new URLSearchParams(i.to.split('?')[1] ?? '').get('tab') === tab) ?? same[0];
 }
 
-const OPEN_KEY = 'santap.nav_open_groups';
-const readOpen = (): string[] | null => {
-  try { const v = localStorage.getItem(OPEN_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
-};
-
 const PIN_KEY = 'santap.sidebar_pinned';
 const readPinned = () => {
   try { return localStorage.getItem(PIN_KEY) === '1'; } catch { return false; }
@@ -130,20 +125,17 @@ export default function Layout() {
   const pending = usePendingApprovals(!!profile);
   const current = activeItem(location.pathname, location.search);
   const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
-  const [open, setOpen] = useState<string[]>(() => readOpen() ?? ['Ringkasan', 'Kasir & Outlet']);
+  // accordion: hanya 1 grup terbuka; default = grup halaman yang sedang dibuka
+  const [open, setOpen] = useState<string | null>(currentGroup ?? null);
 
   // tutup drawer HP setiap pindah halaman, perbarui judul tab, buka grup menu yang aktif
   useEffect(() => {
     setDrawerOpen(false);
     setDocumentTitle(current?.label);
-    if (currentGroup) setOpen((o) => (o.includes(currentGroup) ? o : [...o, currentGroup]));
+    if (currentGroup) setOpen(currentGroup);
   }, [current, currentGroup, profile?.company_app_name]);
 
-  const toggleGroup = (g: string) => setOpen((o) => {
-    const next = o.includes(g) ? o.filter((x) => x !== g) : [...o, g];
-    try { localStorage.setItem(OPEN_KEY, JSON.stringify(next)); } catch { /* abaikan */ }
-    return next;
-  });
+  const toggleGroup = (g: string) => setOpen((o) => (o === g ? null : g));
 
   const togglePin = () => {
     setPinned((p) => {
@@ -183,7 +175,7 @@ export default function Layout() {
 
         <nav className="sidebar-nav">
           {groups.map((g) => {
-            const isOpen = open.includes(g.group);
+            const isOpen = open === g.group;
             const hasActive = g.group === currentGroup;
             return (
               <div key={g.group} className={`nav-section ${isOpen ? 'open' : ''}`}>

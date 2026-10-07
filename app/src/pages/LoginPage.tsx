@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import Logo from '../components/Logo';
 import { APP_TAGLINE } from '../lib/brand';
 import { errorMessage } from '../lib/format';
+import { toLoginEmail } from '../lib/staff';
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -19,7 +20,7 @@ export default function LoginPage() {
     setInfo('');
     try {
       if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: toLoginEmail(email), password });
         if (error) throw error;
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
@@ -31,7 +32,7 @@ export default function LoginPage() {
       }
     } catch (err) {
       const msg = errorMessage(err);
-      setError(msg === 'Invalid login credentials' ? 'Email atau password salah' : msg);
+      setError(msg === 'Invalid login credentials' ? (mode === 'login' ? 'Email/username atau password salah' : msg) : msg);
     } finally {
       setBusy(false);
     }
@@ -42,13 +43,15 @@ export default function LoginPage() {
       <div className="auth-card">
         <Logo size={52} withName subtitle={APP_TAGLINE} />
         <h1>{mode === 'login' ? 'Selamat datang kembali' : 'Buat akun baru'}</h1>
-        <p className="muted">{mode === 'login' ? 'Masuk ke akun Anda' : 'Buat akun baru untuk restoran Anda'}</p>
+        <p className="muted">{mode === 'login' ? 'Masuk ke akun Anda' : 'Daftar khusus pemilik usaha. Staf dibuatkan akun oleh owner.'}</p>
         <form onSubmit={submit}>
           {error && <div className="alert alert-error">{error}</div>}
           {info && <div className="alert alert-success">{info}</div>}
           <label className="field">
-            <span>Email</span>
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+            <span>{mode === 'login' ? 'Email atau username' : 'Email (pemilik usaha)'}</span>
+            <input type={mode === 'login' ? 'text' : 'email'} required value={email} onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              placeholder={mode === 'login' ? 'email@usaha.com atau andi.pluit' : 'email@usaha.com'} />
           </label>
           <label className="field">
             <span>Password</span>
