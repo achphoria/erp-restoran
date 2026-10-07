@@ -10,9 +10,10 @@ import CompanyTab from '../components/settings/CompanyTab';
 import ApprovalMatrixTab from '../components/settings/ApprovalMatrixTab';
 import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
 import ActivityLogTab from '../components/settings/ActivityLogTab';
+import DataToolsTab from '../components/settings/DataToolsTab';
 import { CreateStaffUserModal, ResetPasswordModal } from '../components/settings/StaffUserModal';
 
-type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs';
+type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
 
 interface Role { id: string; code: string; name: string; permissions: string[] }
 interface OutletRow {
@@ -109,6 +110,7 @@ export default function SettingsPage() {
     ['approvals', 'Approval Transaksi', can('settings.manage')],
     ['payment', 'Pembayaran Online', can('settings.manage')],
     ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage'])],
+    ['data', 'Data & Backup', can('*') && !!profile?.permissions.includes('*')],
   ];
 
   return (
@@ -136,6 +138,7 @@ export default function SettingsPage() {
       {tab === 'approvals' && <ApprovalMatrixTab />}
       {tab === 'payment' && <PaymentGatewayTab />}
       {tab === 'logs' && <ActivityLogTab />}
+      {tab === 'data' && <DataToolsTab />}
     </>
   );
 }

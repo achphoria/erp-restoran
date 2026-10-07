@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–023)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–024)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -19,6 +19,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase11.sql`](supabase/update_fase11.sql) (020–021: Sales Order antar cabang & B2B, gudang per toko, settlement POS)
   - [`supabase/update_fase12.sql`](supabase/update_fase12.sql) (022: approval untuk semua transaksi + matriks pembuat/penyetuju)
   - [`supabase/update_fase13.sql`](supabase/update_fase13.sql) (023: user staf dibuat owner dengan username, lalu deploy Edge Function `staff-users`)
+  - [`supabase/update_fase14.sql`](supabase/update_fase14.sql) (024: data contoh, reset, backup & restore)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -213,6 +214,16 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 6. Coba di aplikasi: Pengaturan → User → + Tambah User.
 
 Alternatif lewat CLI: `supabase functions deploy staff-users`.
+
+## Fase 14: Data contoh, reset, backup & restore (khusus owner)
+- **Pengaturan → Data & Backup**:
+  - **Data contoh**: pilih outlet, jumlah hari (7/14/30) & order per hari. Sistem membuat pembelian berkala, penjualan POS per hari
+    (tanggal mundur), waste & pemakaian, biaya listrik/sewa, Sales Order B2B (kirim, invoice, bayar sebagian), lalu settlement.
+    Memakai menu, resep & produk yang sudah ada. Lewat SQL: [`supabase/demo_data.sql`](supabase/demo_data.sql).
+  - **Backup**: download semua data perusahaan sebagai file `.json` (password & merchant key tidak ikut).
+  - **Restore**: unggah file backup perusahaan yang sama, lalu master & transaksi diganti isi backup.
+  - **Reset**: *Hapus semua transaksi* (master tetap, stok nol, nomor dokumen mulai lagi) atau *Reset total* (master + transaksi).
+    Perusahaan, outlet, gudang, user, role, COA, metode bayar & pengaturan tidak pernah dihapus. Konfirmasi dengan mengetik nama perusahaan.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

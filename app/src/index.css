@@ -566,3 +566,8 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .credential-box b { font-family: 'Courier New', monospace; font-size: 16px; }
 .password-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
 .password-box summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.progress { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-bottom: 6px; }
+.progress > div { height: 100%; background: linear-gradient(90deg, var(--fresh), var(--primary)); transition: width .3s ease; }
+.restore-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
+.danger-zone { border-color: var(--danger-soft); }
+.danger-zone h3 { color: var(--danger); }
