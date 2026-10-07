@@ -977,5 +977,340 @@ await check('neraca tetap seimbang di akhir semua skenario', async () => {
 console.log('\nMenjalankan migrasi fase 7 (master produk):');
 await runMigrations(allMigrations.filter((f) => f >= '014'));
 
+const itemId = async (code) => val(`select id from inv_items where code = $1 and company_id = $2`, [code, company1]);
+const mainWh = async () => val(`select id from inv_warehouses where outlet_id = $1`, [outletId]);
+
+console.log('\nMaster produk - data lama:');
+await check('satuan diberi metrik (g = berat, ml = volume)', async () => {
+  await loginAs(U1);
+  const r = await one(`select (select metric from inv_units where code = 'g' and company_id = $1) g,
+                              (select metric from inv_units where code = 'ml' and company_id = $1) ml,
+                              (select metric from inv_units where code = 'pcs' and company_id = $1) pcs`, [company1]);
+  assert(r.g === 'weight' && r.ml === 'volume' && r.pcs === 'unit', JSON.stringify(r));
+});
+await check('setiap produk lama punya baris satuan dasar + unit beli/transfer/jual', async () => {
+  const r = await one(`select
+      (select count(*)::int from inv_items) items,
+      (select count(*)::int from inv_item_units u join inv_items i on i.id = u.item_id where u.unit_id = i.base_unit_id and u.conversion_qty = 1) base_rows,
+      (select count(*)::int from inv_item_units where is_purchase_unit) purchase,
+      (select count(*)::int from inv_item_units where is_sales_unit) sales`);
+  assert(r.items === r.base_rows && r.items === r.purchase && r.items === r.sales, JSON.stringify(r));
+  const beras = await one(`select un.code from inv_item_units u join inv_units un on un.id = u.unit_id
+                           where u.item_id = $1 and u.is_purchase_unit`, [await itemId('BHN01')]);
+  assert(beras.code === 'kg', `unit beli beras ${beras.code}`);
+});
+
+console.log('\nMaster produk - kategori, satuan, produk:');
+let catProtein;
+await check('kategori bertipe + sub kategori, produk baru otomatis punya satuan dasar', async () => {
+  catProtein = await val(`select id from inv_item_categories where name = 'Protein' and company_id = $1`, [company1]);
+  assert((await val(`select category_type from inv_item_categories where id = $1`, [catProtein])) === 'inventory', 'tipe default');
+  const sub = (await one(`insert into inv_item_sub_categories (company_id, name) values ($1, 'Unggas') returning id`, [company1])).id;
+  const pcs = await val(`select id from inv_units where code = 'pcs' and company_id = $1`, [company1]);
+  const it = (await one(`insert into inv_items (company_id, item_category_id, sub_category_id, code, name, base_unit_id, item_type, is_saleable)
+                         values ($1, $2, $3, 'BHN90', 'Telur Bebek', $4, 'raw', false) returning id`, [company1, catProtein, sub, pcs])).id;
+  const u = await one(`select conversion_qty, is_purchase_unit, is_transfer_unit, is_sales_unit from inv_item_units where item_id = $1`, [it]);
+  assert(Number(u.conversion_qty) === 1 && u.is_purchase_unit && u.is_transfer_unit && u.is_sales_unit, JSON.stringify(u));
+});
+await check('satuan dasar: konversi wajib 1 & tidak bisa dihapus', async () => {
+  const it = await itemId('BHN90');
+  await expectError(`update inv_item_units set conversion_qty = 2 where item_id = $1`, [it], /harus 1/);
+  await expectError(`delete from inv_item_units where item_id = $1`, [it], /tidak bisa dihapus/);
+});
+await check('barcode unik per perusahaan & hanya satu unit beli per produk', async () => {
+  await db.query(`update inv_item_units set barcode = '8991234567890' where item_id = $1`, [await itemId('BHN90')]);
+  await expectError(`update inv_item_units set barcode = '8991234567890' where item_id = $1 and is_sales_unit`, [await itemId('BHN06')], /duplicate|unique/);
+  await expectError(`update inv_item_units set is_purchase_unit = true where item_id = $1`, [await itemId('BHN01')], /duplicate|unique/);
+});
+await check('produk "tidak bisa dibeli" ditolak di PO', async () => {
+  await db.query(`update inv_items set is_purchasable = false where code = 'BHN90'`);
+  const po = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, (select id from pur_suppliers where code = 'SUP01'), $2) returning id`, [company1, await mainWh()])).id;
+  await expectError(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price)
+                     values ($1, $2, $3, (select base_unit_id from inv_items where code = 'BHN90'), 1, 1000)`,
+    [company1, po, await itemId('BHN90')], /tidak bisa dibeli/);
+  await db.query(`delete from pur_purchase_orders where id = $1`, [po]);
+});
+
+console.log('\nMaster produk - min/max per gudang:');
+await check('min/max per gudang menggantikan stok minimum global & memberi saran beli', async () => {
+  const wh = await mainWh();
+  const qty = Number(await val(`select quantity from rpt_stock_balances where item_code = 'BHN04' and warehouse_id = $1`, [wh]));
+  await db.query(`insert into inv_item_stock_levels (company_id, warehouse_id, item_id, min_qty, max_qty) values ($1, $2, $3, $4, $5)`,
+    [company1, wh, await itemId('BHN04'), qty + 100, qty + 500]);
+  const r = await one(`select is_low_stock, suggested_order_qty, max_qty from rpt_stock_balances where item_code = 'BHN04' and warehouse_id = $1`, [wh]);
+  assert(r.is_low_stock && Number(r.suggested_order_qty) === 500, JSON.stringify(r));
+  await expectError(`insert into inv_item_stock_levels (company_id, warehouse_id, item_id, min_qty, max_qty) values ($1, $2, $3, 10, 5)`,
+    [company1, wh, await itemId('BHN05')], /check/);
+});
+await check('salin min/max ke gudang lain', async () => {
+  const ck = await val(`select id from inv_warehouses where code = 'WH-CK' and company_id = $1`, [company1]);
+  assert((await val(`select inv_copy_stock_levels($1, $2)`, [await mainWh(), ck])) === 1, 'jumlah salin');
+  assert((await val(`select count(*)::int from inv_item_stock_levels where warehouse_id = $1`, [ck])) === 1, 'tidak tersalin');
+});
+
+console.log('\nMaster produk - import Excel:');
+await check('import dengan error: tidak ada yang disimpan, error per baris', async () => {
+  const before = await val(`select count(*)::int from inv_items`);
+  const r = await val(`select inv_import_items($1::jsonb, false)`, [JSON.stringify([
+    { kode: 'IMP01', nama: 'Gula Merah', kategori: 'Bumbu', satuan: 'g', harga_beli: '25' },
+    { kode: 'BHN01', nama: 'Dobel', kategori: 'Bumbu', satuan: 'g' },
+    { kode: 'IMP02', nama: 'Kategori Baru', kategori: 'Frozen', satuan: 'g' },
+    { kode: 'IMP03', nama: 'Harga Salah', kategori: 'Bumbu', satuan: 'g', harga_beli: 'abc' },
+    { kode: 'IMP04', nama: 'Flag Salah', kategori: 'Bumbu', satuan: 'g', dapat_dijual: 'mungkin' },
+  ])]);
+  assert(r.inserted === 0 && r.errors.length === 4, JSON.stringify(r));
+  assert(r.errors.map((e) => e.row).join(',') === '2,3,4,5', JSON.stringify(r.errors));
+  assert((await val(`select count(*)::int from inv_items`)) === before, 'ada yang tersimpan');
+});
+await check('import valid + buat kategori/satuan baru otomatis', async () => {
+  const r = await val(`select inv_import_items($1::jsonb, true)`, [JSON.stringify([
+    { kode: 'imp10', nama: 'Nugget Ayam', tipe: 'barang jadi', kategori: 'Frozen', sub_kategori: 'Olahan Ayam', satuan: 'pcs',
+      satuan_beli: 'dus', konversi_beli: '24', harga_beli: '1500', stok_minimum: '48', dapat_dijual: 'ya', kena_pajak: 'TIDAK',
+      toleransi_terima: '5', barcode: '8990000000010', info_1: 'Halal' },
+    { kode: 'IMP11', nama: 'Saus Sambal', kategori: 'Bumbu', satuan: 'ml', harga_beli: '30,5' },
+  ])]);
+  assert(r.inserted === 2 && r.errors.length === 0, JSON.stringify(r));
+  const it = await one(`select i.code, i.item_type, i.is_saleable, i.receipt_tolerance_pct, i.custom_fields, c.name cat, s.name sub
+                        from inv_items i join inv_item_categories c on c.id = i.item_category_id
+                        left join inv_item_sub_categories s on s.id = i.sub_category_id where i.code = 'IMP10'`);
+  assert(it.item_type === 'finished' && it.is_saleable && Number(it.receipt_tolerance_pct) === 5 && it.cat === 'Frozen'
+    && it.sub === 'Olahan Ayam' && it.custom_fields['1'] === 'Halal', JSON.stringify(it));
+  const pu = await one(`select un.code, u.conversion_qty from inv_item_units u join inv_units un on un.id = u.unit_id
+                        where u.item_id = $1 and u.is_purchase_unit`, [await itemId('IMP10')]);
+  assert(pu.code === 'dus' && Number(pu.conversion_qty) === 24, JSON.stringify(pu));
+  assert(Number(await val(`select last_purchase_cost from inv_items where code = 'IMP11'`)) === 30.5, 'angka koma');
+});
+await check('import menu + harga ojol', async () => {
+  const r = await val(`select mst_import_menu_items($1::jsonb, true)`, [JSON.stringify([
+    { kode: 'MNU50', nama: 'Es Kopi Susu', kategori: 'Kopi', harga: '25000', harga_gofood: '30000', station: 'bar' },
+    { kode: 'MNU51', nama: 'Croissant', kategori: 'Pastry', harga: '28000', station: 'pastry', aktif: 'tidak' },
+  ])]);
+  assert(r.inserted === 2, JSON.stringify(r));
+  const m = await one(`select m.station, (select price from mst_menu_prices where menu_item_id = m.id and sales_channel = 'gofood') gofood
+                       from mst_menu_items m where code = 'MNU50'`);
+  assert(m.station === 'bar' && Number(m.gofood) === 30000, JSON.stringify(m));
+  const dup = await val(`select mst_import_menu_items($1::jsonb, true)`, [JSON.stringify([{ kode: 'mnu50', nama: 'x', kategori: 'Kopi', harga: '1' }])]);
+  assert(dup.inserted === 0 && /sudah terdaftar/.test(dup.errors[0].message), JSON.stringify(dup));
+});
+
+console.log('\nMaster produk - akun per kategori:');
+await check('HPP & persediaan dijurnal ke akun kategori', async () => {
+  const hppProtein = (await one(`insert into fin_accounts (company_id, parent_id, code, name, account_type, normal_balance)
+    values ($1, (select id from fin_accounts where code = '5-0000' and company_id = $1), '5-1150', 'HPP Protein', 'cogs', 'debit') returning id`, [company1])).id;
+  const invProtein = (await one(`insert into fin_accounts (company_id, parent_id, code, name, account_type, normal_balance)
+    values ($1, (select id from fin_accounts where code = '1-0000' and company_id = $1), '1-1410', 'Persediaan Protein', 'asset', 'debit') returning id`, [company1])).id;
+  await db.query(`update inv_item_categories set cogs_account_id = $1, inventory_account_id = $2 where id = $3`, [hppProtein, invProtein, catProtein]);
+
+  const shift = await val(`select pos_open_shift($1, 0)`, [outletId]);
+  const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN03') }] })]);
+  await payCash(o.id);
+  await db.query(`select pos_close_shift($1, (select opening_cash + 0 from pos_shifts where id = $1))`, [shift.id]);
+  const lines = (await db.query(`select a.code, l.debit, l.credit from fin_journal_lines l join fin_journals j on j.id = l.journal_id
+    join fin_accounts a on a.id = l.account_id where j.source_id = $1 and a.code in ('5-1150', '1-1410', '5-1100', '1-1400')`, [o.id])).rows;
+  const byCode = Object.fromEntries(lines.map((l) => [l.code, l]));
+  assert(Number(byCode['5-1150']?.debit) > 0 && Number(byCode['1-1410']?.credit) > 0, JSON.stringify(lines));
+  assert(Number(byCode['5-1100']?.debit) > 0, 'HPP bahan non-protein harus tetap di akun default');
+  const r = await one(`select sum(debit) d, sum(credit) c from fin_journal_lines`);
+  assert(Number(r.d) === Number(r.c), JSON.stringify(r));
+});
+
+// helper: buka shift owner, jalankan fn, tutup shift
+const withShift = async (fn) => {
+  const shift = await val(`select pos_open_shift($1, 0)`, [outletId]);
+  try { return await fn(); } finally { await db.query(`select pos_close_shift($1, 0)`, [shift.id]); }
+};
+const stockOf = async (code) => Number(await val(`select quantity from rpt_stock_balances where item_code = $1 and warehouse_id = $2`, [code, await mainWh()]));
+const newItem = async (code, name, unitCode, cost, type = 'raw', category = 'Bumbu') => (await one(
+  `insert into inv_items (company_id, item_category_id, code, name, base_unit_id, item_type, last_purchase_cost)
+   values ($1, (select id from inv_item_categories where name = $6 and company_id = $1), $2, $3,
+           (select id from inv_units where code = $4 and company_id = $1), $5, $7) returning id`,
+  [company1, code, name, unitCode, type, category, cost])).id;
+const journalBalanced = async () => {
+  const r = await one(`select sum(debit) d, sum(credit) c from fin_journal_lines`);
+  assert(Number(r.d) === Number(r.c), `jurnal tidak seimbang ${JSON.stringify(r)}`);
+};
+
+console.log('\nBOM & produksi:');
+await check('produksi assembly: bahan (+waste) terpotong, hasil masuk dengan HPP termasuk biaya gas', async () => {
+  const bumbu = await newItem('BHN95', 'Bumbu Dasar Merah', 'g', 0, 'semi_finished');
+  const recipe = (await one(`insert into inv_recipes (company_id, item_id, recipe_type, code, name, yield_qty)
+                             values ($1, $2, 'assembly', 'BOM-BUMBU', 'Bumbu Dasar 1 kg', 1000) returning id`, [company1, bumbu])).id;
+  await db.query(`insert into inv_recipe_items (company_id, recipe_id, item_id, quantity, waste_pct) values
+                  ($1, $2, $3, 600, 10), ($1, $2, $4, 200, 0)`, [company1, recipe, await itemId('BHN11'), await itemId('BHN03')]);
+  await db.query(`insert into inv_recipe_costs (company_id, recipe_id, description, account_id, amount)
+                  values ($1, $2, 'Gas', (select id from fin_accounts where code = '6-1300' and company_id = $1), 5000)`, [company1, recipe]);
+  const bawangBefore = await stockOf('BHN11');
+  const prod = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, $3, 2000) returning id`,
+    [company1, await mainWh(), recipe])).id;
+  const r = await val(`select inv_post_production($1)`, [prod]);
+  assert(r.production_number.startsWith('PRD/') && Number(r.extra_cost) === 10000, JSON.stringify(r));
+  assert(bawangBefore - (await stockOf('BHN11')) === 1320, `bawang terpakai ${bawangBefore - (await stockOf('BHN11'))}`);
+  assert((await stockOf('BHN95')) === 2000, 'hasil produksi');
+  const value = Number(await val(`select stock_value from rpt_stock_balances where item_code = 'BHN95'`));
+  assert(Math.abs(value - (Number(r.input_value) + 10000)) < 1, `nilai hasil ${value}`);
+  await journalBalanced();
+});
+await check('produksi disassembly: ayam utuh -> dada & paha, nilai dibagi sesuai bobot', async () => {
+  const utuh = await newItem('BHN96', 'Ayam Utuh', 'pcs', 40000, 'raw', 'Protein');
+  const dada = await newItem('BHN97', 'Dada Ayam', 'g', 0, 'semi_finished', 'Protein');
+  const paha = await newItem('BHN98', 'Paha Ayam', 'g', 0, 'semi_finished', 'Protein');
+  const adj = (await one(`insert into inv_stock_adjustments (company_id, warehouse_id) values ($1, $2) returning id`, [company1, await mainWh()])).id;
+  await db.query(`insert into inv_stock_adjustment_items (company_id, stock_adjustment_id, item_id, quantity) values ($1, $2, $3, 10)`, [company1, adj, utuh]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [adj]);
+  const recipe = (await one(`insert into inv_recipes (company_id, item_id, recipe_type, name, yield_qty) values ($1, $2, 'disassembly', 'Potong ayam', 1) returning id`, [company1, utuh])).id;
+  await db.query(`insert into inv_recipe_items (company_id, recipe_id, item_id, quantity, weight_factor) values ($1, $2, $3, 400, 2), ($1, $2, $4, 600, 1)`,
+    [company1, recipe, dada, paha]);
+  const prod = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, $3, 2) returning id`, [company1, await mainWh(), recipe])).id;
+  await db.query(`select inv_post_production($1)`, [prod]);
+  const v = await one(`select (select stock_value from rpt_stock_balances where item_code = 'BHN97') dada,
+                              (select stock_value from rpt_stock_balances where item_code = 'BHN98') paha,
+                              (select quantity from rpt_stock_balances where item_code = 'BHN96') utuh`);
+  assert(Number(v.utuh) === 8 && Math.abs(Number(v.dada) - 53333.33) < 1 && Math.abs(Number(v.paha) - 26666.67) < 1, JSON.stringify(v));
+  await journalBalanced();
+});
+await check('waste % ikut terpotong saat menu terjual & masuk HPP menu', async () => {
+  const nasgorRecipe = await val(`select id from inv_recipes where menu_item_id = $1`, [await menuId('MKN01')]);
+  const costBefore = Number(await val(`select food_cost from rpt_menu_food_costs where code = 'MKN01'`));
+  await db.query(`update inv_recipe_items set waste_pct = 10 where recipe_id = $1 and item_id = $2`, [nasgorRecipe, await itemId('BHN01')]);
+  await db.query(`insert into inv_recipe_costs (company_id, recipe_id, description, account_id, amount)
+                  values ($1, $2, 'Kemasan', (select id from fin_accounts where code = '6-1600' and company_id = $1), 1000)`, [company1, nasgorRecipe]);
+  const costAfter = Number(await val(`select food_cost from rpt_menu_food_costs where code = 'MKN01'`));
+  assert(Math.abs(costAfter - costBefore - (200 * 0.1 * 14 + 1000)) < 1, `${costBefore} -> ${costAfter}`);
+  const before = await stockOf('BHN01');
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN01') }] })]);
+    await payCash(o.id);
+  });
+  assert(before - (await stockOf('BHN01')) === 220, `beras terpakai ${before - (await stockOf('BHN01'))}`);
+  await journalBalanced();
+});
+await check('resep rahasia hanya terlihat oleh user yang diberi akses', async () => {
+  const recipe = await val(`select id from inv_recipes where menu_item_id = $1`, [await menuId('MKN03')]);
+  await db.query(`update inv_recipes set access_level = 'restricted' where id = $1`, [recipe]);
+  await loginAs(U7);
+  assert((await val(`select count(*)::int from inv_recipe_items where recipe_id = $1`, [recipe])) === 0, 'manajer bisa lihat resep rahasia');
+  await loginAs(U1);
+  await db.query(`insert into inv_recipe_access (recipe_id, user_id, company_id) values ($1, $2, $3)`, [recipe, U7, company1]);
+  await loginAs(U7);
+  assert((await val(`select count(*)::int from inv_recipe_items where recipe_id = $1`, [recipe])) > 0, 'akses tidak berlaku');
+  await loginAs(U1);
+});
+
+console.log('\nPricelist & penerimaan:');
+await check('pricelist: harga berlaku vs harga beli terakhir, kedaluwarsa tidak dipakai', async () => {
+  const sup = await val(`select id from pur_suppliers where code = 'SUP01'`);
+  const kg = await val(`select id from inv_units where code = 'kg' and company_id = $1`, [company1]);
+  const pl = (await one(`insert into pur_pricelists (company_id, supplier_id, effective_date, expiry_date)
+                         values ($1, $2, current_date, current_date + 30) returning id`, [company1, sup])).id;
+  await db.query(`insert into pur_pricelist_items (company_id, pricelist_id, item_id, unit_id, conversion_qty, price) values ($1, $2, $3, $4, 1000, 42000)`,
+    [company1, pl, await itemId('BHN05'), kg]);
+  const a = await val(`select pur_approve_pricelist($1)`, [pl]);
+  assert(a.status === 'approved' && a.pricelist_number.startsWith('PL/'), JSON.stringify(a));
+  const p = await val(`select pur_get_item_price($1, $2, $3, $4)`, [sup, await itemId('BHN05'), kg, outletId]);
+  assert(Number(p.pricelist.price) === 42000 && Number(p.last.price) === 45000, JSON.stringify(p));
+  const later = await val(`select pur_get_item_price($1, $2, $3, $4, current_date + 60)`, [sup, await itemId('BHN05'), kg, outletId]);
+  assert(later.pricelist === null, 'pricelist kedaluwarsa masih dipakai');
+});
+await check('toleransi terima: lebih dari sisa PO + toleransi ditolak', async () => {
+  await db.query(`update inv_items set receipt_tolerance_pct = 10 where code = 'BHN05'`);
+  const kg = await val(`select id from inv_units where code = 'kg' and company_id = $1`, [company1]);
+  const po = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, (select id from pur_suppliers where code = 'SUP01'), $2) returning id`, [company1, await mainWh()])).id;
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, conversion_qty, quantity, unit_price) values ($1, $2, $3, $4, 1000, 10, 42000)`,
+    [company1, po, await itemId('BHN05'), kg]);
+  await db.query(`select pur_approve_purchase_order($1)`, [po]);
+  const gr = await val(`select pur_create_goods_receipt_from_po($1)`, [po]);
+  await db.query(`update pur_goods_receipt_items set quantity = 11 where goods_receipt_id = $1`, [gr]);
+  await expectError(`update pur_goods_receipt_items set quantity = 11.5 where goods_receipt_id = $1`, [gr], /melebihi sisa PO/);
+  await db.query(`select pur_post_goods_receipt($1)`, [gr]);
+  await journalBalanced();
+});
+
+console.log('\nApproval produk & pricelist:');
+await check('produk baru dari manajer menunggu persetujuan & belum bisa dipakai', async () => {
+  await db.query(`update sys_approval_rules set is_enabled = true where document_type in ('product', 'pricelist')`);
+  await loginAs(U7);
+  const it = await newItem('BHN99', 'Keju Mozarella', 'g', 150, 'raw', 'Protein');
+  assert((await val(`select approval_status from inv_items where id = $1`, [it])) === 'pending', 'harus pending');
+  await expectError(`update inv_items set approval_status = 'approved' where id = $1`, [it], /Persetujuan/);
+  const recipe = await val(`select id from inv_recipes where menu_item_id = $1`, [await menuId('SNK02')]);
+  await expectError(`insert into inv_recipe_items (company_id, recipe_id, item_id, quantity) values ($1, $2, $3, 10)`, [company1, recipe, it], /belum disetujui/);
+});
+await check('owner menyetujui produk -> bisa dipakai; menolak produk lain', async () => {
+  await loginAs(U7);
+  const other = await newItem('BHN89', 'Produk Iseng', 'g', 1, 'raw', 'Protein');
+  await loginAs(U1);
+  await db.query(`select sys_decide_approval((select id from sys_approval_requests where document_id = $1), true)`, [await itemId('BHN99')]);
+  await db.query(`select sys_decide_approval((select id from sys_approval_requests where document_id = $1), false, 'Tidak perlu')`, [other]);
+  const r = await one(`select (select approval_status from inv_items where code = 'BHN99') a, (select approval_status from inv_items where code = 'BHN89') b`);
+  assert(r.a === 'approved' && r.b === 'rejected', JSON.stringify(r));
+});
+await check('pricelist dari manajer menunggu persetujuan', async () => {
+  await loginAs(U7);
+  const pl = (await one(`insert into pur_pricelists (company_id, supplier_id) values ($1, (select id from pur_suppliers where code = 'SUP02')) returning id`, [company1])).id;
+  await db.query(`insert into pur_pricelist_items (company_id, pricelist_id, item_id, unit_id, price) values ($1, $2, $3, (select base_unit_id from inv_items where code = 'BHN04'), 16)`,
+    [company1, pl, await itemId('BHN04')]);
+  assert((await val(`select pur_approve_pricelist($1)`, [pl])).pending_approval === true, 'harus pending');
+  await loginAs(U1);
+  await db.query(`select sys_decide_approval((select id from sys_approval_requests where document_id = $1), true)`, [pl]);
+  assert((await val(`select status from pur_pricelists where id = $1`, [pl])) === 'approved', 'belum approved');
+});
+
+console.log('\nMenu paket & jadwal harga:');
+await check('menu paket: harga tambahan isi & stok isi paket ikut terpotong', async () => {
+  const brand = await val(`select id from sys_brands where company_id = $1 limit 1`, [company1]);
+  const paket = (await one(`insert into mst_menu_items (company_id, brand_id, menu_category_id, code, name, base_price)
+                            values ($1, $2, (select id from mst_menu_categories where name = 'Makanan' and company_id = $1), 'PKT01', 'Paket Hemat', 40000) returning id`, [company1, brand])).id;
+  const grp = (await one(`insert into mst_modifier_groups (company_id, name, group_type, min_select, max_select) values ($1, 'Pilih Minuman', 'package', 1, 1) returning id`, [company1])).id;
+  await db.query(`insert into mst_modifiers (company_id, modifier_group_id, name, extra_price, menu_item_id, is_default) values
+                  ($1, $2, 'Es Teh', 0, $3, true), ($1, $2, 'Es Jeruk', 3000, $4, false)`, [company1, grp, await menuId('MNM01'), await menuId('MNM02')]);
+  await db.query(`insert into mst_menu_item_modifier_groups (company_id, menu_item_id, modifier_group_id) values ($1, $2, $3)`, [company1, paket, grp]);
+  const jeruk = await val(`select id from mst_modifiers where modifier_group_id = $1 and name = 'Es Jeruk'`, [grp]);
+  const before = await stockOf('BHN10');
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: paket, modifier_ids: [jeruk] }] })]);
+    assert(Number(o.subtotal) === 43000, `subtotal ${o.subtotal}`);
+    await payCash(o.id);
+  });
+  assert(before - (await stockOf('BHN10')) === 2, 'jeruk isi paket tidak terpotong');
+  await journalBalanced();
+});
+await check('modifier "Extra Telur" memotong bahan telur', async () => {
+  const telur = await val(`select id from mst_modifiers where name = 'Telur' and company_id = $1`, [company1]);
+  await db.query(`update mst_modifiers set item_id = $1, item_qty = 1 where id = $2`, [await itemId('BHN06'), telur]);
+  const before = await stockOf('BHN06');
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN01'), modifier_ids: [telur] }] })]);
+    await payCash(o.id);
+  });
+  assert(before - (await stockOf('BHN06')) === 2, `telur terpakai ${before - (await stockOf('BHN06'))}`);
+});
+await check('jadwal harga mengganti harga menu otomatis (sesuai kanal)', async () => {
+  const esTeh = await menuId('MNM01');
+  const sch = (await one(`insert into mst_price_schedules (company_id, name, sales_channels) values ($1, 'Promo Teh Dine-in', array['dine_in']) returning id`, [company1])).id;
+  await db.query(`insert into mst_price_schedule_items (company_id, schedule_id, menu_item_id, price) values ($1, $2, $3, 5000)`, [company1, sch, esTeh]);
+  assert(Number(await val(`select mst_get_menu_price($1, $2, 'dine_in')`, [esTeh, outletId])) === 5000, 'jadwal tidak berlaku');
+  assert(Number(await val(`select mst_get_menu_price($1, $2, 'takeaway')`, [esTeh, outletId])) === 8000, 'kanal lain ikut berubah');
+  const prices = await val(`select mst_get_current_menu_prices($1, 'dine_in')`, [outletId]);
+  assert(Number(prices[esTeh]) === 5000, 'harga POS');
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'dine_in', table_id: await val(`select id from mst_tables where code = 'B4'`), items: [{ menu_item_id: esTeh }] })]);
+    assert(Number(o.subtotal) === 5000, `subtotal ${o.subtotal}`);
+    await payCash(o.id);
+  });
+  const t = await val(`select qr_token from mst_tables where code = 'A3'`);
+  const m = await val(`select public_get_table_menu($1)`, [t]);
+  assert(Number(m.items.find((i) => i.id === esTeh).price) === 5000, 'harga QR');
+  await db.query(`update mst_price_schedules set is_active = false where id = $1`, [sch]);
+  assert(Number(await val(`select mst_get_menu_price($1, $2, 'dine_in')`, [esTeh, outletId])) === 8000, 'jadwal nonaktif masih berlaku');
+});
+await check('neraca tetap seimbang setelah semua skenario master produk', async () => {
+  const rows = (await db.query(`select * from fin_get_account_balances('2000-01-01', '2100-01-01') where not is_header`)).rows;
+  const natural = (type) => (['asset', 'cogs', 'expense'].includes(type) ? 'debit' : 'credit');
+  const total = (type) => rows.filter((x) => x.account_type === type)
+    .reduce((s, x) => s + (x.normal_balance === natural(type) ? 1 : -1) * Number(x.closing_balance), 0);
+  const diff = total('asset') - (total('liability') + total('equity') + total('revenue') - total('cogs') - total('expense'));
+  assert(Math.abs(diff) < 0.01, `selisih ${diff}`);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
