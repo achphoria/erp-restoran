@@ -485,3 +485,16 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .flag-dot { font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text-muted); }
 .flag-dot.on { background: var(--primary-soft); color: var(--primary); }
 .section-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 18px 0 10px; }
+
+/* ---------- perataan sidebar menciut (lebar 76px, titik tengah 38px) ----------
+   logo 40px: 12 (padding sidebar) + 6 + 20 = 38
+   ikon 20px: 12 + 16 + 10 = 38                                                  */
+.sidebar-head { position: relative; justify-content: flex-start; padding: 2px 6px 12px; }
+.sidebar-head .logo { overflow: visible; }
+.logo img { max-width: none; }
+.sidebar-head .pin-btn, .sidebar-head .mobile-only { position: absolute; right: 0; top: 6px; }
+.sidebar a.nav-link { padding: 0 16px; }
+.nav-badge { left: 34px; }
+.sidebar a.qr-alert { padding: 8px 16px; }
+.sidebar-footer .logout-btn { width: 100%; justify-content: flex-start; gap: 14px; padding: 0 16px; height: 40px; }
+.user-chip { justify-content: flex-start; }

@@ -1312,5 +1312,14 @@ await check('neraca tetap seimbang setelah semua skenario master produk', async 
   assert(Math.abs(diff) < 0.01, `selisih ${diff}`);
 });
 
+console.log('\nNama aplikasi:');
+await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
+  await loginAs(U1);
+  assert((await val(`select sys_get_my_profile()`)).company_app_name === null, 'default harus null');
+  await db.query(`update sys_companies set app_name = 'Achphoria POS' where id = $1`, [company1]);
+  assert((await val(`select sys_get_my_profile()`)).company_app_name === 'Achphoria POS', 'tidak tersimpan');
+  await expectError(`update sys_companies set app_name = '   ' where id = $1`, [company1], /check/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

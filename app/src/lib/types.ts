@@ -13,6 +13,7 @@ export interface Profile {
   company_id: string;
   company_name: string;
   company_logo_url: string | null;
+  company_app_name: string | null;
   role_code: string;
   role_name: string;
   permissions: string[];
