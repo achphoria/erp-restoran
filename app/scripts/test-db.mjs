@@ -1921,6 +1921,32 @@ await check('reset total menghapus master juga; outlet, user, COA & supplier int
   await journalBalanced();
 });
 
+console.log('\nSkrip data contoh BOM & produksi:');
+await check('demo_production.sql: BOM assembly & disassembly siap diproduksi; aman dijalankan ulang', async () => {
+  await loginAs(U1);
+  const outletName = await val(`select name from sys_outlets where id = $1`, [outletId]);
+  const sql = readFileSync(new URL('../../supabase/demo_production.sql', import.meta.url), 'utf8')
+    .replaceAll('EMAIL_OWNER_ANDA', 'owner1@test.com').replaceAll('KATA_NAMA_OUTLET', outletName);
+  await db.exec(`reset role`);   // SQL Editor Supabase berjalan sebagai postgres
+  await db.exec(sql);
+  await db.exec(sql);   // jalankan ulang: tidak dobel
+  await loginAs(U1);
+  const r = await one(`select (select count(*)::int from inv_recipes where company_id = $1 and code in ('BOM-SAMBAL', 'BOM-AYAM')) recipes,
+    (select count(*)::int from pur_goods_receipts where company_id = $1 and supplier_invoice_number = 'INV-DEMO-BOM') grs`, [company1]);
+  assert(r.recipes === 2 && r.grs === 1, JSON.stringify(r));
+  const wh = await mainWh();
+  for (const [code, qty] of [['BOM-SAMBAL', 2000], ['BOM-AYAM', 3]]) {
+    const p = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, (select id from inv_recipes where code = $3 and company_id = $1), $4) returning id`,
+      [company1, wh, code, qty])).id;
+    await db.query(`select inv_post_production($1)`, [p]);
+  }
+  const sambal = await one(`select quantity::float8 q, average_cost::float8 c from inv_stocks where warehouse_id = $1 and item_id = (select id from inv_items where code = 'DMP11' and company_id = $2)`, [wh, company1]);
+  assert(sambal.q === 2000 && sambal.c > 0, JSON.stringify(sambal));
+  const dada = Number(await val(`select quantity from inv_stocks where warehouse_id = $1 and item_id = (select id from inv_items where code = 'DMP12' and company_id = $2)`, [wh, company1]));
+  assert(dada === 1350, `dada ${dada}`);
+  await journalBalanced();
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

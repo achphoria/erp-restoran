@@ -220,6 +220,7 @@ Alternatif lewat CLI: `supabase functions deploy staff-users`.
   - **Data contoh**: pilih outlet, jumlah hari (7/14/30) & order per hari. Sistem membuat pembelian berkala, penjualan POS per hari
     (tanggal mundur), waste & pemakaian, biaya listrik/sewa, Sales Order B2B (kirim, invoice, bayar sebagian), lalu settlement.
     Memakai menu, resep & produk yang sudah ada. Lewat SQL: [`supabase/demo_data.sql`](supabase/demo_data.sql).
+    Contoh BOM & produksi (assembly sambal, disassembly ayam utuh): [`supabase/demo_production.sql`](supabase/demo_production.sql).
   - **Backup**: download semua data perusahaan sebagai file `.json` (password & merchant key tidak ikut).
   - **Restore**: unggah file backup perusahaan yang sama, lalu master & transaksi diganti isi backup.
   - **Reset**: *Hapus semua transaksi* (master tetap, stok nol, nomor dokumen mulai lagi) atau *Reset total* (master + transaksi).
