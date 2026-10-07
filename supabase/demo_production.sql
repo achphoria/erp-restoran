@@ -7,7 +7,8 @@
 --                                  (+ waste 5% cabai, biaya gas & tenaga masak)
 --   * BOM DISASSEMBLY "BOM-AYAM" : 1 Ayam Utuh -> Dada, Paha, Tulang & Ceker (nilai dibagi per bobot)
 -- Setelah itu coba di aplikasi: Persediaan -> Produksi -> + Produksi.
--- Cara pakai: ganti EMAIL_OWNER_ANDA & KATA_NAMA_OUTLET (sebagian nama outlet, mis. 'pluit'), lalu Run.
+-- Cara pakai: ganti EMAIL_OWNER_ANDA, lalu Run. Opsional: ganti KATA_NAMA_OUTLET dengan sebagian nama OUTLET
+--   (mis. 'pluit'); bila tidak cocok, dipakai outlet pertama yang punya gudang POS.
 -- =====================================================================
 
 -- 1) jalankan sebagai owner
@@ -26,9 +27,12 @@ declare
   v_rec    uuid;
 begin
   if c is null or not sys_has_permission('*') then raise exception 'Jalankan sebagai owner (cek email di langkah 1)'; end if;
+  -- outlet yang namanya cocok; kalau tidak ada, outlet pertama yang punya gudang POS
   select id, default_warehouse_id into v_outlet, v_wh from sys_outlets
-  where company_id = c and name ilike '%KATA_NAMA_OUTLET%' and default_warehouse_id is not null limit 1;
-  if v_wh is null then raise exception 'Outlet tidak ditemukan. Isi KATA_NAMA_OUTLET dengan sebagian nama OUTLET (bukan nama perusahaan)'; end if;
+  where company_id = c and default_warehouse_id is not null
+  order by (name ilike '%KATA_NAMA_OUTLET%') desc, created_at limit 1;
+  if v_wh is null then raise exception 'Belum ada outlet yang punya gudang POS (atur di Persediaan -> Gudang & Lokasi)'; end if;
+  raise notice 'Dipakai outlet: %', (select name from sys_outlets where id = v_outlet);
 
   -- produk: bahan baku & setengah jadi
   insert into inv_items (company_id, item_category_id, code, name, item_type, base_unit_id, last_purchase_cost, min_stock, is_purchasable)

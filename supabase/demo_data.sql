@@ -3,8 +3,8 @@
 -- Syarat: update_fase14.sql sudah dijalankan.
 -- Cara pakai:
 --   1. Ganti EMAIL_OWNER_ANDA dengan email login owner.
---   2. Ganti KATA_NAMA_OUTLET dengan sebagian nama OUTLET (bukan nama perusahaan),
---      mis. 'pluit' untuk outlet "PLUIT Jakarta Utara". Daftar outlet muncul di langkah 2.
+--   2. Opsional: ganti KATA_NAMA_OUTLET dengan sebagian nama OUTLET (bukan nama perusahaan),
+--      mis. 'pluit'. Bila tidak cocok, dipakai outlet pertama yang punya gudang POS.
 --   3. Atur jumlah hari & order per hari bila perlu, lalu Run.
 -- Alternatif tanpa SQL: aplikasi -> Pengaturan -> Data & Backup -> Buat data contoh.
 -- Menghapusnya lagi: Pengaturan -> Data & Backup -> Hapus semua transaksi.
@@ -22,7 +22,8 @@ from sys_outlets where company_id = sys_current_company_id();
 -- 3) 14 hari ke belakang, sekitar 20 order per hari
 select sys_seed_demo_transactions(
   (select id from sys_outlets
-   where company_id = sys_current_company_id() and name ilike '%KATA_NAMA_OUTLET%' and default_warehouse_id is not null
+   where company_id = sys_current_company_id() and default_warehouse_id is not null
+   order by (name ilike '%KATA_NAMA_OUTLET%') desc, created_at
    limit 1),
   14,
   20
