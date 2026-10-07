@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–022)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–023)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -18,6 +18,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase10.sql`](supabase/update_fase10.sql) (019: batch/lot & kedaluwarsa, HPP FIFO + FEFO, koli transfer, barcode)
   - [`supabase/update_fase11.sql`](supabase/update_fase11.sql) (020–021: Sales Order antar cabang & B2B, gudang per toko, settlement POS)
   - [`supabase/update_fase12.sql`](supabase/update_fase12.sql) (022: approval untuk semua transaksi + matriks pembuat/penyetuju)
+  - [`supabase/update_fase13.sql`](supabase/update_fase13.sql) (023: user staf dibuat owner dengan username, lalu deploy Edge Function `staff-users`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -194,6 +195,24 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 - Transaksi di atas batas dari pembuat masuk ke menu **Persetujuan**. Setelah disetujui, transaksi dijalankan otomatis.
   Penyetuju tidak perlu akses modulnya. Role yang sekaligus pembuat & penyetuju (dan Owner) langsung jalan.
 - Settlement POS dinilai dari **selisih**, dan tanggal yang sedang menunggu persetujuan terkunci.
+
+## Fase 13: User staf tanpa daftar sendiri
+- **Owner** tetap mendaftar sendiri dengan email (halaman Daftar).
+- **Staf dibuat owner/admin** di **Pengaturan → User → + Tambah User**: nama, **username**, password, role, dan outlet.
+  Staf langsung bisa masuk dengan **username + password** (tanpa email, tanpa konfirmasi).
+- Owner bisa **reset password** staf. Semua user bisa ganti password sendiri di **Profil Saya**.
+- Di belakang layar, akun login staf dibuat oleh Edge Function `staff-users` (Supabase Auth admin API). Service role key hanya ada di server.
+- Undangan via email tetap ada untuk staf yang ingin login dengan email pribadinya.
+
+### Deploy Edge Function `staff-users` (sekali saja, lewat Dashboard)
+1. Jalankan `supabase/update_fase13.sql` di SQL Editor.
+2. Supabase Dashboard → **Edge Functions** → **Deploy a new function** → **Via Editor**.
+3. Nama fungsi: `staff-users` (harus persis).
+4. Hapus isi contoh, lalu tempel seluruh isi file [`supabase/functions/staff-users/index.ts`](supabase/functions/staff-users/index.ts).
+5. Klik **Deploy function**. Biarkan **Verify JWT** aktif. Tidak perlu menambah secret.
+6. Coba di aplikasi: Pengaturan → User → + Tambah User.
+
+Alternatif lewat CLI: `supabase functions deploy staff-users`.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

@@ -10,6 +10,7 @@ import CompanyTab from '../components/settings/CompanyTab';
 import ApprovalMatrixTab from '../components/settings/ApprovalMatrixTab';
 import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
 import ActivityLogTab from '../components/settings/ActivityLogTab';
+import { CreateStaffUserModal, ResetPasswordModal } from '../components/settings/StaffUserModal';
 
 type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs';
 
@@ -20,7 +21,7 @@ interface OutletRow {
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
 }
 interface UserRow {
-  id: string; full_name: string; email: string; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
+  id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
   role_id: string; role_name: string; role_code: string; outlet_ids: string[]; created_at: string;
 }
 interface Invitation { id: string; email: string; role_id: string; outlet_ids: string[]; status: string; created_at: string }
@@ -102,7 +103,7 @@ export default function SettingsPage() {
 
   const tabs: [Tab, string, boolean][] = [
     ['company', 'Perusahaan & Logo', can('settings.manage')],
-    ['users', 'User & Undangan', can('user.manage')],
+    ['users', 'User', can('user.manage')],
     ['roles', 'Role & Hak Akses', can('user.manage')],
     ['outlets', 'Outlet', can('settings.manage')],
     ['approvals', 'Approval Transaksi', can('settings.manage')],
@@ -147,6 +148,8 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
   currentUserId: string; act: Act;
 }) {
   const [inviting, setInviting] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState<UserRow | null>(null);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editingProfile, setEditingProfile] = useState<UserRow | null>(null);
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? '-';
@@ -157,7 +160,10 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
       <div className="card table-wrap">
         <div className="card-header">
           <h2>User</h2>
-          <button className="btn-primary" onClick={() => setInviting(true)}>+ Undang Staf</button>
+          <div className="row">
+            <button onClick={() => setInviting(true)} title="Untuk staf yang ingin login dengan email sendiri">Undang via email</button>
+            <button className="btn-primary" onClick={() => setCreating(true)}>+ Tambah User</button>
+          </div>
         </div>
         <table className="table">
           <thead><tr><th>User</th><th>Kontak</th><th>Role</th><th>Outlet</th><th>Login terakhir</th><th>Status</th><th></th></tr></thead>
@@ -170,7 +176,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
                     <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
                   </div>
                 </td>
-                <td className="small">{u.email}<div className="muted">{u.phone ?? '—'}</div></td>
+                <td className="small">{u.username ? <><code>{u.username}</code> <span className="muted">(username)</span></> : u.email}<div className="muted">{u.phone ?? '—'}</div></td>
                 <td><span className="badge badge-primary">{u.role_name}</span></td>
                 <td className="small">{u.role_code === 'owner' ? 'Semua outlet' : outletNames(u.outlet_ids) || '-'}</td>
                 <td className="small muted">{u.last_login_at ? formatDateTime(u.last_login_at) : 'Belum pernah'}</td>
@@ -179,6 +185,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
                   <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                     <button className="btn-sm" onClick={() => setEditingProfile(u)}>Profil</button>
                     {u.id !== currentUserId && <button className="btn-sm" onClick={() => setEditing(u)}>Akses</button>}
+                    {u.username && <button className="btn-sm" onClick={() => setResetting(u)}>Reset password</button>}
                   </div>
                 </td>
               </tr>
@@ -188,7 +195,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
       </div>
 
       <div className="card table-wrap">
-        <h2 style={{ marginBottom: 12 }}>Undangan Menunggu</h2>
+        <h2 style={{ marginBottom: 12 }}>Undangan Email Menunggu</h2>
         <table className="table">
           <thead><tr><th>Email</th><th>Role</th><th>Outlet</th><th>Dikirim</th><th></th></tr></thead>
           <tbody>
@@ -210,8 +217,8 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
           </tbody>
         </table>
         <div className="alert alert-info small" style={{ marginTop: 12, marginBottom: 0 }}>
-          <b>Cara staf bergabung:</b> setelah diundang, staf membuka aplikasi ini → <b>Daftar</b> dengan email yang sama →
-          undangan otomatis muncul → klik <b>Terima & Bergabung</b>.
+          <b>Cara utama:</b> klik <b>+ Tambah User</b>, isi username & password, lalu berikan ke staf. Staf tidak perlu daftar.
+          Undangan email hanya untuk staf yang ingin login dengan email pribadinya (staf mendaftar dengan email tersebut lalu menerima undangan).
         </div>
       </div>
 
@@ -229,6 +236,11 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
             });
           }} />
       )}
+
+      {creating && <CreateStaffUserModal roles={roles} outlets={outlets} onClose={() => setCreating(false)}
+        onDone={(msg) => { setCreating(false); act(async () => msg); }} />}
+      {resetting && <ResetPasswordModal user={{ id: resetting.id, full_name: resetting.full_name, username: resetting.username! }}
+        onClose={() => setResetting(null)} onDone={(msg) => { setResetting(null); act(async () => msg); }} />}
 
       {editingProfile && (
         <ProfileModal user={editingProfile} onClose={() => setEditingProfile(null)} onSaved={() => act(async () => undefined)} />

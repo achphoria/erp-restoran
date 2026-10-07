@@ -4,14 +4,15 @@ import Modal from './Modal';
 import Avatar from './Avatar';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from './Feedback';
-import { rpc } from '../lib/supabase';
+import { rpc, supabase } from '../lib/supabase';
 import { uploadAvatar } from '../lib/image';
 import { errorMessage } from '../lib/format';
+import { STAFF_EMAIL_DOMAIN } from '../lib/staff';
 
 // Edit profil: sendiri (tanpa userId) atau user lain (owner, butuh user.manage)
 export default function ProfileModal({ onClose, user, onSaved }: {
   onClose: () => void;
-  user?: { id: string; full_name: string; phone: string | null; avatar_url: string | null; email?: string };
+  user?: { id: string; full_name: string; phone: string | null; avatar_url: string | null; email?: string | null };
   onSaved?: () => void;
 }) {
   const { profile, refreshProfile } = useAuth();
@@ -23,6 +24,25 @@ export default function ProfileModal({ onClose, user, onSaved }: {
   const [avatar, setAvatar] = useState(target.avatar_url ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const changePassword = async () => {
+    if (newPassword.length < 8) return setError('Password minimal 8 karakter');
+    if (newPassword !== confirmPassword) return setError('Konfirmasi password tidak sama');
+    setBusy(true);
+    setError('');
+    try {
+      const { error: e } = await supabase.auth.updateUser({ password: newPassword });
+      if (e) throw e;
+      setNewPassword(''); setConfirmPassword('');
+      toast('Password diganti');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onPhoto = async (file?: File) => {
     if (!file) return;
@@ -70,9 +90,21 @@ export default function ProfileModal({ onClose, user, onSaved }: {
       <div className="grid">
         <label className="field"><span>Nama lengkap</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
         <label className="field"><span>Nomor HP / WhatsApp</span><input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0812…" /></label>
-        {target.email && <label className="field"><span>Email (login)</span><input value={target.email} disabled /></label>}
+        {target.email && (target.email.endsWith(`@${STAFF_EMAIL_DOMAIN}`)
+          ? <label className="field"><span>Username (login)</span><input value={target.email.split('@')[0]} disabled /></label>
+          : <label className="field"><span>Email (login)</span><input value={target.email} disabled /></label>)}
         {self && <div className="muted small">Role: <b>{profile?.role_name}</b> · {profile?.company_name}</div>}
       </div>
+      {self && (
+        <details className="password-box">
+          <summary>Ganti password</summary>
+          <div className="form-grid" style={{ marginTop: 10 }}>
+            <label className="field"><span>Password baru (min. 8)</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></label>
+            <label className="field"><span>Ulangi password baru</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></label>
+          </div>
+          <button className="btn-sm" style={{ marginTop: 8 }} disabled={busy || !newPassword} onClick={changePassword}>Simpan password</button>
+        </details>
+      )}
     </Modal>
   );
 }
