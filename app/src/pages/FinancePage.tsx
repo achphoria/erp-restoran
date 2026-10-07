@@ -29,6 +29,7 @@ const TYPE_LABEL: Record<string, string> = {
 const SOURCE_LABEL: Record<string, string> = {
   sales: 'Penjualan', purchase_receipt: 'Pembelian', stock_adjustment: 'Penyesuaian Stok', stock_opname: 'Stock Opname',
   supplier_payment: 'Bayar Supplier', expense: 'Biaya', manual: 'Manual', opening_stock: 'Saldo Awal',
+  production: 'Produksi', sales_refund: 'Refund Penjualan',
 };
 const NATURAL_BALANCE: Record<string, string> = {
   asset: 'debit', cogs: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit',

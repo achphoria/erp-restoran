@@ -44,6 +44,8 @@ export interface Modifier {
   extra_price: number;
   sort_order: number;
   modifier_group_id: string;
+  is_default?: boolean;
+  menu_item_id?: string | null;
 }
 
 export interface ModifierGroup {
@@ -51,6 +53,7 @@ export interface ModifierGroup {
   name: string;
   min_select: number;
   max_select: number;
+  group_type?: 'modifier' | 'package';
   mst_modifiers: Modifier[];
 }
 

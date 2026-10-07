@@ -475,3 +475,13 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .user-chip .meta { flex: 1; overflow: hidden; }
 .user-chip .meta strong, .user-chip .meta small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-head .logo { overflow: hidden; }
+
+/* ---------- import file ---------- */
+.file-drop { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 14px; border: 2px dashed var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; color: var(--text-muted); font-weight: 600; }
+.file-drop:hover { border-color: var(--fresh); color: var(--primary); background: var(--primary-soft); }
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.filter-bar > input[type='search'] { flex: 1; min-width: 180px; }
+.flag-dots { display: inline-flex; gap: 4px; }
+.flag-dot { font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: var(--surface-2); color: var(--text-muted); }
+.flag-dot.on { background: var(--primary-soft); color: var(--primary); }
+.section-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 18px 0 10px; }

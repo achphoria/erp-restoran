@@ -1,23 +1,25 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import OnboardingPage from './pages/OnboardingPage';
-import DashboardPage from './pages/DashboardPage';
-import PosPage from './pages/PosPage';
-import OrdersPage from './pages/OrdersPage';
-import KitchenPage from './pages/KitchenPage';
-import ShiftsPage from './pages/ShiftsPage';
-import MenuPage from './pages/MenuPage';
-import InventoryPage from './pages/InventoryPage';
-import PurchasingPage from './pages/PurchasingPage';
-import ReportsPage from './pages/ReportsPage';
-import FinancePage from './pages/FinancePage';
-import SettingsPage from './pages/SettingsPage';
-import CustomersPage from './pages/CustomersPage';
-import PublicOrderPage from './pages/PublicOrderPage';
-import ApprovalsPage from './pages/ApprovalsPage';
-import PaymentReturnPage from './pages/PaymentReturnPage';
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const PosPage = lazy(() => import('./pages/PosPage'));
+const OrdersPage = lazy(() => import('./pages/OrdersPage'));
+const KitchenPage = lazy(() => import('./pages/KitchenPage'));
+const ShiftsPage = lazy(() => import('./pages/ShiftsPage'));
+const MenuPage = lazy(() => import('./pages/MenuPage'));
+const InventoryPage = lazy(() => import('./pages/InventoryPage'));
+const PurchasingPage = lazy(() => import('./pages/PurchasingPage'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const FinancePage = lazy(() => import('./pages/FinancePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const CustomersPage = lazy(() => import('./pages/CustomersPage'));
+const ProductsPage = lazy(() => import('./pages/ProductsPage'));
+const PublicOrderPage = lazy(() => import('./pages/PublicOrderPage'));
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
+const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 import { FeedbackProvider } from './components/Feedback';
 
 function Guard({ permission, children }: { permission: string | string[]; children: React.ReactNode }) {
@@ -52,6 +54,7 @@ function AppRoutes() {
         <Route path="kitchen" element={<Guard permission="kds.update"><KitchenPage /></Guard>} />
         <Route path="shifts" element={<Guard permission="pos.pay"><ShiftsPage /></Guard>} />
         <Route path="menu" element={<Guard permission="master.manage"><MenuPage /></Guard>} />
+        <Route path="products" element={<Guard permission="inventory.manage"><ProductsPage /></Guard>} />
         <Route path="inventory" element={<Guard permission="inventory.manage"><InventoryPage /></Guard>} />
         <Route path="purchasing" element={<Guard permission="purchasing.manage"><PurchasingPage /></Guard>} />
         <Route path="reports" element={<Guard permission="report.view"><ReportsPage /></Guard>} />
@@ -70,12 +73,14 @@ export default function App() {
     <FeedbackProvider>
     <AuthProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
+        <Suspense fallback={<div className="main"><div className="skeleton" style={{ height: 200 }} /></div>}>
         <Routes>
           {/* publik, tanpa login: halaman pesan dari QR meja */}
           <Route path="/order/:token" element={<PublicOrderPage />} />
           <Route path="/payment-return" element={<PaymentReturnPage />} />
           <Route path="*" element={<AppRoutes />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
     </FeedbackProvider>

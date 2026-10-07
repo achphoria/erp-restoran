@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  BadgeCheck, BarChart3, ChefHat, ClipboardList, Gift, LayoutDashboard, LogOut, Menu as MenuIcon, Package,
+  BadgeCheck, BarChart3, Boxes, ChefHat, ClipboardList, Gift, LayoutDashboard, LogOut, Menu as MenuIcon, Package,
   Pin, PinOff, Receipt, Settings, Timer, Truck, UtensilsCrossed, Wallet, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +29,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: 'Back Office',
     items: [
       { to: '/menu', label: 'Menu', icon: UtensilsCrossed, permission: 'master.manage' },
+      { to: '/products', label: 'Master Produk', icon: Boxes, permission: 'inventory.manage' },
       { to: '/inventory', label: 'Inventory', icon: Package, permission: 'inventory.manage' },
       { to: '/purchasing', label: 'Pembelian', icon: Truck, permission: 'purchasing.manage' },
       { to: '/customers', label: 'Pelanggan & Promo', icon: Gift, permission: 'crm.manage' },
@@ -154,7 +155,9 @@ export default function Layout() {
       </aside>
 
       <main className="main">
-        <Outlet />
+        <Suspense fallback={<div className="grid">{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 90 }} />)}</div>}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {editingProfile && <ProfileModal onClose={() => setEditingProfile(false)} />}

@@ -6,12 +6,13 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–013)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–016)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
   - [`supabase/update_fase5.sql`](supabase/update_fase5.sql) (010: foto menu, menu habis, pindah/gabung/split bill, refund)
   - [`supabase/update_fase6.sql`](supabase/update_fase6.sql) (011–013: logo & profil, log aktivitas, approval, iPay88)
+  - [`supabase/update_fase7.sql`](supabase/update_fase7.sql) (014–016: master produk, BOM & produksi, pricelist, paket, jadwal harga)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -123,6 +124,18 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
   1. Deploy fungsi: `supabase functions deploy ipay88-checkout` dan `supabase functions deploy ipay88-callback --no-verify-jwt`
   2. Secret `APP_URL` = alamat aplikasi; daftarkan Backend URL `https://<project>.supabase.co/functions/v1/ipay88-callback` di iPay88
   3. **Cocokkan rumus tanda tangan** di `supabase/functions/_shared/ipay88.ts` dengan dokumen teknis iPay88 Anda.
+
+## Fase 7: Master Produk (ala ESB)
+- **Master Produk** (menu baru di Back Office): produk dengan tipe (bahan baku / setengah jadi / barang jadi / kemasan / habis pakai),
+  flag dapat dibeli / dijual / direquest / PPN, toleransi terima, 5 field tambahan, multi-satuan dengan SKU, barcode, berat & volume.
+- **Kategori bertipe** (Inventory / Non Inventory / Asset) dengan **akun COA sendiri**: HPP & persediaan di jurnal otomatis terpisah per kategori.
+- **Min/max stok per gudang** + saran jumlah beli, bisa disalin antar gudang.
+- **Import / Export Excel** produk & menu: template + validasi semua baris; satu baris salah = tidak ada yang disimpan, error bisa diunduh.
+- **Resep (BOM)** Menu / Assembly / Disassembly, waste %, biaya tambahan, resep rahasia; **Produksi** di Inventory → Produksi.
+- **Kalkulator Food Cost**: target food cost % atau markup → saran harga, simpan jadi resep.
+- **Pricelist supplier** (Pembelian → Pricelist): harga berlaku otomatis di PO, peringatan bila harga di atas pricelist.
+- **Menu paket** (Menu → Modifier & Paket): isi paket = menu, stok isi ikut terpotong; modifier bisa memotong bahan (Extra Telur).
+- **Jadwal harga** (Menu → Jadwal Harga): harga menu berganti otomatis per hari/jam/tanggal/outlet/kanal di POS & QR.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir
