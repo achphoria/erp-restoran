@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–018)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–019)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -15,6 +15,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase7.sql`](supabase/update_fase7.sql) (014–016: master produk, BOM & produksi, pricelist, paket, jadwal harga)
   - [`supabase/update_fase8.sql`](supabase/update_fase8.sql) (017: nama aplikasi bisa diatur di Pengaturan)
   - [`supabase/update_fase9.sql`](supabase/update_fase9.sql) (018: purpose waste/pemakaian/penyusutan ke COA + stock opname bertahap)
+  - [`supabase/update_fase10.sql`](supabase/update_fase10.sql) (019: batch/lot & kedaluwarsa, HPP FIFO + FEFO, koli transfer, barcode)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -149,6 +150,23 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 - **Stock opname bertahap**: buat daftar (per gudang/kategori) → stok sistem dipotret → isi hasil hitung (bisa draft) →
   review selisih → posting. Stok dikoreksi sebesar **selisih terhadap potret**, jadi penjualan setelah penghitungan tidak mengacaukan hasil.
   Produk yang tidak diisi tidak diubah.
+
+## Fase 10: Batch, FIFO/FEFO, koli & barcode
+- **Setiap stok masuk = 1 batch** (penerimaan, produksi, penyesuaian +) dengan kode label `L<YYMMDD><urut>`,
+  no. lot supplier, tanggal kedaluwarsa & harga beli. Saldo lama otomatis jadi batch "Saldo awal".
+- **Stok keluar memakai FEFO lalu FIFO**: batch yang kedaluwarsa duluan diambil duluan, yang tanpa kedaluwarsa
+  urut tanggal masuk. **HPP = harga batch yang terpakai** (FIFO cost), dan jurnal HPP ikut harga ini.
+- **Master Produk**: centang *Lacak batch & kedaluwarsa* (penerimaan wajib isi kedaluwarsa) dan *Umur simpan*
+  (kedaluwarsa otomatis = tanggal terima + umur simpan).
+- **Inventory → Batch & Kedaluwarsa**: sisa per batch, peringatan kedaluwarsa (juga di Dashboard), jejak lengkap
+  per batch (diterima → dipakai di order/waste/transfer), koreksi lot/kedaluwarsa, **cetak label** printer thermal.
+- **Scan barcode** (kamera HP atau scanner USB): label batch, barcode produk/satuan, label koli. Scan label batch di
+  dokumen Waste/Pemakaian/dll = stok diambil dari batch itu.
+- **Transfer per koli**: isi barang per koli → *Kirim* (stok **dalam perjalanan**) → cetak & tempel label koli →
+  gudang tujuan scan label koli untuk menerima. Batch, kedaluwarsa & harga ikut pindah. Kekurangan kiriman dijurnal ke
+  purpose *Hilang / Rusak di Perjalanan*.
+- Refund penjualan mengembalikan stok ke batch asalnya. Stok minus tetap diizinkan (POS tidak terhambat) dan otomatis
+  ditutup oleh batch berikutnya.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

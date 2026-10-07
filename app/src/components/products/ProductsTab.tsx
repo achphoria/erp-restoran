@@ -132,6 +132,7 @@ export default function ProductsTab(md: MasterData) {
                       <span className={`flag-dot ${p.is_saleable ? 'on' : ''}`} title="Dapat dijual">J</span>
                       <span className={`flag-dot ${p.is_requestable ? 'on' : ''}`} title="Dapat direquest outlet">R</span>
                       <span className={`flag-dot ${p.is_taxable ? 'on' : ''}`} title="Kena PPN">P</span>
+                      <span className={`flag-dot ${p.track_batch ? 'on' : ''}`} title="Lacak batch & kedaluwarsa">L</span>
                     </span>
                   </td>
                   <td className="right">{formatRupiah(p.last_purchase_cost)}<span className="muted small">/{unitCode(p.base_unit_id)}</span></td>
@@ -206,6 +207,7 @@ function ProductForm({ md, product, onClose, onSaved }: { md: MasterData; produc
         min_stock: Number(p.min_stock || 0), last_purchase_cost: Number(p.last_purchase_cost || 0), is_active: !!p.is_active,
         is_purchasable: !!p.is_purchasable, is_saleable: !!p.is_saleable, is_requestable: !!p.is_requestable, is_taxable: !!p.is_taxable,
         receipt_tolerance_pct: Number(p.receipt_tolerance_pct || 0), notes: p.notes?.trim() || null,
+        track_batch: !!p.track_batch, shelf_life_days: p.shelf_life_days ? Number(p.shelf_life_days) : null,
         custom_fields: Object.fromEntries(Object.entries(p.custom_fields ?? {}).filter(([, v]) => v)),
       };
       const saved = (await must(isNew
@@ -282,7 +284,7 @@ function ProductForm({ md, product, onClose, onSaved }: { md: MasterData; produc
 
       <div className="section-title">Pengaturan</div>
       <div className="row" style={{ gap: 18 }}>
-        {([['is_purchasable', 'Dapat dibeli'], ['is_saleable', 'Dapat dijual'], ['is_requestable', 'Dapat direquest outlet'], ['is_taxable', 'Kena PPN'], ['is_active', 'Aktif']] as const).map(([k, label]) => (
+        {([['is_purchasable', 'Dapat dibeli'], ['is_saleable', 'Dapat dijual'], ['is_requestable', 'Dapat direquest outlet'], ['is_taxable', 'Kena PPN'], ['track_batch', 'Lacak batch & kedaluwarsa'], ['is_active', 'Aktif']] as const).map(([k, label]) => (
           <label key={k} className="switch"><input type="checkbox" checked={!!p[k]} onChange={(e) => set({ [k]: e.target.checked } as Partial<Product>)} /><span>{label}</span></label>
         ))}
       </div>
@@ -293,6 +295,9 @@ function ProductForm({ md, product, onClose, onSaved }: { md: MasterData; produc
           <input type="number" step="any" min={0} value={p.min_stock ?? 0} onChange={(e) => set({ min_stock: Number(e.target.value) })} /></label>
         <label className="field"><span>Toleransi terima (%)</span>
           <input type="number" min={0} max={100} value={p.receipt_tolerance_pct ?? 0} onChange={(e) => set({ receipt_tolerance_pct: Number(e.target.value) })} /></label>
+        <label className="field"><span>Umur simpan (hari)</span>
+          <input type="number" min={1} placeholder="kosong = tidak ada" value={p.shelf_life_days ?? ''} onChange={(e) => set({ shelf_life_days: e.target.value ? Number(e.target.value) : null })} />
+          <small className="muted">Kedaluwarsa otomatis = tanggal terima + umur simpan</small></label>
       </div>
 
       <div className="section-title">Satuan, SKU & Barcode</div>

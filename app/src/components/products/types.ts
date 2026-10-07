@@ -16,7 +16,7 @@ export interface Product {
   id: string; code: string; name: string; item_type: string; item_category_id: string | null; sub_category_id: string | null;
   base_unit_id: string; min_stock: number; last_purchase_cost: number; is_active: boolean;
   is_purchasable: boolean; is_saleable: boolean; is_requestable: boolean; is_taxable: boolean;
-  receipt_tolerance_pct: number; notes: string | null; custom_fields: Record<string, string>; approval_status: string;
+  receipt_tolerance_pct: number; track_batch: boolean; shelf_life_days: number | null; notes: string | null; custom_fields: Record<string, string>; approval_status: string;
   inv_item_units?: ItemUnit[];
 }
 

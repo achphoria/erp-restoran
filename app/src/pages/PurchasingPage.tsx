@@ -6,6 +6,9 @@ import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib
 import Modal from '../components/Modal';
 import MoneyInput from '../components/MoneyInput';
 import PricelistTab from '../components/PricelistTab';
+import LabelPrintModal from '../components/inventory/LabelPrintModal';
+import { batchLabel } from '../components/inventory/batchUtils';
+import type { LabelData } from '../lib/barcode';
 
 type Tab = 'po' | 'receipts' | 'pricelist' | 'suppliers';
 
@@ -402,13 +405,19 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
 }
 
 function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string; onClose: () => void; onPosted: (msg: string) => void }) {
-  const [lines, setLines] = useState<{ id: string; quantity: number; unit_price: number; inv_items: { name: string }; inv_units: { code: string } }[]>([]);
+  const [lines, setLines] = useState<{
+    id: string; quantity: number; unit_price: number; lot_number: string | null; expiry_date: string | null;
+    inv_items: { name: string; track_batch: boolean; shelf_life_days: number | null }; inv_units: { code: string };
+  }[]>([]);
   const [invoice, setInvoice] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [labels, setLabels] = useState<{ labels: LabelData[]; msg: string } | null>(null);
 
   useEffect(() => {
-    must(supabase.from('pur_goods_receipt_items').select('id, quantity, unit_price, inv_items(name), inv_units(code)').eq('goods_receipt_id', receiptId))
+    must(supabase.from('pur_goods_receipt_items')
+      .select('id, quantity, unit_price, lot_number, expiry_date, inv_items(name, track_batch, shelf_life_days), inv_units(code)')
+      .eq('goods_receipt_id', receiptId).order('created_at'))
       .then((r) => setLines(r as unknown as typeof lines))
       .catch((e) => setError(errorMessage(e)));
   }, [receiptId]);
@@ -419,14 +428,23 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
     try {
       for (const l of lines) {
         if (Number(l.quantity) > 0) {
-          await must(supabase.from('pur_goods_receipt_items').update({ quantity: l.quantity, unit_price: l.unit_price }).eq('id', l.id));
+          await must(supabase.from('pur_goods_receipt_items').update({
+            quantity: l.quantity, unit_price: l.unit_price, lot_number: l.lot_number?.trim() || null, expiry_date: l.expiry_date || null,
+          }).eq('id', l.id));
         } else {
           await must(supabase.from('pur_goods_receipt_items').delete().eq('id', l.id));
         }
       }
       await must(supabase.from('pur_goods_receipts').update({ supplier_invoice_number: invoice || null }).eq('id', receiptId));
       const r = await rpc<{ receipt_number: string }>('pur_post_goods_receipt', { p_id: receiptId });
-      onPosted(`Penerimaan ${r.receipt_number} diposting. Stok sudah bertambah.`);
+      const msg = `Penerimaan ${r.receipt_number} diposting. Stok sudah bertambah.`;
+      // produk lacak batch: tawarkan cetak label batch yang baru dibuat
+      if (lines.some((l) => l.inv_items.track_batch && Number(l.quantity) > 0)) {
+        const b = await must(supabase.from('rpt_stock_batches').select('batch_code, item_name, lot_number, expiry_date, received_at, track_batch')
+          .eq('reference_type', 'pur_goods_receipts').eq('reference_number', r.receipt_number).eq('track_batch', true));
+        if (b.length) return setLabels({ labels: b.map(batchLabel), msg });
+      }
+      onPosted(msg);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -439,22 +457,34 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
       {error && <div className="alert alert-error">{error}</div>}
       <label className="field" style={{ maxWidth: 300 }}><span>No. faktur supplier</span><input value={invoice} onChange={(e) => setInvoice(e.target.value)} /></label>
       <table className="table" style={{ marginTop: 16 }}>
-        <thead><tr><th>Bahan</th><th>Qty diterima</th><th>Harga / satuan</th><th className="right">Subtotal</th></tr></thead>
+        <thead><tr><th>Bahan</th><th>Qty diterima</th><th>Harga / satuan</th><th>Lot & kedaluwarsa</th><th className="right">Subtotal</th></tr></thead>
         <tbody>
           {lines.map((l, idx) => (
             <tr key={l.id}>
-              <td>{l.inv_items.name}</td>
+              <td>{l.inv_items.name}{l.inv_items.track_batch && <div><span className="badge badge-info">Lacak batch</span></div>}</td>
               <td className="row">
                 <input type="number" value={l.quantity} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} style={{ width: 90 }} />
                 {l.inv_units.code}
               </td>
               <td><MoneyInput value={l.unit_price} onChange={(v) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(v) } : x))} style={{ width: 120 }} /></td>
+              <td>
+                <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+                  <input placeholder="No. lot" style={{ width: 90 }} value={l.lot_number ?? ''} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, lot_number: e.target.value } : x))} />
+                  <input type="date" style={{ width: 140 }} value={l.expiry_date ?? ''} title="Tanggal kedaluwarsa"
+                    onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, expiry_date: e.target.value || null } : x))} />
+                </div>
+                {l.inv_items.track_batch && !l.expiry_date && (l.inv_items.shelf_life_days
+                  ? <div className="muted small">Kosong = otomatis {l.inv_items.shelf_life_days} hari dari hari ini</div>
+                  : <div className="small" style={{ color: 'var(--danger)' }}>Wajib diisi</div>)}
+              </td>
               <td className="right">{formatRupiah(l.quantity * l.unit_price)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="muted small">Isi 0 untuk barang yang tidak datang. Sisa PO bisa diterima di penerimaan berikutnya.</p>
+      <p className="muted small">Isi 0 untuk barang yang tidak datang. Sisa PO bisa diterima di penerimaan berikutnya.
+        Setiap baris menjadi 1 batch stok (dipakai FEFO: kedaluwarsa duluan keluar duluan).</p>
+      {labels && <LabelPrintModal title="Cetak Label Batch" labels={labels.labels} onClose={() => onPosted(labels.msg)} />}
     </Modal>
   );
 }
