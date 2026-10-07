@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–019)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–021)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -16,6 +16,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase8.sql`](supabase/update_fase8.sql) (017: nama aplikasi bisa diatur di Pengaturan)
   - [`supabase/update_fase9.sql`](supabase/update_fase9.sql) (018: purpose waste/pemakaian/penyusutan ke COA + stock opname bertahap)
   - [`supabase/update_fase10.sql`](supabase/update_fase10.sql) (019: batch/lot & kedaluwarsa, HPP FIFO + FEFO, koli transfer, barcode)
+  - [`supabase/update_fase11.sql`](supabase/update_fase11.sql) (020–021: Sales Order antar cabang & B2B, gudang per toko, settlement POS)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -167,6 +168,23 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
   purpose *Hilang / Rusak di Perjalanan*.
 - Refund penjualan mengembalikan stok ke batch asalnya. Stok minus tetap diizinkan (POS tidak terhambat) dan otomatis
   ditutup oleh batch berikutnya.
+
+## Fase 11: Sales Order antar cabang & B2B, gudang per toko, settlement POS
+- **Supplier**: pihak ke-3 atau **cabang internal**. Setiap outlet otomatis tersedia sebagai supplier internal.
+- **Alur antar cabang** (satu perusahaan, jurnal per outlet):
+  PO pembeli disetujui → **Sales Order** otomatis di penjual (harga dikunci dari **Pricelist Jual**) → penjual konfirmasi/tolak →
+  **Pengiriman** dari gudang mana pun milik penjual (batch FEFO, koli & label, surat jalan) → draft **Penerimaan** otomatis di pembeli
+  (scan label koli, isi qty diterima; batch & kedaluwarsa ikut) → **Sales Invoice** (qty **dikirim**) → **Tagihan Cabang** di pembeli →
+  **Pembayaran** oleh pembeli melunasi piutang penjual. Kekurangan kiriman dicatat sebagai *Selisih Kiriman* sampai penjual memberi **nota kredit**.
+- **Pelanggan B2B** (katering, reseller): SO manual, harga dari pricelist pelanggan, PPN, termin & limit kredit, pengiriman, invoice, pembayaran.
+- **Akun baru**: Piutang/Hutang Antar Cabang, Penerimaan Antar Cabang Belum Ditagih, Penjualan Antar Cabang, HPP Antar Cabang,
+  Selisih Kiriman, Penjualan SO (B2B), Retur & Potongan SO, PPN Keluaran. Di laporan gabungan, akun antar cabang saling menghapus.
+- **Gudang & Lokasi** (Inventory): 1 toko bisa punya beberapa lokasi (mis. Supply Chain = Central Kitchen + Warehouse) dan memilih gudang POS.
+- **Settlement POS**: penjualan per outlet × metode bayar × tanggal. Tunai = setoran ke bank, sedangkan EDC/QRIS/ojol = pencairan dengan potongan
+  MDR/komisi otomatis dijurnal. Metode non tunai dicatat ke *Piutang Settlement* lalu dipindah ke bank saat cair. Selisih masuk *Selisih Kas & Settlement*.
+- **Laporan**: pendapatan per sumber (Sales POS, Sales Order B2B, Sales Order antar cabang).
+- **Sidebar baru**: grup bisa dilipat (Ringkasan, Kasir & Outlet, Penjualan, Pembelian, Persediaan, Master Data, Keuangan & Laporan), dan menu
+  langsung membuka tab yang dituju.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

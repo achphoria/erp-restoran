@@ -44,7 +44,7 @@ export default function TransferForm({ companyId, warehouses, items, onClose, on
   const onScan = async (code: string) => {
     try {
       const r = await resolveBarcode(code, from);
-      if (!r || r.kind === 'package') return toast(r ? 'Ini label koli, bukan barang' : `Kode ${code} tidak dikenal`, 'error');
+      if (!r || r.kind === 'package' || r.kind === 'delivery_package') return toast(r ? 'Ini label koli, bukan barang' : `Kode ${code} tidak dikenal`, 'error');
       if (!items.some((i) => i.id === r.item_id)) return toast(`${r.item_name} tidak ada di daftar produk stok`, 'error');
       if (r.kind === 'batch' && r.warehouse_id !== from) return toast(`Batch ${r.batch_code} tidak ada di gudang asal`, 'error');
       const batchId = r.kind === 'batch' ? r.batch_id! : '';

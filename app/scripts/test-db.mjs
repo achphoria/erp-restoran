@@ -1543,6 +1543,170 @@ await check('batch hanya bisa diubah lewat dokumen (RLS) & koreksi kedaluwarsa v
   await batchInvariant();
 });
 
+console.log('\nSales order antar cabang & B2B:');
+const outletBal = async (outlet, key) => Number(await val(
+  `select coalesce(sum(l.debit - l.credit), 0) from fin_journal_lines l join fin_accounts a on a.id = l.account_id
+   where a.system_key = $1 and l.company_id = $2 and l.outlet_id is not distinct from $3`, [key, company1, outlet]));
+const grTo = async (wh, code, qty, price, lot = null, expiry = null) => {
+  const gr = (await one(`insert into pur_goods_receipts (company_id, supplier_id, warehouse_id)
+    values ($1, (select id from pur_suppliers where code = 'SUP01' and company_id = $1), $2) returning id`, [company1, wh])).id;
+  await db.query(`insert into pur_goods_receipt_items (company_id, goods_receipt_id, item_id, unit_id, conversion_qty, quantity, unit_price, lot_number, expiry_date)
+    values ($1, $2, $3, (select base_unit_id from inv_items where id = $3), 1, $4, $5, $6, $7)`, [company1, gr, await itemId(code), qty, price, lot, expiry]);
+  await db.query(`select pur_post_goods_receipt($1)`, [gr]);
+};
+let sc, ck, intSupplier, icPo, icSo, icDelivery;
+
+await check('outlet baru otomatis jadi supplier internal; 1 toko bisa punya beberapa gudang', async () => {
+  await loginAs(U1);
+  sc = (await val(`select sys_create_outlet('SC01', 'Supply Chain')`)).id;
+  intSupplier = await one(`select id, supplier_type, linked_outlet_id from pur_suppliers where linked_outlet_id = $1`, [sc]);
+  assert(intSupplier?.supplier_type === 'internal', 'supplier internal tidak dibuat');
+  ck = (await one(`insert into inv_warehouses (company_id, outlet_id, code, name, warehouse_type) values ($1, $2, 'WH-CK1', 'Central Kitchen', 'central_kitchen') returning id`, [company1, sc])).id;
+  assert((await val(`select count(*)::int from inv_warehouses where outlet_id = $1`, [sc])) === 2, '2 gudang');
+  assert((await val(`select count(*)::int from fin_accounts where company_id = $1 and system_key in ('ic_receivable','ic_payable','ic_grni','ic_revenue','ic_cogs','so_revenue')`, [company1])) === 6, 'akun antar cabang');
+});
+await check('PO ke cabang internal: harga wajib & dikunci dari Pricelist Jual penjual', async () => {
+  icPo = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, intSupplier.id, await mainWh()])).id;
+  const unit = await val(`select base_unit_id from inv_items where id = $1`, [await itemId('BTC01')]);
+  const addLine = async () => db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 10, 999)`,
+    [company1, icPo, await itemId('BTC01'), unit]);
+  await expectError(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 10, 999)`,
+    [company1, icPo, await itemId('BTC01'), unit], /Pricelist Jual/);
+  const pl = (await one(`insert into sal_pricelists (company_id, name, seller_outlet_id) values ($1, 'Harga SC', $2) returning id`, [company1, sc])).id;
+  await db.query(`insert into sal_pricelist_items (company_id, pricelist_id, item_id, unit_id, price) values ($1, $2, $3, $4, 2000)`, [company1, pl, await itemId('BTC01'), unit]);
+  await addLine();
+  assert(Number(await val(`select unit_price from pur_purchase_order_items where purchase_order_id = $1`, [icPo])) === 2000, 'harga tidak dari pricelist');
+  const own = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, intSupplier.id, ck])).id;
+  await expectError(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity) values ($1, $2, $3, $4, 1)`,
+    [company1, own, await itemId('BTC01'), unit], /outlet sendiri/);
+});
+await check('PO disetujui -> Sales Order muncul di penjual; PO internal tidak bisa diterima manual', async () => {
+  await db.query(`select pur_approve_purchase_order($1)`, [icPo]);
+  const so = await one(`select * from sal_sales_orders where purchase_order_id = $1`, [icPo]);
+  assert(so && so.status === 'new' && so.outlet_id === sc && so.buyer_outlet_id === outletId && Number(so.grand_total) === 20000, JSON.stringify(so));
+  icSo = so.id;
+  await expectError(`select pur_create_goods_receipt_from_po($1)`, [icPo], /Pengiriman penjual/);
+});
+await check('penjual konfirmasi & kirim sebagian dari Central Kitchen (batch FEFO, HPP antar cabang)', async () => {
+  await grTo(ck, 'BTC01', 20, 1200, 'LOT-SC', days(30));
+  await db.query(`select sal_confirm_sales_order($1)`, [icSo]);
+  icDelivery = await val(`select sal_create_delivery($1, $2)`, [icSo, ck]);
+  await db.query(`update sal_delivery_items set quantity = 6 where delivery_id = $1`, [icDelivery]);
+  const ckBefore = Number(await val(`select quantity from inv_stocks where warehouse_id = $1 and item_id = $2`, [ck, await itemId('BTC01')]));
+  const r = await val(`select sal_ship_delivery($1)`, [icDelivery]);
+  assert(r.delivery_number.startsWith('DO/') && r.goods_receipt_id, JSON.stringify(r));
+  assert(ckBefore - Number(await val(`select quantity from inv_stocks where warehouse_id = $1 and item_id = $2`, [ck, await itemId('BTC01')])) === 6, 'stok CK');
+  assert((await val(`select status from sal_sales_orders where id = $1`, [icSo])) === 'partially_delivered', 'status SO');
+  assert((await outletBal(sc, 'ic_cogs')) === 7200, `HPP antar cabang ${await outletBal(sc, 'ic_cogs')}`);
+  assert((await val(`select count(*)::int from sal_delivery_packages where delivery_id = $1`, [icDelivery])) === 1, 'koli');
+});
+await check('pembeli terima kurang 1: batch & kedaluwarsa ikut, harga = harga beli, selisih dijurnal', async () => {
+  const gr = await val(`select goods_receipt_id from sal_deliveries where id = $1`, [icDelivery]);
+  const code = await val(`select package_code from sal_delivery_packages where delivery_id = $1`, [icDelivery]);
+  const scan = await val(`select inv_resolve_barcode($1)`, [code]);
+  assert(scan.kind === 'delivery_package' && scan.goods_receipt_id === gr, JSON.stringify(scan));
+  await db.query(`update pur_goods_receipt_items set quantity = 5, unit_price = 1 where goods_receipt_id = $1`, [gr]);
+  await db.query(`select pur_post_goods_receipt($1)`, [gr]);
+  const b = (await batchesOf('BTC01')).find((x) => x.lot_number === 'LOT-SC');
+  assert(b && b.qty === 5 && b.cost === 2000 && b.expiry === days(30), JSON.stringify(b));
+  assert((await val(`select status from sal_deliveries where id = $1`, [icDelivery])) === 'received', 'status DO');
+  assert((await outletBal(outletId, 'ic_grni')) === -12000 && (await outletBal(outletId, 'ic_shipping_diff')) === 2000, 'jurnal penerimaan');
+  await expectError(`insert into fin_supplier_payment_items (company_id, supplier_payment_id, goods_receipt_id, amount)
+    values ($1, gen_random_uuid(), $2, 1)`, [company1, gr], /Sales Invoice/);
+  assert((await val(`select count(*)::int from rpt_payables where goods_receipt_id = $1`, [gr])) === 0, 'muncul di hutang supplier');
+});
+let icInvoice;
+await check('invoice dari qty DIKIRIM + jurnal cermin di pembeli; nota kredit kekurangan', async () => {
+  icInvoice = await val(`select sal_create_invoice($1)`, [icSo]);
+  assert(Number(icInvoice.grand_total) === 12000 && icInvoice.invoice_number.startsWith('SINV/'), JSON.stringify(icInvoice));
+  assert((await outletBal(sc, 'ic_receivable')) === 12000 && (await outletBal(sc, 'ic_revenue')) === -12000, 'jurnal penjual');
+  assert((await outletBal(outletId, 'ic_grni')) === 0 && (await outletBal(outletId, 'ic_payable')) === -12000, 'jurnal pembeli');
+  await expectError(`select sal_create_invoice($1)`, [icSo], /belum ditagih/);
+  await db.query(`select sal_create_credit_note($1, 2000, 'shortage', 'kurang 1 pcs')`, [icInvoice.id]);
+  assert((await outletBal(outletId, 'ic_shipping_diff')) === 0 && (await outletBal(outletId, 'ic_payable')) === -10000, 'nota kredit pembeli');
+});
+await check('pembayaran oleh pembeli melunasi piutang penjual; tutup SO -> PO selesai', async () => {
+  const bank = await val(`select id from fin_accounts where system_key = 'bank' and company_id = $1`, [company1]);
+  await expectError(`select sal_record_payment($1::jsonb, $2, $2)`, [JSON.stringify([{ invoice_id: icInvoice.id, amount: 10001 }]), bank], /melebihi/);
+  const p = await val(`select sal_record_payment($1::jsonb, $2, $2, current_date, 'TRF-1')`, [JSON.stringify([{ invoice_id: icInvoice.id, amount: 10000 }]), bank]);
+  assert(p.payment_number.startsWith('RCV/'), JSON.stringify(p));
+  assert((await val(`select status from sal_invoices where id = $1`, [icInvoice.id])) === 'paid', 'invoice belum lunas');
+  assert((await outletBal(sc, 'ic_receivable')) === 0 && (await outletBal(outletId, 'ic_payable')) === 0, 'saldo antar cabang belum nol');
+  await db.query(`select sal_close_sales_order($1, 'stok habis')`, [icSo]);
+  assert((await val(`select status from pur_purchase_orders where id = $1`, [icPo])) === 'received', 'status PO');
+  await journalBalanced();
+});
+await check('SO B2B: harga pelanggan, PPN, limit kredit, pengiriman, invoice & bayar sebagian', async () => {
+  const cust = (await one(`insert into sal_customers (company_id, code, name, payment_term_days, credit_limit) values ($1, 'CUST1', 'PT Katering Jaya', 14, 50000) returning id`, [company1])).id;
+  const unit = await val(`select base_unit_id from inv_items where id = $1`, [await itemId('BTC01')]);
+  const pl = (await one(`insert into sal_pricelists (company_id, name, customer_id) values ($1, 'Harga Katering', $2) returning id`, [company1, cust])).id;
+  await db.query(`insert into sal_pricelist_items (company_id, pricelist_id, item_id, unit_id, price) values ($1, $2, $3, $4, 3000)`, [company1, pl, await itemId('BTC01'), unit]);
+  const so = (await one(`insert into sal_sales_orders (company_id, outlet_id, warehouse_id, customer_type, customer_id, tax_pct) values ($1, $2, $3, 'external', $4, 11) returning id`,
+    [company1, outletId, await mainWh(), cust])).id;
+  await db.query(`insert into sal_sales_order_items (company_id, sales_order_id, item_id, unit_id, quantity) values ($1, $2, $3, $4, 20)`, [company1, so, await itemId('BTC01'), unit]);
+  await expectError(`select sal_confirm_sales_order($1)`, [so], /limit kredit/);
+  await db.query(`update sal_sales_order_items set quantity = 4 where sales_order_id = $1`, [so]);
+  const c = await val(`select sal_confirm_sales_order($1)`, [so]);
+  assert(Number(c.subtotal) === 12000 && Number(c.tax_amount) === 1320 && Number(c.grand_total) === 13320, JSON.stringify(c));
+  const d = await val(`select sal_create_delivery($1)`, [so]);
+  await db.query(`select sal_ship_delivery($1)`, [d]);
+  assert((await val(`select goods_receipt_id from sal_deliveries where id = $1`, [d])) === null, 'B2B tidak punya penerimaan');
+  const inv = await val(`select sal_create_invoice($1)`, [so]);
+  assert(Number(inv.grand_total) === 13320 && inv.due_date === days(14), JSON.stringify(inv));
+  const j = await journalAccounts(inv.id);
+  assert(j['1-1300']?.d === 13320 && j['4-1600']?.c === 12000 && j['2-1220']?.c === 1320, JSON.stringify(j));
+  const bank = await val(`select id from fin_accounts where system_key = 'bank' and company_id = $1`, [company1]);
+  await db.query(`select sal_record_payment($1::jsonb, $2)`, [JSON.stringify([{ invoice_id: inv.id, amount: 5000 }]), bank]);
+  const r = await one(`select status, outstanding_amount::float8 o, customer_name from rpt_sales_invoices where id = $1`, [inv.id]);
+  assert(r.status === 'partial' && r.o === 8320 && r.customer_name === 'PT Katering Jaya', JSON.stringify(r));
+  assert((await val(`select count(*)::int from rpt_revenue_by_source where source = 'sales_order_b2b'`)) > 0, 'pendapatan SO');
+  await journalBalanced();
+});
+await check('SO cabang bisa ditolak penjual -> PO pembeli batal', async () => {
+  const po = (await one(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, intSupplier.id, await mainWh()])).id;
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity) values ($1, $2, $3, (select base_unit_id from inv_items where id = $3), 1)`,
+    [company1, po, await itemId('BTC01')]);
+  await db.query(`select pur_approve_purchase_order($1)`, [po]);
+  const so = await val(`select id from sal_sales_orders where purchase_order_id = $1`, [po]);
+  await expectError(`select sal_reject_sales_order($1, '')`, [so], /Alasan/);
+  await db.query(`select sal_reject_sales_order($1, 'stok kosong')`, [so]);
+  const r = await one(`select status, sales_note from pur_purchase_orders where id = $1`, [po]);
+  assert(r.status === 'cancelled' && r.sales_note.includes('stok kosong'), JSON.stringify(r));
+});
+
+console.log('\nSettlement POS:');
+await check('metode non tunai diarahkan ke akun penampung settlement', async () => {
+  const m = await one(`select a.system_key from mst_payment_methods m join fin_accounts a on a.id = m.account_id where m.code = 'qris' and m.company_id = $1`, [company1]);
+  assert(m.system_key === 'settlement_clearing', JSON.stringify(m));
+});
+await check('QRIS cair dipotong MDR: bank + beban MDR | penampung; tanggal tidak bisa di-settle dua kali', async () => {
+  const qris = await val(`select id from mst_payment_methods where code = 'qris' and company_id = $1`, [company1]);
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM01') }] })]);
+    await db.query(`select pos_pay_order($1, $2::jsonb)`, [o.id, JSON.stringify([{ payment_method_id: qris, amount: o.grand_total }])]);
+  });
+  const day = await one(`select business_date::text d, net_amount::float8 net, needs_settlement, settlement_id from rpt_pos_settlement_days
+    where outlet_id = $1 and payment_method_id = $2 order by business_date desc limit 1`, [outletId, qris]);
+  assert(day.needs_settlement && !day.settlement_id && day.net > 0, JSON.stringify(day));
+  const before = await balanceOf('settlement_clearing');
+  const fee = Math.round(day.net * 0.007);
+  const s = await val(`select pos_create_settlement($1, $2, array[$3]::date[], $4, $5)`, [outletId, qris, day.d, day.net - fee, fee]);
+  assert(Number(s.difference_amount) === 0 && s.settlement_number.startsWith('STL/'), JSON.stringify(s));
+  assert(Math.abs((await balanceOf('settlement_clearing')) - (before - day.net)) < 0.01, 'penampung tidak berkurang');
+  assert((await journalAccounts(s.id))['6-1800']?.d === fee, JSON.stringify(await journalAccounts(s.id)));
+  await expectError(`select pos_create_settlement($1, $2, array[$3]::date[], 1)`, [outletId, qris, day.d], /sudah pernah/);
+});
+await check('setoran tunai kurang: selisih dicatat ke Selisih Kas & Settlement', async () => {
+  const cash = await val(`select id from mst_payment_methods where code = 'cash' and company_id = $1`, [company1]);
+  const day = await one(`select business_date::text d, net_amount::float8 net from rpt_pos_settlement_days
+    where outlet_id = $1 and payment_method_id = $2 and settlement_id is null and net_amount > 0 order by business_date desc limit 1`, [outletId, cash]);
+  const s = await val(`select pos_create_settlement($1, $2, array[$3]::date[], $4)`, [outletId, cash, day.d, day.net - 500]);
+  assert(Number(s.difference_amount) === 500, JSON.stringify(s));
+  const j = await journalAccounts(s.id);
+  assert(j['6-2100']?.d === 500 && j['1-1100']?.c === day.net, JSON.stringify(j));
+  await journalBalanced();
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

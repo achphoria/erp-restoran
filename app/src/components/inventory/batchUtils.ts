@@ -8,7 +8,8 @@ export interface BatchOption {
 }
 
 export interface ScanResult {
-  kind: 'package' | 'batch' | 'item';
+  kind: 'package' | 'delivery_package' | 'batch' | 'item';
+  delivery_id?: string; delivery_number?: string; goods_receipt_id?: string | null;
   item_id?: string; item_code?: string; item_name?: string; unit_code?: string; qty?: number; scanned_unit?: string;
   batch_id?: string; batch_code?: string; warehouse_id?: string; qty_remaining?: number; expiry_date?: string | null; lot_number?: string | null;
   package_id?: string; package_code?: string; package_no?: number; status?: string; stock_transfer_id?: string; transfer_number?: string;
