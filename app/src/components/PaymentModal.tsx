@@ -194,7 +194,7 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
     <Modal
       title={`Bayar ${order.order_number}`}
       onClose={onClose}
-      large
+      wide
       footer={
         <>
           <button onClick={onClose}>Batal</button>
