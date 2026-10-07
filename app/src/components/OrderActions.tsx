@@ -110,7 +110,7 @@ function Split({ order, busy, error, run, onClose }: InnerProps) {
   const total = items.reduce((s, i) => s + (qty[i.id] ?? 0) * (Number(i.unit_price) + Number(i.modifier_amount)), 0);
 
   return (
-    <Modal title={`Split Bill · ${order.order_number}`} onClose={onClose} large
+    <Modal title={`Split Bill · ${order.order_number}`} onClose={onClose} wide
       footer={<>
         <span className="bold" style={{ marginRight: 'auto' }}>Bill baru: {formatRupiah(total)} (sebelum pajak)</span>
         <button onClick={onClose}>Batal</button>

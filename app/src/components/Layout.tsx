@@ -120,6 +120,8 @@ export default function Layout() {
   const { profile, outlet, setOutletId, can, signOut } = useAuth();
   const location = useLocation();
   const [pinned, setPinned] = useState(readPinned);
+  // halaman lebar (page-sheet) menyesuaikan lebar sidebar
+  useEffect(() => { document.body.classList.toggle('sidebar-pinned', pinned); }, [pinned]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const pending = usePendingApprovals(!!profile);

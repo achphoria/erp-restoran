@@ -244,13 +244,12 @@ function ManufacturingForm({ type, warehouses, onClose, onDone }: { type: BomTyp
             <option value="">— pilih BOM —</option>
             {recipes.map((r) => <option key={r.id} value={r.id}>{r.code ? `${r.code} · ` : ''}{r.name ?? r.inv_items.name}</option>)}
           </select></label>
+        <label className="field"><span>Satuan</span>
+          <select value={cur.unit_id} onChange={(e) => update(cur.key, { unit_id: e.target.value })} disabled={!curRecipe}>
+            {units(curRecipe).map((u) => <option key={u.unit_id} value={u.unit_id}>{u.code}{u.conv !== 1 ? ` (= ${formatNumber(u.conv)} ${curRecipe?.inv_items.inv_units.code})` : ''}</option>)}
+          </select></label>
         <label className="field"><span>{type === 'assembly' ? 'Manufacturing qty' : 'Qty dipotong'}</span>
-          <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <input type="number" step="any" min={0} value={cur.qty} onChange={(e) => update(cur.key, { qty: e.target.value })} style={{ flex: 1 }} />
-            <select value={cur.unit_id} onChange={(e) => update(cur.key, { unit_id: e.target.value })} disabled={!curRecipe}>
-              {units(curRecipe).map((u) => <option key={u.unit_id} value={u.unit_id}>{u.code}{u.conv !== 1 ? ` (${formatNumber(u.conv)} ${curRecipe?.inv_items.inv_units.code})` : ''}</option>)}
-            </select>
-          </div></label>
+          <input type="number" step="any" min={0} value={cur.qty} onChange={(e) => update(cur.key, { qty: e.target.value })} /></label>
         {type === 'assembly' && <>
           <label className="field"><span>Result qty (hasil aktual)</span>
             <input type="number" step="any" min={0} value={cur.result} onChange={(e) => update(cur.key, { result: e.target.value, resultTouched: true })} /></label>
