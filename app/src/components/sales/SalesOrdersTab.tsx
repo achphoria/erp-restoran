@@ -135,8 +135,8 @@ function SalesOrderForm({ m, onClose, onSaved }: { m: SalesMaster; onClose: () =
         company_id: m.companyId, sales_order_id: so.id, item_id: l.item_id, unit_id: l.unit_id,
         quantity: Number(l.quantity), unit_price: Number(l.unit_price || 0),
       }))));
-      if (confirmNow) await rpc('sal_confirm_sales_order', { p_id: so.id });
-      toast(confirmNow ? 'Sales order dikonfirmasi' : 'Draft sales order tersimpan');
+      const r = confirmNow ? await rpc<{ pending_approval?: boolean }>('sal_confirm_sales_order', { p_id: so.id }) : null;
+      toast(!confirmNow ? 'Draft sales order tersimpan' : r?.pending_approval ? 'Sales order dikirim ke penyetuju' : 'Sales order dikonfirmasi');
       onSaved(so.id);
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -241,7 +241,7 @@ export function SalesOrderDetail({ m, soId, onClose }: { m: SalesMaster; soId: s
   return (
     <Modal title={`Sales Order ${so.so_number ?? '(draft)'}`} onClose={onClose} large
       footer={<>
-        {['draft', 'new', 'confirmed'].includes(so.status) && !dels.length && (
+        {['draft', 'new', 'pending_approval', 'confirmed'].includes(so.status) && !dels.length && (
           <button className="btn-danger" style={{ marginRight: 'auto' }} disabled={busy} onClick={async () => {
             const reason = await prompt({ title: so.customer_type === 'internal' ? 'Tolak SO cabang' : 'Batalkan SO', label: 'Alasan', required: true,
               placeholder: 'mis. stok kosong', confirmLabel: 'Tolak' });
@@ -262,7 +262,10 @@ export function SalesOrderDetail({ m, soId, onClose }: { m: SalesMaster; soId: s
           }}><FileText size={16} /> Buat invoice</button>
         )}
         {['draft', 'new'].includes(so.status) && (
-          <button className="btn-primary" disabled={busy} onClick={() => run(() => rpc('sal_confirm_sales_order', { p_id: so.id }), 'Sales order dikonfirmasi')}>
+          <button className="btn-primary" disabled={busy} onClick={() => run(async () => {
+            const r = await rpc<{ pending_approval?: boolean }>('sal_confirm_sales_order', { p_id: so.id });
+            toast(r.pending_approval ? 'Sales order dikirim ke penyetuju' : 'Sales order dikonfirmasi');
+          })}>
             <CheckCircle2 size={16} /> Konfirmasi</button>
         )}
         {open && remaining && (

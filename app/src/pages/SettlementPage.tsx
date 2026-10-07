@@ -150,12 +150,12 @@ function SettleModal({ days, onClose, onDone }: { days: Day[]; onClose: () => vo
   const save = async () => {
     setBusy(true);
     try {
-      const r = await rpc<{ settlement_number: string }>('pos_create_settlement', {
+      const r = await rpc<{ settlement_number: string; pending_approval?: boolean }>('pos_create_settlement', {
         p_outlet_id: days[0].outlet_id, p_payment_method_id: days[0].payment_method_id, p_dates: days.map((d) => d.business_date),
         p_received_amount: Number(received || 0), p_fee_amount: Number(fee || 0), p_to_account_id: to || null, p_settlement_date: date,
         p_reference: ref || null, p_note: note || null,
       });
-      toast(`Settlement ${r.settlement_number} tercatat`);
+      toast(r.pending_approval ? 'Selisih melebihi batas: settlement dikirim ke penyetuju' : `Settlement ${r.settlement_number} tercatat`);
       onDone();
     } catch (e) { toast(errorMessage(e), 'error'); setBusy(false); }
   };

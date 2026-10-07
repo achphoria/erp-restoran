@@ -33,11 +33,11 @@ export default function InvoicePaymentModal({ invoices, onClose, onDone }: { inv
   const pay = async () => {
     setBusy(true);
     try {
-      const r = await rpc<{ payment_number: string }>('sal_record_payment', {
+      const r = await rpc<{ payment_number: string; pending_approval?: boolean }>('sal_record_payment', {
         p_allocations: invoices.map((i) => ({ invoice_id: i.id, amount: Number(amounts[i.id] || 0) })).filter((a) => a.amount > 0),
         p_to_account_id: to, p_from_account_id: internal ? from : null, p_payment_date: date, p_reference: ref || null,
       });
-      toast(`Pembayaran ${r.payment_number} tercatat`);
+      toast(r.pending_approval ? `Pembayaran ${formatRupiah(total)} dikirim ke penyetuju` : `Pembayaran ${r.payment_number} tercatat`);
       onDone();
     } catch (e) {
       toast(errorMessage(e), 'error');

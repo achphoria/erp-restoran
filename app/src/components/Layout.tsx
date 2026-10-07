@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
 import { setDocumentTitle } from '../lib/brand';
 import Logo from './Logo';
+import { APPROVAL_DOCS } from './settings/approvalCatalog';
 import Avatar from './Avatar';
 import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
@@ -22,7 +23,7 @@ const NAV: NavGroup[] = [
     group: 'Ringkasan', icon: LayoutDashboard,
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
-      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: 'pos.order', badge: 'approvals' },
+      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
     ],
   },
   {

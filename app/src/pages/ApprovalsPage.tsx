@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeCheck, Boxes, Check, Tags, ClipboardList, PackageX, Receipt, Truck, Wallet, X, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Check, X } from 'lucide-react';
+import { APPROVAL_DOCS } from '../components/settings/approvalCatalog';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../components/Feedback';
 import { must, rpc, supabase } from '../lib/supabase';
@@ -12,15 +13,7 @@ interface ApprovalRequest {
   decider: { full_name: string } | null;
 }
 
-const DOC_TYPES: Record<string, { label: string; icon: LucideIcon }> = {
-  purchase_order: { label: 'Purchase Order', icon: Truck },
-  expense: { label: 'Biaya Operasional', icon: Wallet },
-  stock_adjustment: { label: 'Penyesuaian / Waste', icon: PackageX },
-  stock_opname: { label: 'Stock Opname', icon: ClipboardList },
-  refund: { label: 'Refund', icon: Receipt },
-  product: { label: 'Produk Baru', icon: Boxes },
-  pricelist: { label: 'Pricelist Supplier', icon: Tags },
-};
+const DOC_TYPES = APPROVAL_DOCS;
 
 const STATUS: Record<string, [string, string]> = {
   pending: ['Menunggu', 'badge-warning'],

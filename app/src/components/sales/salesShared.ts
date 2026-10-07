@@ -36,7 +36,7 @@ export const INVOICE_STATUS: Record<string, [string, string]> = {
 };
 
 export const SO_STATUS: Record<string, [string, string]> = {
-  draft: ['Draft', 'badge'], new: ['Baru (perlu konfirmasi)', 'badge-warning'], confirmed: ['Dikonfirmasi', 'badge-info'],
+  draft: ['Draft', 'badge'], new: ['Baru (perlu konfirmasi)', 'badge-warning'], pending_approval: ['Menunggu persetujuan', 'badge-warning'], confirmed: ['Dikonfirmasi', 'badge-info'],
   partially_delivered: ['Dikirim sebagian', 'badge-info'], delivered: ['Terkirim', 'badge-success'], closed: ['Ditutup', 'badge'],
   rejected: ['Ditolak', 'badge-danger'], cancelled: ['Batal', 'badge-danger'],
 };

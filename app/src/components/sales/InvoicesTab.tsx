@@ -114,8 +114,8 @@ function CreditNoteModal({ invoice, onClose, onDone }: { invoice: InvoiceRow; on
   const save = async () => {
     setBusy(true);
     try {
-      const r = await rpc<{ credit_number: string }>('sal_create_credit_note', { p_invoice_id: invoice.id, p_amount: Number(amount), p_reason: reason, p_note: note });
-      toast(`Nota kredit ${r.credit_number} dibuat`);
+      const r = await rpc<{ credit_number: string; pending_approval?: boolean }>('sal_create_credit_note', { p_invoice_id: invoice.id, p_amount: Number(amount), p_reason: reason, p_note: note });
+      toast(r.pending_approval ? 'Nota kredit dikirim ke penyetuju' : `Nota kredit ${r.credit_number} dibuat`);
       onDone();
     } catch (e) { toast(errorMessage(e), 'error'); setBusy(false); }
   };

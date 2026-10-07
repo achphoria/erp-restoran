@@ -550,3 +550,13 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .app-shell:not(.sidebar-pinned) .sidebar:not(:hover) .nav-group-btn { justify-content: center; padding: 0; }
 .list-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer; gap: 10px; background: var(--surface); }
 .list-row:hover { border-color: var(--fresh); }
+
+/* Matriks approval */
+.approval-help { display: flex; gap: 12px; align-items: flex-start; }
+.approval-help > svg { flex-shrink: 0; color: var(--primary); margin-top: 2px; }
+.approval-matrix td { vertical-align: top; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-chip { min-height: 28px; height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; gap: 4px; color: var(--text-muted); background: var(--surface); }
+.role-chip.on { background: var(--primary-soft); border-color: var(--fresh); color: var(--primary); }
+.role-chip.approver.on { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+.role-chip:disabled { cursor: default; opacity: 1; }

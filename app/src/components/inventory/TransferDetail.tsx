@@ -24,7 +24,7 @@ const PKG_STATUS: Record<string, [string, string]> = {
   open: ['Belum dikirim', 'badge'], shipped: ['Dalam perjalanan', 'badge-info'], received: ['Diterima', 'badge-success'],
 };
 const TRF_STATUS: Record<string, [string, string]> = {
-  draft: ['Draft', 'badge-warning'], in_transit: ['Dalam perjalanan', 'badge-info'], posted: ['Selesai', 'badge-success'],
+  draft: ['Draft', 'badge-warning'], pending_approval: ['Menunggu persetujuan', 'badge-warning'], in_transit: ['Dalam perjalanan', 'badge-info'], posted: ['Selesai', 'badge-success'],
 };
 
 // Detail transfer: kirim draft, cetak label koli, terima per koli (scan label koli)
@@ -98,9 +98,9 @@ export default function TransferDetail({ transferId, receivePackageId, onClose }
               run(async () => { await must(supabase.from('inv_stock_transfers').delete().eq('id', doc.id)); onClose(); });
             }
           }}><Trash2 size={16} /> Hapus</button>
-          <button disabled={busy} onClick={() => run(async () => { await rpc('inv_post_stock_transfer', { p_id: doc.id }); toast('Transfer selesai, stok sudah pindah'); })}>
+          <button disabled={busy} onClick={() => run(async () => { await rpc('inv_post_stock_transfer', { p_id: doc.id }); toast('Transfer diproses (cek status: bisa menunggu persetujuan)'); })}>
             <Send size={16} /> Kirim & langsung terima</button>
-          <button className="btn-primary" disabled={busy} onClick={() => run(async () => { await rpc('inv_ship_stock_transfer', { p_id: doc.id }); toast('Koli dikirim. Cetak & tempel label koli.'); })}>
+          <button className="btn-primary" disabled={busy} onClick={() => run(async () => { await rpc('inv_ship_stock_transfer', { p_id: doc.id }); toast('Transfer diproses (cek status: bisa menunggu persetujuan)'); })}>
             <Truck size={16} /> Kirim</button>
         </>}
         {!!shipped.length && <button onClick={() => setPrinting(true)}><Printer size={16} /> Label koli</button>}

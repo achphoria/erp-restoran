@@ -79,7 +79,9 @@ export default function TransferForm({ companyId, warehouses, items, onClose, on
       }
       if (mode === 'ship') await rpc('inv_ship_stock_transfer', { p_id: doc.id });
       if (mode === 'post') await rpc('inv_post_stock_transfer', { p_id: doc.id });
-      toast(mode === 'draft' ? 'Draft transfer tersimpan' : mode === 'ship'
+      const st = mode === 'draft' ? null : (await must(supabase.from('inv_stock_transfers').select('status').eq('id', doc.id).single())).status;
+      if (st === 'pending_approval') toast('Transfer menunggu persetujuan. Barang dikirim setelah disetujui.', 'info');
+      else toast(mode === 'draft' ? 'Draft transfer tersimpan' : mode === 'ship'
         ? `${no} koli dikirim. Cetak label koli lalu tempel di tiap koli.` : 'Transfer selesai, stok sudah pindah');
       onDone(doc.id);
     } catch (e) {
