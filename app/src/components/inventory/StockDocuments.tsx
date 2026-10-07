@@ -6,6 +6,11 @@ import { useFeedback } from '../Feedback';
 import { must, rpc, supabase } from '../../lib/supabase';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah, todayISO } from '../../lib/format';
 import OpnameForm from './OpnameForm';
+import TransferForm from './TransferForm';
+import TransferDetail from './TransferDetail';
+import BatchSelect from './BatchSelect';
+import ScanInput from '../ScanInput';
+import { loadBatches, resolveBarcode, type BatchOption } from './batchUtils';
 
 export type AdjustmentType = 'adjustment' | 'waste' | 'usage' | 'shrinkage';
 type DocType = AdjustmentType | 'opname' | 'transfer';
@@ -19,7 +24,7 @@ export const DOC_INFO: Record<DocType, { label: string; desc: string; icon: type
   transfer: { label: 'Transfer Gudang', desc: 'Pindah stok antar gudang', icon: Truck, prefix: 'TRF' },
 };
 const STATUS: Record<string, [string, string]> = {
-  draft: ['Draft', 'badge-warning'], pending_approval: ['Menunggu persetujuan', 'badge-warning'], posted: ['Diposting', 'badge-success'],
+  draft: ['Draft', 'badge-warning'], pending_approval: ['Menunggu persetujuan', 'badge-warning'], posted: ['Diposting', 'badge-success'], in_transit: ['Dalam perjalanan', 'badge-info'],
 };
 
 interface Warehouse { id: string; code?: string; name: string }
@@ -33,6 +38,7 @@ export default function StockDocuments({ companyId, warehouses, items }: { compa
   const [filter, setFilter] = useState<'' | DocType>('');
   const [creating, setCreating] = useState<AdjustmentType | 'transfer' | null>(null);
   const [opname, setOpname] = useState<string | 'new' | null>(null);
+  const [transfer, setTransfer] = useState<{ id: string; packageId?: string } | null>(null);
 
   const load = useCallback(async () => {
     const [adj, opn, trf] = await Promise.all([
@@ -74,6 +80,13 @@ export default function StockDocuments({ companyId, warehouses, items }: { compa
       <div className="card table-wrap">
         <div className="card-header">
           <h2>Riwayat Dokumen</h2>
+          <ScanInput placeholder="Scan label koli untuk terima barang" style={{ flex: '1 1 240px', maxWidth: 340 }} onScan={async (code) => {
+            try {
+              const r = await resolveBarcode(code);
+              if (r?.kind !== 'package') return toast(r ? 'Ini bukan label koli' : `Kode ${code} tidak dikenal`, 'error');
+              setTransfer({ id: r.stock_transfer_id!, packageId: r.package_id });
+            } catch (e) { toast(errorMessage(e), 'error'); }
+          }} />
           <select value={filter} onChange={(e) => setFilter(e.target.value as DocType | '')}>
             <option value="">Semua jenis</option>
             {(Object.keys(DOC_INFO) as DocType[]).map((t) => <option key={t} value={t}>{DOC_INFO[t].label}</option>)}
@@ -84,15 +97,15 @@ export default function StockDocuments({ companyId, warehouses, items }: { compa
           <tbody>
             {shown.map((d) => {
               const [label, badge] = STATUS[d.status] ?? [d.status, 'badge'];
-              const openable = d.type === 'opname' && d.status !== 'posted';
+              const openable = (d.type === 'opname' && d.status !== 'posted') || d.type === 'transfer';
               return (
-                <tr key={d.id} onClick={openable ? () => setOpname(d.id) : undefined} style={openable ? { cursor: 'pointer' } : undefined}>
+                <tr key={d.id} onClick={openable ? () => (d.type === 'transfer' ? setTransfer({ id: d.id }) : setOpname(d.id)) : undefined} style={openable ? { cursor: 'pointer' } : undefined}>
                   <td className="bold">{d.number ?? '(draft)'}</td>
                   <td>{DOC_INFO[d.type]?.label ?? d.type}</td>
                   <td className="small">{d.warehouse}</td>
                   <td className="small">{d.purpose && <span className="badge" style={{ marginRight: 6 }}>{d.purpose}</span>}<span className="muted">{d.note}</span></td>
                   <td className="small">{d.posted_at ? formatDateTime(d.posted_at) : d.date}</td>
-                  <td><span className={`badge ${badge}`}>{label}</span>{openable && <span className="muted small"> · klik untuk lanjut</span>}</td>
+                  <td><span className={`badge ${badge}`}>{label}</span>{openable && d.status !== 'posted' && <span className="muted small"> · klik untuk lanjut</span>}</td>
                 </tr>
               );
             })}
@@ -107,7 +120,11 @@ export default function StockDocuments({ companyId, warehouses, items }: { compa
       )}
       {creating === 'transfer' && (
         <TransferForm companyId={companyId} warehouses={warehouses} items={items}
-          onClose={() => setCreating(null)} onDone={() => { setCreating(null); load(); }} />
+          onClose={() => setCreating(null)} onDone={(id) => { setCreating(null); load(); if (id) setTransfer({ id }); }} />
+      )}
+      {transfer && (
+        <TransferDetail transferId={transfer.id} receivePackageId={transfer.packageId}
+          onClose={() => { setTransfer(null); load(); }} />
       )}
       {opname && (
         <OpnameForm opnameId={opname === 'new' ? null : opname} companyId={companyId} warehouses={warehouses}
@@ -119,7 +136,8 @@ export default function StockDocuments({ companyId, warehouses, items }: { compa
 
 // ---------------------------------------------------------------- Penyesuaian / waste / pemakaian / penyusutan
 interface Purpose { id: string; adjustment_type: string; name: string; is_active: boolean; fin_accounts: { code: string; name: string } | null }
-interface Line { item_id: string; quantity: string; purpose_id: string; note: string }
+interface Line { item_id: string; quantity: string; purpose_id: string; note: string; batch_id: string }
+const EMPTY: Line = { item_id: '', quantity: '', purpose_id: '', note: '', batch_id: '' };
 
 function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }: {
   type: AdjustmentType; companyId: string; warehouses: Warehouse[]; items: Item[]; onClose: () => void; onDone: () => void;
@@ -131,7 +149,8 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
   const [purposeId, setPurposeId] = useState('');
   const [date, setDate] = useState(todayISO());
   const [note, setNote] = useState('');
-  const [lines, setLines] = useState<Line[]>([{ item_id: '', quantity: '', purpose_id: '', note: '' }]);
+  const [lines, setLines] = useState<Line[]>([EMPTY]);
+  const [batches, setBatches] = useState<BatchOption[]>([]);
   const [costs, setCosts] = useState<Record<string, { cost: number; qty: number }>>({});
   const [busy, setBusy] = useState(false);
   const minusOnly = type !== 'adjustment';
@@ -149,15 +168,37 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
       .then((rows: { item_id: string; average_cost: number; quantity: number }[]) =>
         setCosts(Object.fromEntries(rows.map((r) => [r.item_id, { cost: Number(r.average_cost), qty: Number(r.quantity) }]))))
       .catch(() => setCosts({}));
+    loadBatches(warehouseId).then(setBatches).catch(() => setBatches([]));
   }, [warehouseId]);
+
+  // scan: label batch -> baris dengan batch itu; barcode produk -> tambah qty satuan yang discan
+  const onScan = async (code: string) => {
+    try {
+      const r = await resolveBarcode(code, warehouseId);
+      if (!r || r.kind === 'package') return toast(r ? 'Ini label koli, terima di dokumen transfer' : `Kode ${code} tidak dikenal`, 'error');
+      if (!items.some((it) => it.id === r.item_id)) return toast(`${r.item_name} tidak ada di daftar produk stok`, 'error');
+      if (r.kind === 'batch' && r.warehouse_id !== warehouseId) toast(`Batch ${r.batch_code} tercatat di gudang lain`, 'info');
+      const batchId = r.kind === 'batch' && r.warehouse_id === warehouseId ? r.batch_id! : '';
+      const add = r.kind === 'item' ? Number(r.qty) : 0;
+      setLines((ls) => {
+        const body = ls.filter((l) => l.item_id);
+        const idx = body.findIndex((l) => l.item_id === r.item_id && l.batch_id === batchId);
+        if (idx >= 0) body[idx] = { ...body[idx], quantity: add ? String(Number(body[idx].quantity || 0) + add) : body[idx].quantity };
+        else body.push({ ...EMPTY, item_id: r.item_id!, batch_id: batchId, quantity: add ? String(add) : '' });
+        return [...body, EMPTY];
+      });
+    } catch (e) { toast(errorMessage(e), 'error'); }
+  };
 
   const upd = (i: number, patch: Partial<Line>) => setLines((ls) => {
     const next = ls.map((l, j) => (j === i ? { ...l, ...patch } : l));
-    if (next[next.length - 1].item_id) next.push({ item_id: '', quantity: '', purpose_id: '', note: '' });
+    if (next[next.length - 1].item_id) next.push(EMPTY);
     return next;
   });
   const valid = lines.filter((l) => l.item_id && Number(l.quantity) !== 0 && l.quantity !== '');
-  const value = useMemo(() => valid.reduce((s, l) => s + Math.abs(Number(l.quantity)) * (costs[l.item_id]?.cost ?? 0), 0), [valid, costs]);
+  const costOf = (l: Line) => Number(batches.find((b) => b.id === l.batch_id)?.unit_cost ?? costs[l.item_id]?.cost ?? 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const value = useMemo(() => valid.reduce((s, l) => s + Math.abs(Number(l.quantity)) * costOf(l), 0), [valid, costs, batches]);
   const needPurpose = minusOnly && !purposeId && valid.some((l) => !l.purpose_id);
   const unit = (id: string) => items.find((i) => i.id === id)?.inv_units?.code ?? '';
 
@@ -171,7 +212,7 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
       await must(supabase.from('inv_stock_adjustment_items').insert(valid.map((l) => ({
         company_id: companyId, stock_adjustment_id: doc.id, item_id: l.item_id,
         quantity: minusOnly ? Math.abs(Number(l.quantity)) : Number(l.quantity),
-        purpose_id: l.purpose_id || null, note: l.note.trim() || null,
+        purpose_id: l.purpose_id || null, note: l.note.trim() || null, batch_id: l.batch_id || null,
       }))));
       if (post) {
         await rpc('inv_post_stock_adjustment', { p_id: doc.id });
@@ -209,16 +250,18 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
         <label className="field"><span>Catatan</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label>
       </div>
       {!purposes.length && minusOnly && <div className="alert alert-info small" style={{ marginTop: 10 }}>Belum ada purpose untuk jenis ini. Tambahkan di tab <b>Purpose & Akun</b>.</div>}
-      <div className="table-wrap" style={{ marginTop: 14 }}>
+      <ScanInput onScan={onScan} placeholder="Scan label batch / barcode produk" style={{ marginTop: 14 }} />
+      <div className="table-wrap" style={{ marginTop: 10 }}>
         <table className="table">
-          <thead><tr><th>Produk</th><th className="right">Stok</th><th>Qty</th><th>Purpose baris</th><th className="right">Nilai</th><th></th></tr></thead>
+          <thead><tr><th>Produk</th><th>Batch</th><th className="right">Stok</th><th>Qty</th><th>Purpose baris</th><th className="right">Nilai</th><th></th></tr></thead>
           <tbody>
             {lines.map((l, i) => (
               <tr key={i}>
-                <td><select style={{ width: '100%', minWidth: 170 }} value={l.item_id} onChange={(e) => upd(i, { item_id: e.target.value })}>
+                <td><select style={{ width: '100%', minWidth: 170 }} value={l.item_id} onChange={(e) => upd(i, { item_id: e.target.value, batch_id: '' })}>
                   <option value="">— pilih produk —</option>
                   {items.map((it) => <option key={it.id} value={it.id}>{it.code} · {it.name}</option>)}
                 </select></td>
+                <td>{l.item_id && <BatchSelect batches={batches.filter((b) => b.item_id === l.item_id)} value={l.batch_id} onChange={(v) => upd(i, { batch_id: v })} />}</td>
                 <td className="right small muted">{l.item_id ? `${formatNumber(costs[l.item_id]?.qty ?? 0)} ${unit(l.item_id)}` : ''}</td>
                 <td><div className="row" style={{ flexWrap: 'nowrap' }}>
                   <input type="number" step="any" min={minusOnly ? 0 : undefined} style={{ width: 90 }} value={l.quantity} onChange={(e) => upd(i, { quantity: e.target.value })} />
@@ -227,65 +270,14 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
                   <option value="">Ikut dokumen</option>
                   {purposes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select></td>
-                <td className="right">{l.item_id && l.quantity ? formatRupiah(Math.abs(Number(l.quantity)) * (costs[l.item_id]?.cost ?? 0)) : ''}</td>
+                <td className="right">{l.item_id && l.quantity ? formatRupiah(Math.abs(Number(l.quantity)) * costOf(l)) : ''}</td>
                 <td>{l.item_id && <button className="icon-btn" onClick={() => setLines(lines.filter((_, j) => j !== i))} aria-label="Hapus"><Trash2 size={16} /></button>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="muted small">Nilai dihitung dari HPP rata-rata di gudang ini. Jurnal: persediaan ↔ akun purpose (atau akun default jenisnya).</p>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------- Transfer
-function TransferForm({ companyId, warehouses, items, onClose, onDone }: {
-  companyId: string; warehouses: Warehouse[]; items: Item[]; onClose: () => void; onDone: () => void;
-}) {
-  const { toast } = useFeedback();
-  const [from, setFrom] = useState(warehouses[0]?.id ?? '');
-  const [to, setTo] = useState(warehouses[1]?.id ?? '');
-  const [note, setNote] = useState('');
-  const [lines, setLines] = useState<{ item_id: string; quantity: string }[]>([{ item_id: '', quantity: '' }]);
-  const [busy, setBusy] = useState(false);
-  const valid = lines.filter((l) => l.item_id && Number(l.quantity) > 0);
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      const doc = (await must(supabase.from('inv_stock_transfers').insert({ company_id: companyId, from_warehouse_id: from, to_warehouse_id: to, note: note || null }).select('id').single())) as { id: string };
-      await must(supabase.from('inv_stock_transfer_items').insert(valid.map((l) => ({ company_id: companyId, stock_transfer_id: doc.id, item_id: l.item_id, quantity: Number(l.quantity) }))));
-      await rpc('inv_post_stock_transfer', { p_id: doc.id });
-      toast('Transfer diposting');
-      onDone();
-    } catch (e) {
-      toast(errorMessage(e), 'error');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title="Transfer Gudang" onClose={onClose} large
-      footer={<><button onClick={onClose}>Batal</button><button className="btn-primary" disabled={busy || !valid.length || from === to} onClick={submit}>Simpan & Posting</button></>}>
-      <div className="form-grid">
-        <label className="field"><span>Dari gudang</span><select value={from} onChange={(e) => setFrom(e.target.value)}>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-        <label className="field"><span>Ke gudang</span><select value={to} onChange={(e) => setTo(e.target.value)}>{warehouses.filter((w) => w.id !== from).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-        <label className="field"><span>Catatan</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      </div>
-      <table className="table" style={{ marginTop: 14 }}>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i}>
-              <td><select style={{ width: '100%' }} value={l.item_id} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, item_id: e.target.value } : x)).concat(i === lines.length - 1 ? [{ item_id: '', quantity: '' }] : []))}>
-                <option value="">— pilih produk —</option>
-                {items.map((it) => <option key={it.id} value={it.id}>{it.code} · {it.name} ({it.inv_units?.code})</option>)}
-              </select></td>
-              <td><input type="number" step="any" min={0} style={{ width: 100 }} value={l.quantity} onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, quantity: e.target.value } : x)))} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <p className="muted small">Batch "Otomatis" mengambil yang kedaluwarsa duluan (FEFO), lalu yang masuk duluan. Nilai = harga batch yang terpakai. Jurnal: persediaan ↔ akun purpose (atau akun default jenisnya).</p>
     </Modal>
   );
 }

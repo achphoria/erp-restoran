@@ -5,8 +5,9 @@ import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib
 import ProductionTab from '../components/ProductionTab';
 import StockDocuments from '../components/inventory/StockDocuments';
 import PurposesTab from '../components/inventory/PurposesTab';
+import BatchesTab from '../components/inventory/BatchesTab';
 
-type Tab = 'stock' | 'production' | 'documents' | 'movements' | 'purposes';
+type Tab = 'stock' | 'production' | 'documents' | 'movements' | 'batches' | 'purposes';
 
 interface Unit { id: string; code: string; name: string }
 interface ItemCategory { id: string; name: string }
@@ -62,7 +63,7 @@ export default function InventoryPage() {
         </div>
       </div>
       <div className="tabs">
-        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Dokumen Stok'], ['movements', 'Kartu Stok'], ['purposes', 'Purpose & Akun']] as [Tab, string][]).map(([k, v]) => (
+        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Dokumen Stok'], ['batches', 'Batch & Kedaluwarsa'], ['movements', 'Kartu Stok'], ['purposes', 'Purpose & Akun']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -71,6 +72,7 @@ export default function InventoryPage() {
       {tab === 'production' && <ProductionTab warehouses={warehouses} />}
       {tab === 'documents' && <StockDocuments companyId={companyId} warehouses={warehouses} items={items} />}
       {tab === 'movements' && <MovementsTab {...ctx} />}
+      {tab === 'batches' && <BatchesTab warehouses={warehouses} />}
       {tab === 'purposes' && <PurposesTab companyId={companyId} />}
     </>
   );
@@ -119,7 +121,7 @@ function StockTab({ warehouses, setError }: Ctx) {
       </div>
       <table className="table">
         <thead>
-          <tr><th>Kode</th><th>Bahan</th><th className="right">Stok</th><th className="right">Min</th><th className="right">HPP Rata-rata</th><th className="right">Nilai</th><th></th></tr>
+          <tr><th>Kode</th><th>Bahan</th><th className="right">Stok</th><th className="right">Min</th><th className="right">HPP (FIFO)</th><th className="right">Nilai</th><th></th></tr>
         </thead>
         <tbody>
           {shown.map((r) => (

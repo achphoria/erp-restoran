@@ -1332,7 +1332,7 @@ await check('purpose bawaan & akun pemakaian/penyusutan dibuat untuk perusahaan 
   await loginAs(U1);
   const r = await one(`select (select count(*)::int from inv_adjustment_purposes where company_id = $1) purposes,
     (select count(*)::int from fin_accounts where company_id = $1 and system_key in ('usage_expense', 'shrinkage_expense')) accounts`, [company1]);
-  assert(r.purposes === 14 && r.accounts === 2, JSON.stringify(r));
+  assert(r.purposes === 15 && r.accounts === 2, JSON.stringify(r));
   assert((await accCode(await val(`select account_id from inv_adjustment_purposes where name = 'Makan Karyawan' and company_id = $1`, [company1]))) === '6-1100', 'akun makan karyawan');
 });
 await check('waste: qty selalu mengurangi stok & dijurnal ke akun purpose', async () => {
@@ -1401,6 +1401,146 @@ await check('opname: potret ulang & tanpa hasil hitung ditolak', async () => {
   await db.query(`select inv_refresh_opname_snapshot($1)`, [op]);
   assert(Number(await val(`select system_qty from inv_stock_opname_items where stock_opname_id = $1 and item_id = $2`, [op, await itemId('BHN01')])) === (await stockOf('BHN01')), 'potret ulang');
   await journalBalanced();
+});
+
+console.log('\nBatch, FIFO/FEFO & koli:');
+const days = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const newGr = async (code, qty, price, extra = {}) => {
+  const gr = (await one(`insert into pur_goods_receipts (company_id, supplier_id, warehouse_id)
+    values ($1, (select id from pur_suppliers where code = 'SUP01' and company_id = $1), $2) returning id`, [company1, await mainWh()])).id;
+  await db.query(`insert into pur_goods_receipt_items (company_id, goods_receipt_id, item_id, unit_id, conversion_qty, quantity, unit_price, lot_number, expiry_date)
+    values ($1, $2, $3, (select base_unit_id from inv_items where id = $3), 1, $4, $5, $6, $7)`,
+    [company1, gr, await itemId(code), qty, price, extra.lot ?? null, extra.expiry ?? null]);
+  return gr;
+};
+const grIn = async (code, qty, price, extra) => {
+  const gr = await newGr(code, qty, price, extra);
+  await db.query(`select pur_post_goods_receipt($1)`, [gr]);
+};
+const batchesOf = async (code, wh) => (await db.query(
+  `select id, batch_code, lot_number, expiry_date::text expiry, qty_remaining::float8 qty, unit_cost::float8 cost from inv_stock_batches
+   where item_id = $1 and warehouse_id = $2 order by received_at, created_at`, [await itemId(code), wh ?? await mainWh()])).rows;
+const wasteOf = async (code, qty, batchId = null) => {
+  const doc = await newAdj('waste', await purposeId('waste', 'Kedaluwarsa'), [{ code, qty }]);
+  if (batchId) await db.query(`update inv_stock_adjustment_items set batch_id = $1 where stock_adjustment_id = $2`, [batchId, doc]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [doc]);
+  return one(`select unit_cost::float8 cost, unbatched_qty::float8 unbatched from inv_stock_movements where reference_id = $1`, [doc]);
+};
+const batchInvariant = async () => {
+  const bad = await db.query(`select s.item_id, s.quantity, coalesce(sum(b.qty_remaining), 0) remaining
+    from inv_stocks s left join inv_stock_batches b on b.warehouse_id = s.warehouse_id and b.item_id = s.item_id
+    group by s.id, s.item_id, s.quantity having greatest(s.quantity, 0) <> coalesce(sum(b.qty_remaining), 0)`);
+  assert(!bad.rows.length, `sisa batch != saldo: ${JSON.stringify(bad.rows.slice(0, 3))}`);
+};
+
+await check('saldo lama otomatis jadi batch saldo awal (sisa batch = saldo stok)', async () => {
+  await loginAs(U1);
+  assert((await val(`select count(*)::int from inv_stock_batches where reference_type = 'opening' and company_id = $1`, [company1])) > 0, 'tidak ada batch saldo awal');
+  await batchInvariant();
+});
+await check('FIFO cost: keluar mengambil batch tertua, HPP = harga batch', async () => {
+  await newItem('BTC01', 'Susu UHT', 'pcs', 1000);
+  await grIn('BTC01', 10, 1000);
+  await grIn('BTC01', 10, 1500);
+  const m = await wasteOf('BTC01', 15);
+  assert(Math.abs(m.cost - (10 * 1000 + 5 * 1500) / 15) < 0.001, `cost ${m.cost}`);
+  const b = await batchesOf('BTC01');
+  assert(b.length === 2 && b[0].qty === 0 && b[1].qty === 5, JSON.stringify(b));
+  assert(Number(await val(`select average_cost from inv_stocks where item_id = $1 and warehouse_id = $2`, [await itemId('BTC01'), await mainWh()])) === 1500, 'nilai sisa');
+  assert(/^L\d{10}$/.test(b[0].batch_code), `kode batch ${b[0].batch_code}`);
+});
+await check('FEFO: batch yang kedaluwarsa duluan diambil dulu; produk lacak batch wajib kedaluwarsa', async () => {
+  await newItem('BTC02', 'Susu Segar', 'pcs', 1000);
+  await db.query(`update inv_items set track_batch = true where id = $1`, [await itemId('BTC02')]);
+  const bad = await newGr('BTC02', 5, 1000);
+  await expectError(`select pur_post_goods_receipt($1)`, [bad], /kedaluwarsa/);
+  await db.query(`delete from pur_goods_receipts where id = $1`, [bad]);
+  await grIn('BTC02', 10, 1000, { lot: 'LOT-A', expiry: days(10) });
+  await grIn('BTC02', 10, 1200, { lot: 'LOT-B', expiry: days(3) });
+  const m = await wasteOf('BTC02', 4);
+  assert(m.cost === 1200, `harus dari LOT-B (kedaluwarsa duluan), cost ${m.cost}`);
+  const b = await batchesOf('BTC02');
+  assert(b[0].lot_number === 'LOT-A' && b[0].qty === 10 && b[1].qty === 6 && b[1].expiry === days(3), JSON.stringify(b));
+  await db.query(`update inv_items set shelf_life_days = 7 where id = $1`, [await itemId('BTC02')]);
+  await grIn('BTC02', 2, 1100);
+  assert((await batchesOf('BTC02'))[2].expiry === days(7), 'kedaluwarsa otomatis dari umur simpan');
+});
+await check('scan label batch: waste mengambil batch yang dipilih', async () => {
+  const [a] = await batchesOf('BTC02');
+  const m = await wasteOf('BTC02', 2, a.id);
+  assert(m.cost === 1000 && (await batchesOf('BTC02'))[0].qty === 8, 'batch pilihan tidak terpakai');
+});
+await check('stok minus: dicatat tanpa batch, lalu ditutup batch berikutnya', async () => {
+  await newItem('BTC03', 'Keju Slice', 'pcs', 2000);
+  const m = await wasteOf('BTC03', 5);
+  assert(m.unbatched === 5 && m.cost === 2000, JSON.stringify(m));
+  await grIn('BTC03', 8, 2200);
+  const b = await batchesOf('BTC03');
+  assert(b.length === 1 && b[0].qty === 3 && (await stockOf('BTC03')) === 3, JSON.stringify(b));
+  assert((await val(`select count(*)::int from inv_stock_movement_batches where batch_id = $1 and is_backfill`, [b[0].id])) === 1, 'backfill');
+});
+await check('penjualan POS memotong batch & refund mengembalikan ke batch asal', async () => {
+  const before = await batchesOf('BHN01');
+  await withShift(async () => {
+    const order = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MKN01') }] })]);
+    await payCash(order.id);
+    const mv = await one(`select m.id, m.quantity::float8 q, round(m.quantity * m.unit_cost, 2)::float8 v from inv_stock_movements m
+      where m.reference_id = $1 and m.item_id = $2`, [order.id, await itemId('BHN01')]);
+    const al = await one(`select sum(quantity)::float8 q, sum(quantity * unit_cost)::float8 v from inv_stock_movement_batches where movement_id = $1`, [mv.id]);
+    assert(al.q === mv.q && Math.abs(al.v - mv.v) < 0.01, `alokasi ${JSON.stringify({ mv, al })}`);
+    await db.query(`select pos_refund_order($1, 'Batch test', true)`, [order.id]);
+  });
+  const after = await batchesOf('BHN01');
+  assert(JSON.stringify(after.map((b) => [b.id, b.qty])) === JSON.stringify(before.map((b) => [b.id, b.qty])), 'batch tidak kembali seperti semula');
+  await journalBalanced();
+});
+await check('transfer per koli: dikirim (dalam perjalanan) -> diterima per koli, kekurangan dijurnal', async () => {
+  const wh2 = (await one(`insert into inv_warehouses (company_id, code, name) values ($1, 'WH-B2', 'Gudang Cabang') returning id`, [company1])).id;
+  const tr = (await one(`insert into inv_stock_transfers (company_id, from_warehouse_id, to_warehouse_id) values ($1, $2, $3) returning id`, [company1, await mainWh(), wh2])).id;
+  const k1 = (await one(`insert into inv_transfer_packages (company_id, stock_transfer_id, package_no) values ($1, $2, 1) returning id`, [company1, tr])).id;
+  const k2 = (await one(`insert into inv_transfer_packages (company_id, stock_transfer_id, package_no) values ($1, $2, 2) returning id`, [company1, tr])).id;
+  const [lotA] = await batchesOf('BTC02');
+  await db.query(`insert into inv_stock_transfer_items (company_id, stock_transfer_id, item_id, quantity, package_id, batch_id) values ($1, $2, $3, 3, $4, $5)`,
+    [company1, tr, await itemId('BTC02'), k1, lotA.id]);
+  await db.query(`insert into inv_stock_transfer_items (company_id, stock_transfer_id, item_id, quantity, package_id) values ($1, $2, $3, 5, $4)`,
+    [company1, tr, await itemId('BTC01'), k2]);
+  const src = await stockOf('BTC01');
+  await db.query(`select inv_ship_stock_transfer($1)`, [tr]);
+  assert((await val(`select status from inv_stock_transfers where id = $1`, [tr])) === 'in_transit', 'status');
+  assert(src - (await stockOf('BTC01')) === 5 && (await batchesOf('BTC01', wh2)).length === 0, 'stok dalam perjalanan');
+  const code1 = await val(`select package_code from inv_transfer_packages where id = $1`, [k1]);
+  const r = await val(`select inv_resolve_barcode($1, $2)`, [code1.toLowerCase(), wh2]);
+  assert(r.kind === 'package' && r.package_id === k1, JSON.stringify(r));
+
+  await db.query(`select inv_receive_transfer_package($1, null)`, [k1]);
+  const d = await batchesOf('BTC02', wh2);
+  assert(d.length === 1 && d[0].batch_code === lotA.batch_code && d[0].lot_number === 'LOT-A' && d[0].expiry === lotA.expiry && d[0].cost === 1000 && d[0].qty === 3, JSON.stringify(d));
+  assert((await val(`select status from inv_stock_transfers where id = $1`, [tr])) === 'in_transit', 'belum semua koli');
+
+  const line2 = await val(`select id from inv_stock_transfer_items where package_id = $1`, [k2]);
+  const res = await val(`select inv_receive_transfer_package($1, $2::jsonb)`, [k2, JSON.stringify([{ id: line2, received_qty: 3 }])]);
+  assert(Number(res.loss_value) === 3000 && res.transfer_status === 'posted', JSON.stringify(res));
+  assert((await journalAccounts(k2))['5-1200']?.d === 3000, JSON.stringify(await journalAccounts(k2)));
+  assert((await batchesOf('BTC01', wh2))[0].qty === 3, 'qty diterima');
+  await expectError(`select inv_receive_transfer_package($1, null)`, [k2], /sudah diterima/);
+  await journalBalanced();
+});
+await check('scan barcode: label batch & kode produk dikenali', async () => {
+  const [a] = await batchesOf('BTC02');
+  const b = await val(`select inv_resolve_barcode($1, $2)`, [a.batch_code, await mainWh()]);
+  assert(b.kind === 'batch' && b.batch_id === a.id, JSON.stringify(b));
+  const i = await val(`select inv_resolve_barcode('btc01', null)`);
+  assert(i.kind === 'item' && i.item_code === 'BTC01', JSON.stringify(i));
+  assert((await val(`select inv_resolve_barcode('TIDAK-ADA', null)`)) === null, 'kode asing');
+});
+await check('batch hanya bisa diubah lewat dokumen (RLS) & koreksi kedaluwarsa via fungsi', async () => {
+  const [a] = await batchesOf('BTC02');
+  await db.query(`update inv_stock_batches set qty_remaining = 999 where id = $1`, [a.id]);
+  assert((await batchesOf('BTC02'))[0].qty === a.qty, 'batch bisa diubah langsung');
+  await db.query(`select inv_update_batch($1, 'LOT-A2', $2)`, [a.id, days(20)]);
+  const n = await val(`select count(*)::int from inv_stock_batches where batch_code = $1 and lot_number = 'LOT-A2' and expiry_date = $2`, [a.batch_code, days(20)]);
+  assert(n === 2, `semua gudang ikut terkoreksi (${n})`);
+  await batchInvariant();
 });
 
 console.log('\nNama aplikasi:');

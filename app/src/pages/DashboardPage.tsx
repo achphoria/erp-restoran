@@ -3,16 +3,19 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { must, supabase } from '../lib/supabase';
 import { errorMessage, formatNumber, formatRupiah, todayISO } from '../lib/format';
+import { expiryInfo, NEAR_EXPIRY_DAYS } from '../components/inventory/batchUtils';
 
 interface DailySales { business_date: string; order_count: number; guest_count: number; grand_total: number }
 interface MenuSales { menu_item_name: string; quantity: number; revenue: number }
 interface LowStock { item_name: string; quantity: number; min_stock: number; unit_code: string; warehouse_name: string }
+interface Expiring { id: string; item_name: string; batch_code: string; expiry_date: string; qty_remaining: number; unit_code: string; warehouse_name: string; stock_value: number }
 
 export default function DashboardPage() {
   const { outlet, profile } = useAuth();
   const [week, setWeek] = useState<DailySales[]>([]);
   const [topMenu, setTopMenu] = useState<MenuSales[]>([]);
   const [lowStock, setLowStock] = useState<LowStock[]>([]);
+  const [expiring, setExpiring] = useState<Expiring[]>([]);
   const [openBills, setOpenBills] = useState(0);
   const [error, setError] = useState('');
 
@@ -20,6 +23,10 @@ export default function DashboardPage() {
     if (!outlet) return;
     const today = todayISO();
     const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + NEAR_EXPIRY_DAYS * 86400000).toISOString().slice(0, 10);
+    must(supabase.from('rpt_stock_batches').select('id, item_name, batch_code, expiry_date, qty_remaining, unit_code, warehouse_name, stock_value')
+      .gt('qty_remaining', 0).lte('expiry_date', soon).order('expiry_date').limit(8))
+      .then(setExpiring).catch(() => setExpiring([]));
     Promise.all([
       must(supabase.from('rpt_daily_sales').select('*').eq('outlet_id', outlet.id).gte('business_date', weekAgo).order('business_date')),
       must(supabase.from('rpt_menu_sales').select('menu_item_name, quantity, revenue').eq('outlet_id', outlet.id).eq('business_date', today).order('quantity', { ascending: false }).limit(5)),
@@ -96,6 +103,30 @@ export default function DashboardPage() {
           </table>
         </div>
       </div>
+
+      {!!expiring.length && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-header">
+            <h2>⏰ Batch hampir / sudah kedaluwarsa</h2>
+            <Link to="/inventory">Lihat di Inventory → Batch →</Link>
+          </div>
+          <table className="table">
+            <tbody>
+              {expiring.map((b) => {
+                const [label, cls] = expiryInfo(b.expiry_date);
+                return (
+                  <tr key={b.id}>
+                    <td className="bold">{b.item_name}<div className="muted small">{b.batch_code} · {b.warehouse_name}</div></td>
+                    <td><span className={`badge ${cls}`}>{label}</span></td>
+                    <td className="right">{formatNumber(b.qty_remaining)} {b.unit_code}</td>
+                    <td className="right muted">{formatRupiah(b.stock_value)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-header">
