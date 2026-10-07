@@ -571,3 +571,9 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .restore-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
 .danger-zone { border-color: var(--danger-soft); }
 .danger-zone h3 { color: var(--danger); }
+/* Simple manufacturing: tab per BOM */
+.bom-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.bom-tabs button { min-height: 32px; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; gap: 6px; }
+.bom-tabs button.active { background: var(--primary-soft); border-color: var(--fresh); color: var(--primary); }
+.bom-tabs button.add { border-style: dashed; }
+.bom-tabs button svg { opacity: .7; }

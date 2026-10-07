@@ -1143,7 +1143,7 @@ await check('produksi assembly: bahan (+waste) terpotong, hasil masuk dengan HPP
   const prod = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, $3, 2000) returning id`,
     [company1, await mainWh(), recipe])).id;
   const r = await val(`select inv_post_production($1)`, [prod]);
-  assert(r.production_number.startsWith('PRD/') && Number(r.extra_cost) === 10000, JSON.stringify(r));
+  assert(r.production_number.startsWith('SM/') && r.production_number.endsWith(' - 1') && Number(r.extra_cost) === 10000, JSON.stringify(r));
   assert(bawangBefore - (await stockOf('BHN11')) === 1320, `bawang terpakai ${bawangBefore - (await stockOf('BHN11'))}`);
   assert((await stockOf('BHN95')) === 2000, 'hasil produksi');
   const value = Number(await val(`select stock_value from rpt_stock_balances where item_code = 'BHN95'`));
@@ -1944,6 +1944,72 @@ await check('demo_production.sql: BOM assembly & disassembly siap diproduksi; am
   assert(sambal.q === 2000 && sambal.c > 0, JSON.stringify(sambal));
   const dada = Number(await val(`select quantity from inv_stocks where warehouse_id = $1 and item_id = (select id from inv_items where code = 'DMP12' and company_id = $2)`, [wh, company1]));
   assert(dada === 1350, `dada ${dada}`);
+  await journalBalanced();
+});
+
+console.log('\nSimple manufacturing (ala ESB):');
+await check('assembly: asal CK -> tujuan gudang lain, satuan kg, qty bahan & hasil AKTUAL, kedaluwarsa hasil', async () => {
+  await loginAs(U1);
+  const wh = await mainWh();
+  const wh2 = await val(`select id from inv_warehouses where code = 'WH-B2' and company_id = $1`, [company1]);
+  const sambal = await itemId('DMP11');
+  const kg = await val(`select id from inv_units where code = 'kg' and company_id = $1`, [company1]);
+  await db.query(`insert into inv_item_units (company_id, item_id, unit_id, conversion_qty) values ($1, $2, $3, 1000) on conflict do nothing`, [company1, sambal, kg]);
+  const recipe = await val(`select id from inv_recipes where code = 'BOM-SAMBAL' and company_id = $1`, [company1]);
+  const group = '0a0a0a0a-0000-0000-0000-000000000001';
+  const p = (await one(`insert into inv_productions (company_id, warehouse_id, dest_warehouse_id, recipe_id, quantity, unit_id, result_qty, expiry_date, group_id, line_no)
+    values ($1, $2, $3, $4, 2, $5, 1.9, current_date + 5, $6, 1) returning id`, [company1, wh, wh2, recipe, kg, group])).id;
+  await db.query(`select inv_prepare_production($1)`, [p]);
+  const cabai = await one(`select id, bom_qty::float8 bom, system_qty::float8 sys from inv_production_lines where production_id = $1 and item_id = $2`, [p, await itemId('DMP01')]);
+  assert(cabai.bom === 630 && cabai.sys === 1260, JSON.stringify(cabai));   // 600 g/kg x 1.05 waste x 2 kg
+  await db.query(`update inv_production_lines set actual_qty = 1300 where id = $1`, [cabai.id]);
+  const cabaiBefore = await stockOf('DMP01');
+  const r = await val(`select inv_post_production($1)`, [p]);
+  assert(cabaiBefore - (await stockOf('DMP01')) === 1300, 'cabai aktual');
+  const dest = await one(`select quantity::float8 q from inv_stocks where warehouse_id = $1 and item_id = $2`, [wh2, sambal]);
+  assert(dest.q === 1900, JSON.stringify(dest));
+  const batch = await one(`select expiry_date::text e, unit_cost::float8 c from inv_stock_batches where warehouse_id = $1 and item_id = $2 order by created_at desc limit 1`, [wh2, sambal]);
+  assert(batch.e === days(5) && Math.abs(batch.c * 1900 - (Number(r.input_value) + Number(r.extra_cost))) < 1, JSON.stringify({ batch, r }));
+  const v = await one(`select variance_qty::float8 v from rpt_production_variances where production_id = $1 and item_code = 'DMP01'`, [p]);
+  assert(v.v === 40, JSON.stringify(v));
+  // BOM kedua di dokumen yang sama -> nomor dasar sama, akhiran - 2
+  const p2 = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity, group_id, line_no)
+    values ($1, $2, $3, 1000, $4, 2) returning id`, [company1, wh, recipe, group])).id;
+  const r2 = await val(`select inv_post_production($1)`, [p2]);
+  assert(r2.production_number === r.production_number.replace(/ - 1$/, ' - 2'), `${r.production_number} / ${r2.production_number}`);
+  await journalBalanced();
+  await batchInvariant();
+});
+await check('disassembly: qty hasil & weight factor aktual; nilai hasil = nilai bahan', async () => {
+  const wh = await mainWh();
+  const recipe = await val(`select id from inv_recipes where code = 'BOM-AYAM' and company_id = $1`, [company1]);
+  const p = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, $3, 2) returning id`, [company1, wh, recipe])).id;
+  await db.query(`select inv_prepare_production($1)`, [p]);
+  await db.query(`update inv_production_lines set actual_qty = 820, weight_factor = 2.5 where production_id = $1 and item_id = $2`, [p, await itemId('DMP12')]);
+  await db.query(`update inv_production_lines set actual_qty = 0 where production_id = $1 and item_id = $2`, [p, await itemId('DMP14')]);
+  const r = await val(`select inv_post_production($1)`, [p]);
+  const out = await db.query(`select item_id, quantity::float8 q, round(quantity * unit_cost, 2)::float8 v from inv_stock_movements where reference_id = $1 and quantity > 0`, [p]);
+  assert(out.rows.length === 2, 'tulang qty 0 tidak masuk stok');
+  const dada = out.rows.find((x) => x.item_id === null) ?? out.rows.find((x) => x.q === 820);
+  const total = out.rows.reduce((t, x) => t + x.v, 0);
+  assert(dada && Math.abs(total - Number(r.input_value)) < 1 && Math.abs(dada.v - Number(r.input_value) * 2.5 / 4) < 1, JSON.stringify({ rows: out.rows, r }));
+  await journalBalanced();
+});
+await check('produksi bisa wajib approval: manajer -> menunggu; penyetuju (tanpa akses persediaan) menyetujui', async () => {
+  await loginAs(U1);
+  await db.query(`update sys_approval_rules set is_enabled = true, min_amount = 0 where company_id = $1 and document_type = 'production'`, [company1]);
+  await db.query(`update sys_roles set permissions = permissions || '["approval.production"]'::jsonb where code = 'approver' and company_id = $1`, [company1]);
+  await loginAs(U7);
+  const recipe = await val(`select id from inv_recipes where code = 'BOM-SAMBAL' and company_id = $1`, [company1]);
+  const p = (await one(`insert into inv_productions (company_id, warehouse_id, recipe_id, quantity) values ($1, $2, $3, 500) returning id`, [company1, await mainWh(), recipe])).id;
+  const r = await val(`select inv_post_production($1)`, [p]);
+  assert(r.pending_approval === true && (await val(`select status from inv_productions where id = $1`, [p])) === 'pending_approval', JSON.stringify(r));
+  await expectError(`select inv_post_production($1)`, [p], /menunggu persetujuan/);
+  await loginAs(U8);
+  await approveLatest('production');
+  assert((await val(`select status from inv_productions where id = $1`, [p])) === 'posted', 'belum diposting');
+  await loginAs(U1);
+  await db.query(`update sys_approval_rules set is_enabled = false where company_id = $1 and document_type = 'production'`, [company1]);
   await journalBalanced();
 });
 

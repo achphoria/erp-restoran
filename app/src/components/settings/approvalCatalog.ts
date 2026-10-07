@@ -1,5 +1,5 @@
 import {
-  ArrowLeftRight, Banknote, BookOpen, Boxes, ClipboardList, FileMinus, HandCoins, PackageX, Receipt, ShoppingCart, Tags, Truck, Wallet,
+  ArrowLeftRight, Banknote, Factory, BookOpen, Boxes, ClipboardList, FileMinus, HandCoins, PackageX, Receipt, ShoppingCart, Tags, Truck, Wallet,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -22,6 +22,7 @@ export const APPROVAL_DOCS: Record<string, ApprovalDoc> = {
   stock_adjustment: { label: 'Penyesuaian / Waste', group: 'Persediaan', icon: PackageX, desc: 'Termasuk pemakaian & penyusutan', amountLabel: 'Nilai minimal', creatorPerms: ['inventory.manage'] },
   stock_opname:     { label: 'Stock Opname', group: 'Persediaan', icon: ClipboardList, desc: 'Posting selisih hitung fisik', amountLabel: 'Nilai selisih minimal', creatorPerms: ['inventory.manage'] },
   stock_transfer:   { label: 'Transfer Gudang', group: 'Persediaan', icon: ArrowLeftRight, desc: 'Kirim barang antar gudang', amountLabel: 'Nilai barang minimal', creatorPerms: ['inventory.manage'] },
+  production:       { label: 'Produksi (Simple Manufacturing)', group: 'Persediaan', icon: Factory, desc: 'Assembly & disassembly', amountLabel: 'Nilai bahan minimal', creatorPerms: ['inventory.manage'] },
   product:          { label: 'Produk Baru', group: 'Persediaan', icon: Boxes, desc: 'Produk baru bisa dipakai', amountLabel: null, creatorPerms: ['inventory.manage'] },
   expense:          { label: 'Biaya Operasional', group: 'Keuangan', icon: Wallet, desc: 'Pencatatan biaya', amountLabel: 'Nominal minimal', creatorPerms: ['finance.manage'] },
   manual_journal:   { label: 'Jurnal Manual', group: 'Keuangan', icon: BookOpen, desc: 'Jurnal umum buatan user', amountLabel: 'Total debit minimal', creatorPerms: ['finance.manage'] },
