@@ -1847,6 +1847,80 @@ await check('validasi username, role owner ditolak, user staf tersimpan & tampil
   await expectError(`select sys_prepare_staff_user('budi.pluit', 'Budi', $1, array[$2]::uuid[])`, [cashier, outletId], /izin/);
 });
 
+console.log('\nData contoh, backup, reset & restore:');
+const snapshot = async () => one(`select
+  (select count(*)::int from pos_orders where company_id = $1) orders,
+  (select count(*)::int from fin_journals where company_id = $1) journals,
+  (select count(*)::int from inv_items where company_id = $1) items,
+  (select count(*)::int from mst_menu_items where company_id = $1) menus,
+  (select count(*)::int from inv_stock_batches where company_id = $1) batches,
+  (select coalesce(sum(quantity), 0)::float8 from inv_stocks where company_id = $1) stock_qty,
+  (select coalesce(sum(debit), 0)::float8 from fin_journal_lines where company_id = $1) debit,
+  (select count(*)::int from sal_invoices where company_id = $1) invoices,
+  (select count(*)::int from pos_orders where company_id <> $1) other_orders`, [company1]);
+let backup;
+let beforeReset;
+await check('data contoh: pembelian, penjualan harian, waste, SO B2B & settlement; jurnal seimbang', async () => {
+  await loginAs(U1);
+  const before = await snapshot();
+  const r = await val(`select sys_seed_demo_transactions($1, 5, 6)`, [outletId]);
+  const after = await snapshot();
+  assert(r.orders > 10 && after.orders - before.orders === r.orders && r.sales_order === true, JSON.stringify(r));
+  assert((await val(`select count(*)::int from pos_orders where company_id = $1 and business_date = current_date - 4`, [company1])) > 0, 'tanggal mundur');
+  assert((await val(`select count(*)::int from pur_goods_receipts where company_id = $1 and note is null and supplier_invoice_number like 'INV-DEMO-%'`, [company1])) >= 2, 'pembelian contoh');
+  await journalBalanced();
+  await batchInvariant();
+  await expectError(`select sys_seed_demo_transactions($1, 2, 2)`, [outletId], null).catch(() => undefined);
+});
+await check('backup & reset transaksi: master tetap, transaksi & stok kosong, perusahaan lain aman', async () => {
+  await loginAs(U7);
+  await expectError(`select sys_export_company_data()`, [], /owner/);
+  await loginAs(U1);
+  backup = await val(`select sys_export_company_data()`);
+  assert(backup.format === 'santap-backup' && backup.tables.pos_orders.length > 0 && !backup.tables.sys_payment_gateway_secrets, 'isi backup');
+  beforeReset = await snapshot();
+  const name = await val(`select name from sys_companies where id = $1`, [company1]);
+  await expectError(`select sys_reset_company_data('transactions', 'salah')`, [], /konfirmasi/);
+  await db.query(`select sys_reset_company_data('transactions', $1)`, [name]);
+  const s = await snapshot();
+  assert(s.orders === 0 && s.journals === 0 && s.batches === 0 && s.stock_qty === 0 && s.invoices === 0, JSON.stringify(s));
+  assert(s.items === beforeReset.items && s.menus === beforeReset.menus, 'master ikut terhapus');
+  assert(s.other_orders === beforeReset.other_orders, 'data perusahaan lain tersentuh');
+  assert((await val(`select count(*)::int from fin_accounts where company_id = $1`, [company1])) > 30, 'COA hilang');
+});
+await check('restore mengembalikan semua data persis seperti saat backup', async () => {
+  const name = await val(`select name from sys_companies where id = $1`, [company1]);
+  await expectError(`select sys_import_company_data($1::jsonb, $2)`, [JSON.stringify({ ...backup, company_id: '00000000-0000-0000-0000-000000000000' }), name], /perusahaan lain/);
+  const r = await val(`select sys_import_company_data($1::jsonb, $2)`, [JSON.stringify(backup), name]);
+  assert(r.restored.pos_orders === beforeReset.orders, JSON.stringify(r.restored.pos_orders));
+  const s = await snapshot();
+  assert(JSON.stringify({ ...s }) === JSON.stringify({ ...beforeReset }), `${JSON.stringify(s)} vs ${JSON.stringify(beforeReset)}`);
+  await journalBalanced();
+  await batchInvariant();
+  // transaksi baru setelah restore tetap jalan (urutan nomor & identity lanjut)
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM01') }] })]);
+    await payCash(o.id);
+  });
+  await batchInvariant();
+});
+await check('reset total menghapus master juga; outlet, user, COA & supplier internal tetap; restore lagi berhasil', async () => {
+  const name = await val(`select name from sys_companies where id = $1`, [company1]);
+  backup = await val(`select sys_export_company_data()`);
+  beforeReset = await snapshot();
+  await db.query(`select sys_reset_company_data('all', $1)`, [name]);
+  const s = await snapshot();
+  assert(s.items === 0 && s.menus === 0 && s.orders === 0, JSON.stringify(s));
+  const kept = await one(`select (select count(*)::int from sys_outlets where company_id = $1) outlets, (select count(*)::int from sys_users where company_id = $1) users,
+    (select count(*)::int from pur_suppliers where company_id = $1 and supplier_type = 'internal') internal,
+    (select count(*)::int from pur_suppliers where company_id = $1 and supplier_type = 'external') external`, [company1]);
+  assert(kept.outlets >= 3 && kept.users >= 3 && kept.internal >= 3 && kept.external === 0, JSON.stringify(kept));
+  await db.query(`select sys_import_company_data($1::jsonb, $2)`, [JSON.stringify(backup), name]);
+  const s2 = await snapshot();
+  assert(JSON.stringify(s2) === JSON.stringify(beforeReset), `${JSON.stringify(s2)} vs ${JSON.stringify(beforeReset)}`);
+  await journalBalanced();
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);
