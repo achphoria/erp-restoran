@@ -13,7 +13,7 @@ const ENTITY: Record<string, string> = {
   sys_users: 'User', sys_roles: 'Role', sys_outlets: 'Outlet', sys_companies: 'Perusahaan', sys_user_invitations: 'Undangan',
   mst_menu_items: 'Menu', mst_menu_prices: 'Harga ojol', mst_menu_categories: 'Kategori', mst_modifiers: 'Modifier',
   mst_payment_methods: 'Metode bayar', mst_tables: 'Meja', inv_items: 'Bahan baku', inv_recipe_items: 'Resep',
-  inv_warehouses: 'Gudang', inv_stock_adjustments: 'Penyesuaian stok', inv_stock_opnames: 'Stock opname',
+  inv_warehouses: 'Gudang', inv_stock_adjustments: 'Penyesuaian stok', inv_stock_opnames: 'Stock opname', inv_adjustment_purposes: 'Purpose stok',
   inv_stock_transfers: 'Transfer stok', pur_suppliers: 'Supplier', pur_purchase_orders: 'Purchase order',
   pur_goods_receipts: 'Penerimaan barang', crm_promotions: 'Promo', crm_settings: 'Aturan poin',
   crm_membership_tiers: 'Level member', fin_accounts: 'Akun', pos_shifts: 'Shift', pos_orders: 'Order',

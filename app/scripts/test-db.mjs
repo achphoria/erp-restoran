@@ -1312,6 +1312,97 @@ await check('neraca tetap seimbang setelah semua skenario master produk', async 
   assert(Math.abs(diff) < 0.01, `selisih ${diff}`);
 });
 
+console.log('\nPurpose stok & opname baru:');
+const purposeId = async (type, name) => val(`select id from inv_adjustment_purposes where company_id = $1 and adjustment_type = $2 and name = $3`, [company1, type, name]);
+const accCode = async (id) => val(`select code from fin_accounts where id = $1`, [id]);
+const newAdj = async (type, purpose, lines) => {
+  const doc = (await one(`insert into inv_stock_adjustments (company_id, warehouse_id, adjustment_type, purpose_id) values ($1, $2, $3, $4) returning id`,
+    [company1, await mainWh(), type, purpose])).id;
+  for (const l of lines) {
+    await db.query(`insert into inv_stock_adjustment_items (company_id, stock_adjustment_id, item_id, quantity, purpose_id) values ($1, $2, $3, $4, $5)`,
+      [company1, doc, await itemId(l.code), l.qty, l.purpose ?? null]);
+  }
+  return doc;
+};
+const journalAccounts = async (docId) => Object.fromEntries((await db.query(
+  `select a.code, sum(l.debit) d, sum(l.credit) c from fin_journal_lines l join fin_journals j on j.id = l.journal_id
+   join fin_accounts a on a.id = l.account_id where j.source_id = $1 group by a.code`, [docId])).rows.map((r) => [r.code, { d: Number(r.d), c: Number(r.c) }]));
+
+await check('purpose bawaan & akun pemakaian/penyusutan dibuat untuk perusahaan lama', async () => {
+  await loginAs(U1);
+  const r = await one(`select (select count(*)::int from inv_adjustment_purposes where company_id = $1) purposes,
+    (select count(*)::int from fin_accounts where company_id = $1 and system_key in ('usage_expense', 'shrinkage_expense')) accounts`, [company1]);
+  assert(r.purposes === 14 && r.accounts === 2, JSON.stringify(r));
+  assert((await accCode(await val(`select account_id from inv_adjustment_purposes where name = 'Makan Karyawan' and company_id = $1`, [company1]))) === '6-1100', 'akun makan karyawan');
+});
+await check('waste: qty selalu mengurangi stok & dijurnal ke akun purpose', async () => {
+  const before = await stockOf('BHN06');
+  const doc = await newAdj('waste', await purposeId('waste', 'Kedaluwarsa'), [{ code: 'BHN06', qty: 3 }]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [doc]);
+  assert(before - (await stockOf('BHN06')) === 3, 'stok tidak berkurang 3');
+  assert((await val(`select adjustment_number from inv_stock_adjustments where id = $1`, [doc])).startsWith('WST/'), 'nomor');
+  const j = await journalAccounts(doc);
+  // telur = kategori Protein yang memakai akun persediaan khusus 1-1410
+  assert(j['5-1200']?.d > 0 && Math.abs(j['5-1200'].d - (j['1-1410']?.c ?? 0)) < 0.01, JSON.stringify(j));
+});
+await check('pemakaian: purpose per baris boleh berbeda (dua akun beban)', async () => {
+  const doc = await newAdj('usage', await purposeId('usage', 'Makan Karyawan'), [
+    { code: 'BHN01', qty: 500 },
+    { code: 'BHN14', qty: 5, purpose: await purposeId('usage', 'Tester / Sampling') },
+  ]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [doc]);
+  assert((await val(`select adjustment_number from inv_stock_adjustments where id = $1`, [doc])).startsWith('USG/'), 'nomor');
+  const j = await journalAccounts(doc);
+  assert(j['6-1100']?.d > 0 && j['6-1500']?.d > 0, JSON.stringify(j));
+});
+await check('penyusutan tanpa purpose ditolak; dengan purpose ke akun penyusutan', async () => {
+  const bad = await newAdj('shrinkage', null, [{ code: 'BHN08', qty: 100 }]);
+  await expectError(`select inv_post_stock_adjustment($1)`, [bad], /purpose/);
+  await db.query(`update inv_stock_adjustments set purpose_id = $1 where id = $2`, [await purposeId('shrinkage', 'Penyusutan Bahan Baku'), bad]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [bad]);
+  assert((await journalAccounts(bad))['5-1500']?.d > 0, 'akun penyusutan');
+});
+await check('akun purpose bisa diganti & dipakai di jurnal berikutnya', async () => {
+  const p = await purposeId('waste', 'Human Error');
+  const acc = (await one(`insert into fin_accounts (company_id, parent_id, code, name, account_type, normal_balance)
+    values ($1, (select id from fin_accounts where code = '5-0000' and company_id = $1), '5-1210', 'Waste Human Error', 'cogs', 'debit') returning id`, [company1])).id;
+  await db.query(`update inv_adjustment_purposes set account_id = $1 where id = $2`, [acc, p]);
+  const doc = await newAdj('waste', p, [{ code: 'BHN04', qty: 50 }]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [doc]);
+  assert((await journalAccounts(doc))['5-1210']?.d > 0, 'akun purpose baru tidak dipakai');
+});
+await check('penyesuaian plus tanpa purpose: lawan = akun selisih stok kategori', async () => {
+  const doc = await newAdj('adjustment', null, [{ code: 'BHN04', qty: 100 }]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [doc]);
+  const j = await journalAccounts(doc);
+  assert(j['1-1400']?.d > 0 && j['5-1300']?.c > 0, JSON.stringify(j));
+});
+await check('opname: selisih dihitung terhadap POTRET, penjualan setelah hitung tidak mengacaukan', async () => {
+  const cat = await val(`select id from inv_item_categories where name = 'Bumbu' and company_id = $1`, [company1]);
+  const op = (await one(`insert into inv_stock_opnames (company_id, warehouse_id, item_category_id) values ($1, $2, $3) returning id`, [company1, await mainWh(), cat])).id;
+  const n = await val(`select inv_generate_opname_items($1)`, [op]);
+  assert(n >= 3, `item opname ${n}`);
+  const snap = Number(await val(`select system_qty from inv_stock_opname_items where stock_opname_id = $1 and item_id = $2`, [op, await itemId('BHN11')]));
+  assert(snap === (await stockOf('BHN11')), 'potret tidak sama dengan stok saat itu');
+  // hasil hitung: kurang 10 dari potret; lalu ada pemakaian 5 g setelah penghitungan
+  await db.query(`update inv_stock_opname_items set counted_qty = $1 where stock_opname_id = $2 and item_id = $3`, [snap - 10, op, await itemId('BHN11')]);
+  const use = await newAdj('usage', await purposeId('usage', 'Peralatan Dapur'), [{ code: 'BHN11', qty: 5 }]);
+  await db.query(`select inv_post_stock_adjustment($1)`, [use]);
+  const otherBefore = await stockOf('BHN12');
+  await db.query(`select inv_post_stock_opname($1)`, [op]);
+  assert((await stockOf('BHN11')) === snap - 5 - 10, `stok akhir ${await stockOf('BHN11')}, harusnya ${snap - 15}`);
+  assert((await stockOf('BHN12')) === otherBefore, 'produk yang belum dihitung ikut berubah');
+});
+await check('opname: potret ulang & tanpa hasil hitung ditolak', async () => {
+  const op = (await one(`insert into inv_stock_opnames (company_id, warehouse_id) values ($1, $2) returning id`, [company1, await mainWh()])).id;
+  await db.query(`select inv_generate_opname_items($1)`, [op]);
+  await expectError(`select inv_post_stock_opname($1)`, [op], /Belum ada produk yang dihitung/);
+  await db.query(`update inv_stock_opname_items set system_qty = 0 where stock_opname_id = $1`, [op]);
+  await db.query(`select inv_refresh_opname_snapshot($1)`, [op]);
+  assert(Number(await val(`select system_qty from inv_stock_opname_items where stock_opname_id = $1 and item_id = $2`, [op, await itemId('BHN01')])) === (await stockOf('BHN01')), 'potret ulang');
+  await journalBalanced();
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

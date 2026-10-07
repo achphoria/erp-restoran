@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–017)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–018)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -14,6 +14,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase6.sql`](supabase/update_fase6.sql) (011–013: logo & profil, log aktivitas, approval, iPay88)
   - [`supabase/update_fase7.sql`](supabase/update_fase7.sql) (014–016: master produk, BOM & produksi, pricelist, paket, jadwal harga)
   - [`supabase/update_fase8.sql`](supabase/update_fase8.sql) (017: nama aplikasi bisa diatur di Pengaturan)
+  - [`supabase/update_fase9.sql`](supabase/update_fase9.sql) (018: purpose waste/pemakaian/penyusutan ke COA + stock opname bertahap)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -137,6 +138,17 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 - **Pricelist supplier** (Pembelian → Pricelist): harga berlaku otomatis di PO, peringatan bila harga di atas pricelist.
 - **Menu paket** (Menu → Modifier & Paket): isi paket = menu, stok isi ikut terpotong; modifier bisa memotong bahan (Extra Telur).
 - **Jadwal harga** (Menu → Jadwal Harga): harga menu berganti otomatis per hari/jam/tanggal/outlet/kanal di POS & QR.
+
+## Fase 9: Dokumen stok & purpose ke COA
+- **Inventory → Dokumen Stok**: Penyesuaian (+/−), **Waste**, **Pemakaian (Usage)**, **Penyusutan**, Stock Opname, Transfer.
+  Penomoran: ADJ / WST / USG / SHR. Bisa disimpan draft dulu, lalu diposting (ikut aturan approval).
+- **Purpose (sub alasan)** per jenis, mis. Waste → Human Error / Kedaluwarsa; Pemakaian → Peralatan Dapur / Makan Karyawan;
+  Penyusutan → Bahan Baku / Produksi. Purpose bisa per dokumen atau per baris.
+- **Inventory → Purpose & Akun**: atur purpose masuk ke akun COA mana. Kosong = akun default
+  (5-1200 Waste, 5-1400 Pemakaian, 5-1500 Penyusutan, akun selisih stok kategori untuk Penyesuaian).
+- **Stock opname bertahap**: buat daftar (per gudang/kategori) → stok sistem dipotret → isi hasil hitung (bisa draft) →
+  review selisih → posting. Stok dikoreksi sebesar **selisih terhadap potret**, jadi penjualan setelah penghitungan tidak mengacaukan hasil.
+  Produk yang tidak diisi tidak diubah.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir
