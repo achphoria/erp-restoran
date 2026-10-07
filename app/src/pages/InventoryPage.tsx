@@ -3,8 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib/format';
 import Modal from '../components/Modal';
+import ProductionTab from '../components/ProductionTab';
 
-type Tab = 'stock' | 'items' | 'recipes' | 'documents' | 'movements';
+type Tab = 'stock' | 'production' | 'documents' | 'movements';
 
 interface Unit { id: string; code: string; name: string }
 interface ItemCategory { id: string; name: string }
@@ -17,7 +18,6 @@ interface StockBalance {
   warehouse_id: string; warehouse_name: string; item_id: string; item_code: string; item_name: string;
   unit_code: string; quantity: number; average_cost: number; stock_value: number; min_stock: number; is_low_stock: boolean;
 }
-interface FoodCost { menu_item_id: string; code: string; name: string; base_price: number; food_cost: number; food_cost_pct: number | null; has_recipe: boolean }
 
 export default function InventoryPage() {
   const { profile } = useAuth();
@@ -57,18 +57,17 @@ export default function InventoryPage() {
       <div className="page-header">
         <div>
           <h1>Inventory</h1>
-          <p>Stok bahan baku, resep & HPP, serta penyesuaian stok.</p>
+          <p>Stok per gudang, produksi, penyesuaian & opname. Data produk, resep & HPP ada di <b>Master Produk</b>.</p>
         </div>
       </div>
       <div className="tabs">
-        {([['stock', 'Stok'], ['items', 'Bahan Baku'], ['recipes', 'Resep & HPP'], ['documents', 'Penyesuaian / Opname / Transfer'], ['movements', 'Kartu Stok']] as [Tab, string][]).map(([k, v]) => (
+        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Penyesuaian / Opname / Transfer'], ['movements', 'Kartu Stok']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       {tab === 'stock' && <StockTab {...ctx} />}
-      {tab === 'items' && <ItemsTab {...ctx} />}
-      {tab === 'recipes' && <RecipesTab {...ctx} />}
+      {tab === 'production' && <ProductionTab warehouses={warehouses} />}
       {tab === 'documents' && <DocumentsTab {...ctx} />}
       {tab === 'movements' && <MovementsTab {...ctx} />}
     </>
@@ -135,195 +134,6 @@ function StockTab({ warehouses, setError }: Ctx) {
           {!shown.length && <tr><td colSpan={7} className="empty">Tidak ada data stok.</td></tr>}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- Bahan baku
-function ItemsTab({ companyId, units, categories, items, reload, setError }: Ctx) {
-  const [editing, setEditing] = useState<Partial<InvItem> | null>(null);
-
-  const save = async () => {
-    if (!editing) return;
-    try {
-      const { id, code, name, item_category_id, base_unit_id, min_stock, last_purchase_cost, is_active } = editing;
-      const row = { company_id: companyId, code, name, item_category_id, base_unit_id, min_stock, last_purchase_cost, is_active };
-      await must(id ? supabase.from('inv_items').update(row).eq('id', id) : supabase.from('inv_items').insert(row));
-      setEditing(null);
-      await reload();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  return (
-    <div className="card table-wrap">
-      <div className="card-header">
-        <h2>Bahan Baku</h2>
-        <button className="btn-primary" onClick={() => setEditing({ base_unit_id: units[0]?.id, item_category_id: categories[0]?.id, min_stock: 0, last_purchase_cost: 0, is_active: true })}>
-          + Bahan Baru
-        </button>
-      </div>
-      <table className="table">
-        <thead><tr><th>Kode</th><th>Nama</th><th>Kategori</th><th>Satuan</th><th className="right">Stok Min</th><th className="right">Harga Beli Terakhir</th><th></th></tr></thead>
-        <tbody>
-          {items.map((i) => (
-            <tr key={i.id}>
-              <td>{i.code}</td>
-              <td className="bold">{i.name}</td>
-              <td>{categories.find((c) => c.id === i.item_category_id)?.name}</td>
-              <td>{i.inv_units?.code}</td>
-              <td className="right">{formatNumber(i.min_stock)}</td>
-              <td className="right">{formatRupiah(i.last_purchase_cost)}/{i.inv_units?.code}</td>
-              <td className="right"><button className="btn-sm" onClick={() => setEditing(i)}>Edit</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {editing && (
-        <Modal title={editing.id ? `Edit ${editing.name}` : 'Bahan Baru'} onClose={() => setEditing(null)}
-          footer={<><button onClick={() => setEditing(null)}>Batal</button><button className="btn-primary" disabled={!editing.code || !editing.name} onClick={save}>Simpan</button></>}>
-          <div className="form-grid">
-            <label className="field"><span>Kode</span><input value={editing.code ?? ''} onChange={(e) => setEditing({ ...editing, code: e.target.value })} /></label>
-            <label className="field"><span>Nama</span><input value={editing.name ?? ''} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></label>
-            <label className="field"><span>Kategori</span>
-              <select value={editing.item_category_id ?? ''} onChange={(e) => setEditing({ ...editing, item_category_id: e.target.value })}>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
-            <label className="field"><span>Satuan stok (terkecil)</span>
-              <select value={editing.base_unit_id} disabled={!!editing.id} onChange={(e) => setEditing({ ...editing, base_unit_id: e.target.value })}>
-                {units.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.code})</option>)}
-              </select>
-            </label>
-            <label className="field"><span>Stok minimum</span><input type="number" value={editing.min_stock ?? 0} onChange={(e) => setEditing({ ...editing, min_stock: Number(e.target.value) })} /></label>
-            <label className="field"><span>Harga per satuan stok</span><input type="number" value={editing.last_purchase_cost ?? 0} onChange={(e) => setEditing({ ...editing, last_purchase_cost: Number(e.target.value) })} /></label>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- Resep
-function RecipesTab({ companyId, items, setError }: Ctx) {
-  const [costs, setCosts] = useState<FoodCost[]>([]);
-  const [selected, setSelected] = useState<FoodCost | null>(null);
-  const [lines, setLines] = useState<{ id: string; item_id: string; quantity: number }[]>([]);
-  const [recipeId, setRecipeId] = useState<string | null>(null);
-  const [newItemId, setNewItemId] = useState('');
-  const [newQty, setNewQty] = useState('');
-
-  const loadCosts = useCallback(async () => {
-    setCosts((await must(supabase.from('rpt_menu_food_costs').select('*').order('code'))) as FoodCost[]);
-  }, []);
-
-  const loadRecipe = useCallback(async (menuItemId: string) => {
-    const recipe = (await must(supabase.from('inv_recipes').select('id, inv_recipe_items(id, item_id, quantity)').eq('menu_item_id', menuItemId).maybeSingle())) as
-      { id: string; inv_recipe_items: { id: string; item_id: string; quantity: number }[] } | null;
-    setRecipeId(recipe?.id ?? null);
-    setLines(recipe?.inv_recipe_items ?? []);
-  }, []);
-
-  useEffect(() => {
-    loadCosts().catch((e) => setError(errorMessage(e)));
-  }, [loadCosts, setError]);
-
-  const select = (fc: FoodCost) => {
-    setSelected(fc);
-    loadRecipe(fc.menu_item_id).catch((e) => setError(errorMessage(e)));
-  };
-
-  const run = async (fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      if (selected) await loadRecipe(selected.menu_item_id);
-      await loadCosts();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const addLine = () => run(async () => {
-    let rid = recipeId;
-    if (!rid) {
-      rid = ((await must(supabase.from('inv_recipes').insert({ company_id: companyId, menu_item_id: selected!.menu_item_id }).select('id').single())) as { id: string }).id;
-    }
-    await must(supabase.from('inv_recipe_items').upsert(
-      { company_id: companyId, recipe_id: rid, item_id: newItemId, quantity: Number(newQty) },
-      { onConflict: 'recipe_id,item_id' },
-    ));
-    setNewItemId('');
-    setNewQty('');
-  });
-
-  const itemById = (id: string) => items.find((i) => i.id === id);
-  const current = costs.find((c) => c.menu_item_id === selected?.menu_item_id);
-
-  return (
-    <div className="grid grid-2">
-      <div className="card table-wrap">
-        <h2 style={{ marginBottom: 12 }}>HPP per Menu</h2>
-        <table className="table">
-          <thead><tr><th>Menu</th><th className="right">Harga</th><th className="right">HPP</th><th className="right">Food Cost</th></tr></thead>
-          <tbody>
-            {costs.map((c) => {
-              const pct = Number(c.food_cost_pct ?? 0);
-              return (
-                <tr key={c.menu_item_id} onClick={() => select(c)} style={{ cursor: 'pointer', background: selected?.menu_item_id === c.menu_item_id ? 'var(--primary-soft)' : undefined }}>
-                  <td className="bold">{c.name}</td>
-                  <td className="right">{formatRupiah(c.base_price)}</td>
-                  <td className="right">{c.has_recipe ? formatRupiah(c.food_cost) : <span className="badge badge-warning">Belum ada resep</span>}</td>
-                  <td className="right">
-                    {c.has_recipe && <span className={`badge ${pct > 40 ? 'badge-danger' : pct > 30 ? 'badge-warning' : 'badge-success'}`}>{pct}%</span>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <p className="muted small">Food cost ideal restoran umumnya 25–35%. HPP dihitung dari harga beli terakhir.</p>
-      </div>
-
-      <div className="card">
-        {!selected ? (
-          <div className="empty">← Pilih menu untuk melihat / mengatur resepnya</div>
-        ) : (
-          <>
-            <div className="card-header">
-              <h2>Resep: {selected.name}</h2>
-              {current && <span className="bold">HPP {formatRupiah(current.food_cost)}</span>}
-            </div>
-            <table className="table">
-              <thead><tr><th>Bahan</th><th className="right">Takaran / porsi</th><th className="right">Biaya</th><th></th></tr></thead>
-              <tbody>
-                {lines.map((l) => {
-                  const it = itemById(l.item_id);
-                  return (
-                    <tr key={l.id}>
-                      <td>{it?.name}</td>
-                      <td className="right">{formatNumber(l.quantity)} {it?.inv_units?.code}</td>
-                      <td className="right">{formatRupiah(Number(l.quantity) * Number(it?.last_purchase_cost ?? 0))}</td>
-                      <td className="right"><button className="btn-sm btn-danger" onClick={() => run(() => must(supabase.from('inv_recipe_items').delete().eq('id', l.id)))}>Hapus</button></td>
-                    </tr>
-                  );
-                })}
-                {!lines.length && <tr><td colSpan={4} className="empty">Belum ada bahan.</td></tr>}
-              </tbody>
-            </table>
-            <div className="row" style={{ marginTop: 12 }}>
-              <select value={newItemId} onChange={(e) => setNewItemId(e.target.value)} style={{ flex: 1 }}>
-                <option value="">— pilih bahan —</option>
-                {items.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.inv_units?.code})</option>)}
-              </select>
-              <input type="number" placeholder="Qty" value={newQty} onChange={(e) => setNewQty(e.target.value)} style={{ width: 90 }} />
-              <button className="btn-primary" disabled={!newItemId || !(Number(newQty) > 0)} onClick={addLine}>Tambah</button>
-            </div>
-            <p className="muted small">Stok bahan otomatis terpotong sesuai resep setiap menu terjual.</p>
-          </>
-        )}
-      </div>
     </div>
   );
 }
@@ -499,6 +309,7 @@ function MovementsTab({ items, setError }: Ctx) {
 
   const typeLabel = useMemo<Record<string, string>>(() => ({
     sales: 'Penjualan', purchase_receipt: 'Pembelian', adjustment: 'Penyesuaian', waste: 'Waste',
+    production_in: 'Hasil Produksi', production_out: 'Bahan Produksi', sales_return: 'Retur Penjualan',
     opname: 'Opname', transfer_in: 'Transfer Masuk', transfer_out: 'Transfer Keluar',
   }), []);
 

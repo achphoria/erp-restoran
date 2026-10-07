@@ -109,13 +109,25 @@ export default function PosPage() {
       .catch((e) => setError(errorMessage(e)));
   }, [appendOrderId]);
 
+  // Harga dari server (sudah memperhitungkan jadwal harga); diperbarui tiap ganti kanal & tiap menit
+  const [serverPrices, setServerPrices] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!outlet) return;
+    const fetchPrices = () => rpc<Record<string, number>>('mst_get_current_menu_prices', { p_outlet_id: outlet.id, p_channel: channel })
+      .then(setServerPrices).catch(() => setServerPrices({}));
+    fetchPrices();
+    const t = setInterval(fetchPrices, 60000);
+    return () => clearInterval(t);
+  }, [outlet, channel]);
+
   const priceOf = useCallback(
     (item: MenuItem) => {
+      if (serverPrices[item.id] !== undefined) return Number(serverPrices[item.id]);
       const specific = prices.find((p) => p.menu_item_id === item.id && p.outlet_id === outlet?.id && p.sales_channel === channel);
       const general = prices.find((p) => p.menu_item_id === item.id && p.outlet_id === null && p.sales_channel === channel);
       return Number(specific?.price ?? general?.price ?? item.base_price);
     },
-    [prices, channel, outlet],
+    [prices, channel, outlet, serverPrices],
   );
 
   const visibleItems = items.filter(
@@ -437,7 +449,8 @@ function ModifierModal({
   onClose: () => void;
   onAdd: (mods: Modifier[], note: string) => void;
 }) {
-  const [selected, setSelected] = useState<Modifier[]>([]);
+  // pilihan default (mis. isi paket bawaan) langsung terpilih
+  const [selected, setSelected] = useState<Modifier[]>(() => groups.flatMap((g) => g.mst_modifiers.filter((m) => m.is_default)));
   const [note, setNote] = useState('');
 
   const toggle = (group: ModifierGroup, mod: Modifier) => {

@@ -11,6 +11,8 @@ const INFO: Record<string, { label: string; desc: string; amountLabel: string }>
   expense: { label: 'Biaya Operasional', desc: 'Pencatatan biaya ≥ batas menunggu persetujuan sebelum dijurnal.', amountLabel: 'Nominal minimal' },
   stock_adjustment: { label: 'Penyesuaian Stok & Waste', desc: 'Nilai (qty × HPP) ≥ batas harus disetujui sebelum stok berubah.', amountLabel: 'Nilai minimal' },
   stock_opname: { label: 'Stock Opname', desc: 'Selisih nilai opname ≥ batas harus disetujui sebelum stok disesuaikan.', amountLabel: 'Nilai selisih minimal' },
+  product: { label: 'Produk Baru', desc: 'Produk yang dibuat user tanpa hak approval harus disetujui sebelum bisa dipakai di PO / resep.', amountLabel: '(tidak dipakai)' },
+  pricelist: { label: 'Pricelist Supplier', desc: 'Pricelist baru harus disetujui sebelum harganya berlaku.', amountLabel: '(tidak dipakai)' },
   refund: { label: 'Refund', desc: 'Kasir tanpa izin refund bisa mengajukan; refund ≥ batas oleh siapa pun butuh persetujuan.', amountLabel: 'Nominal minimal' },
 };
 

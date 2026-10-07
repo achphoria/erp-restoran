@@ -1,15 +1,32 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { must, supabase } from '../lib/supabase';
+import { must, rpc, supabase } from '../lib/supabase';
 import { errorMessage, formatRupiah } from '../lib/format';
 import type { MenuCategory, MenuItem, ModifierGroup } from '../lib/types';
 import Modal from '../components/Modal';
 import SimpleList from '../components/SimpleList';
 import TableQrList from '../components/TableQrList';
+import ModifierGroupsTab from '../components/ModifierGroupsTab';
+import PriceSchedulesTab from '../components/PriceSchedulesTab';
+import ImportDialog, { type ImportColumn } from '../components/ImportDialog';
+import { downloadXlsx } from '../lib/excel';
+import { Download, Plus, Upload } from 'lucide-react';
 import { uploadMenuImage } from '../lib/image';
 import MoneyInput from '../components/MoneyInput';
 
-type Tab = 'menu' | 'category' | 'modifier' | 'table';
+const MENU_IMPORT_COLUMNS: ImportColumn[] = [
+  { key: 'kode', label: 'Kode', required: true, example: 'MKN01' },
+  { key: 'nama', label: 'Nama', required: true, example: 'Nasi Goreng Spesial' },
+  { key: 'kategori', label: 'Kategori', required: true, example: 'Makanan' },
+  { key: 'harga', label: 'Harga', required: true, example: '35000', hint: 'Harga dine-in / take away' },
+  { key: 'harga_gofood', label: 'Harga GoFood', example: '42000', hint: 'Kosong = sama dengan harga' },
+  { key: 'harga_grabfood', label: 'Harga GrabFood', example: '42000' },
+  { key: 'station', label: 'Station', example: 'dapur', hint: 'dapur / bar / pastry' },
+  { key: 'deskripsi', label: 'Deskripsi', example: 'Nasi goreng ayam suwir & telur' },
+  { key: 'aktif', label: 'Aktif', example: 'YA', hint: 'YA / TIDAK' },
+];
+
+type Tab = 'menu' | 'category' | 'modifier' | 'schedule' | 'table';
 
 interface MenuPrice { id: string; menu_item_id: string; outlet_id: string | null; sales_channel: string; price: number }
 
@@ -24,6 +41,7 @@ export default function MenuPage() {
   const [links, setLinks] = useState<{ menu_item_id: string; modifier_group_id: string }[]>([]);
   const [prices, setPrices] = useState<MenuPrice[]>([]);
   const [editing, setEditing] = useState<Partial<MenuItem> | null>(null);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -51,6 +69,16 @@ export default function MenuPage() {
     load();
   }, [load]);
 
+  const exportMenus = () => downloadXlsx('menu', [{
+    name: 'Menu',
+    rows: items.map((i) => ({
+      Kode: i.code, Nama: i.name, Kategori: categories.find((c) => c.id === i.menu_category_id)?.name ?? '', Harga: Number(i.base_price),
+      'Harga GoFood': prices.find((p) => p.menu_item_id === i.id && p.sales_channel === 'gofood')?.price ?? '',
+      'Harga GrabFood': prices.find((p) => p.menu_item_id === i.id && p.sales_channel === 'grabfood')?.price ?? '',
+      Station: i.station === 'kitchen' ? 'dapur' : i.station, Deskripsi: i.description ?? '', Aktif: i.is_active ? 'YA' : 'TIDAK',
+    })),
+  }]);
+
   const act = async (fn: () => Promise<unknown>) => {
     setError('');
     try {
@@ -69,11 +97,15 @@ export default function MenuPage() {
           <p>Atur menu, kategori, modifier, dan meja.</p>
         </div>
         {tab === 'menu' && (
-          <button className="btn-primary" onClick={() => setEditing({ station: 'kitchen', is_active: true, base_price: 0 })}>+ Menu Baru</button>
+          <div className="row">
+            <button onClick={() => setImporting(true)}><Upload size={16} /> Import Excel</button>
+            <button onClick={exportMenus} disabled={!items.length}><Download size={16} /> Export</button>
+            <button className="btn-primary" onClick={() => setEditing({ station: 'kitchen', is_active: true, base_price: 0 })}><Plus size={16} /> Menu Baru</button>
+          </div>
         )}
       </div>
       <div className="tabs">
-        {([['menu', 'Menu'], ['category', 'Kategori'], ['modifier', 'Modifier'], ['table', 'Meja & QR']] as [Tab, string][]).map(([k, v]) => (
+        {([['menu', 'Menu'], ['category', 'Kategori'], ['modifier', 'Modifier & Paket'], ['schedule', 'Jadwal Harga'], ['table', 'Meja & QR']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -119,34 +151,18 @@ export default function MenuPage() {
         />
       )}
 
-      {tab === 'modifier' && (
-        <div className="grid grid-2">
-          {groups.map((g) => (
-            <SimpleList
-              key={g.id}
-              title={`${g.name} (maks ${g.max_select})`}
-              rows={[...g.mst_modifiers].sort((a, b) => a.sort_order - b.sort_order)
-                .map((m) => ({ id: m.id, label: m.name, sub: Number(m.extra_price) ? `+${formatRupiah(m.extra_price)}` : 'gratis' }))}
-              addPlaceholder="Nama opsi, contoh: Extra Keju"
-              withPrice
-              onAdd={(name, price) => act(() => must(supabase.from('mst_modifiers').insert({
-                company_id: companyId, modifier_group_id: g.id, name, extra_price: price ?? 0, sort_order: g.mst_modifiers.length + 1,
-              })))}
-              onRename={(id, name) => act(() => must(supabase.from('mst_modifiers').update({ name }).eq('id', id)))}
-              onDelete={(id) => act(() => must(supabase.from('mst_modifiers').delete().eq('id', id)))}
-            />
-          ))}
-          <SimpleList
-            title="+ Grup Modifier Baru"
-            rows={[]}
-            addPlaceholder="contoh: Ukuran, Gula, Topping"
-            onAdd={(name) => act(() => must(supabase.from('mst_modifier_groups').insert({ company_id: companyId, name, max_select: 1 })))}
-          />
-        </div>
-      )}
+      {tab === 'modifier' && <ModifierGroupsTab companyId={companyId} />}
+      {tab === 'schedule' && <PriceSchedulesTab companyId={companyId} />}
 
       {tab === 'table' && (
         <TableQrList companyId={companyId} outletId={outlet!.id} outletName={outlet!.name} />
+      )}
+
+      {importing && (
+        <ImportDialog title="Import Menu dari Excel" columns={MENU_IMPORT_COLUMNS} templateName="template-menu"
+          onImport={(r, create) => rpc('mst_import_menu_items', { p_rows: r, p_create_missing: create })}
+          onClose={() => setImporting(false)}
+          onDone={() => { setImporting(false); load(); }} />
       )}
 
       {editing && (

@@ -47,6 +47,8 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
   { key: 'approval.stock_opname', label: 'Menyetujui stock opname', group: 'Persetujuan' },
   { key: 'approval.refund', label: 'Menyetujui refund', group: 'Persetujuan' },
+  { key: 'approval.product', label: 'Menyetujui produk baru', group: 'Persetujuan' },
+  { key: 'approval.pricelist', label: 'Menyetujui pricelist supplier', group: 'Persetujuan' },
 ];
 
 export default function SettingsPage() {

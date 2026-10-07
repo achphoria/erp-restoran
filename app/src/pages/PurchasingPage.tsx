@@ -5,13 +5,14 @@ import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib/format';
 import Modal from '../components/Modal';
 import MoneyInput from '../components/MoneyInput';
+import PricelistTab from '../components/PricelistTab';
 
-type Tab = 'po' | 'receipts' | 'suppliers';
+type Tab = 'po' | 'receipts' | 'pricelist' | 'suppliers';
 
 interface Supplier { id: string; code: string; name: string; contact_name: string | null; phone: string | null; payment_term_days: number }
-interface Warehouse { id: string; name: string }
+interface Warehouse { id: string; name: string; outlet_id: string | null }
 interface Item { id: string; code: string; name: string; base_unit_id: string; last_purchase_cost: number; inv_units: { code: string } }
-interface ItemUnit { item_id: string; unit_id: string; conversion_qty: number; inv_units: { code: string } }
+interface ItemUnit { item_id: string; unit_id: string; conversion_qty: number; is_purchase_unit: boolean; inv_units: { code: string } }
 interface PurchaseOrder {
   id: string; po_number: string | null; po_date: string; status: string; grand_total: number; note: string | null;
   pur_suppliers: { name: string }; inv_warehouses: { name: string };
@@ -53,9 +54,9 @@ export default function PurchasingPage() {
     try {
       const [s, w, i, iu, po, gr] = await Promise.all([
         must(supabase.from('pur_suppliers').select('*').eq('is_active', true).order('code')),
-        must(supabase.from('inv_warehouses').select('id, name').eq('is_active', true).order('code')),
-        must(supabase.from('inv_items').select('id, code, name, base_unit_id, last_purchase_cost, inv_units(code)').eq('is_active', true).order('name')),
-        must(supabase.from('inv_item_units').select('item_id, unit_id, conversion_qty, inv_units(code)')),
+        must(supabase.from('inv_warehouses').select('id, name, outlet_id').eq('is_active', true).order('code')),
+        must(supabase.from('inv_items').select('id, code, name, base_unit_id, last_purchase_cost, inv_units(code)').eq('is_active', true).eq('is_purchasable', true).eq('approval_status', 'approved').order('name')),
+        must(supabase.from('inv_item_units').select('item_id, unit_id, conversion_qty, is_purchase_unit, inv_units(code)')),
         must(supabase.from('pur_purchase_orders')
           .select('*, pur_suppliers(name), inv_warehouses(name), pur_purchase_order_items(id, quantity, received_qty, unit_price, inv_items(name), inv_units(code))')
           .order('created_at', { ascending: false }).limit(50)),
@@ -106,7 +107,7 @@ export default function PurchasingPage() {
         {tab === 'suppliers' && <button className="btn-primary" onClick={() => setEditingSupplier({ payment_term_days: 0 })}>+ Supplier</button>}
       </div>
       <div className="tabs">
-        {([['po', 'Purchase Order'], ['receipts', 'Penerimaan Barang'], ['suppliers', 'Supplier']] as [Tab, string][]).map(([k, v]) => (
+        {([['po', 'Purchase Order'], ['receipts', 'Penerimaan Barang'], ['pricelist', 'Pricelist'], ['suppliers', 'Supplier']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -185,6 +186,8 @@ export default function PurchasingPage() {
         </div>
       )}
 
+      {tab === 'pricelist' && <PricelistTab suppliers={suppliers} items={items} itemUnits={itemUnits} />}
+
       {tab === 'suppliers' && (
         <div className="card table-wrap">
           <table className="table">
@@ -250,6 +253,8 @@ export default function PurchasingPage() {
   );
 }
 
+interface PoLine { item_id: string; unit_key: string; quantity: string; unit_price: string; hint?: { pricelist?: number; pricelistNo?: string; last?: number } }
+
 function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits, onClose, onSaved }: {
   companyId: string; suppliers: Supplier[]; warehouses: Warehouse[]; items: Item[]; itemUnits: ItemUnit[];
   onClose: () => void; onSaved: (msg: string) => void;
@@ -258,34 +263,53 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
   const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? '');
   const [expectedDate, setExpectedDate] = useState('');
   const [note, setNote] = useState('');
-  const [lines, setLines] = useState<{ item_id: string; unit_key: string; quantity: string; unit_price: string }[]>([
-    { item_id: '', unit_key: '', quantity: '', unit_price: '' },
-  ]);
+  const [lines, setLines] = useState<PoLine[]>([{ item_id: '', unit_key: '', quantity: '', unit_price: '' }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Pilihan satuan: satuan dasar + satuan konversi (mis. kg untuk bahan dalam gram)
+  // Pilihan satuan produk (satuan beli default di urutan pertama)
   const unitOptions = (itemId: string) => {
     const item = items.find((i) => i.id === itemId);
     if (!item) return [];
-    return [
-      ...itemUnits.filter((u) => u.item_id === itemId).map((u) => ({ key: `${u.unit_id}|${u.conversion_qty}`, label: u.inv_units.code, conversion: Number(u.conversion_qty) })),
-      { key: `${item.base_unit_id}|1`, label: item.inv_units.code, conversion: 1 },
-    ];
+    const rows = itemUnits.filter((u) => u.item_id === itemId)
+      .sort((a, b) => Number(b.is_purchase_unit) - Number(a.is_purchase_unit) || Number(a.conversion_qty) - Number(b.conversion_qty));
+    const opts = rows.map((u) => ({ key: `${u.unit_id}|${u.conversion_qty}`, label: u.inv_units.code, conversion: Number(u.conversion_qty) }));
+    return opts.length ? opts : [{ key: `${item.base_unit_id}|1`, label: item.inv_units.code, conversion: 1 }];
   };
 
-  const updateLine = (idx: number, patch: Partial<(typeof lines)[number]>) =>
-    setLines(lines.map((l, i) => {
-      if (i !== idx) return l;
-      const next = { ...l, ...patch };
-      if (patch.item_id !== undefined) {
-        const opt = unitOptions(patch.item_id)[0];
-        const item = items.find((x) => x.id === patch.item_id);
-        next.unit_key = opt?.key ?? '';
-        next.unit_price = item && opt ? String(Math.round(Number(item.last_purchase_cost) * opt.conversion)) : '';
-      }
-      return next;
-    }));
+  // Harga: pricelist supplier yang berlaku, kalau tidak ada pakai harga beli terakhir
+  const outletOf = (whId: string) => warehouses.find((w) => w.id === whId)?.outlet_id ?? null;
+  const lookupPrice = async (line: PoLine, supplier = supplierId): Promise<PoLine> => {
+    const item = items.find((x) => x.id === line.item_id);
+    if (!item || !line.unit_key) return line;
+    const [unitId, conv] = line.unit_key.split('|');
+    try {
+      const p = await rpc<{ pricelist: { price: number; pricelist_number: string } | null; last: { price: number } | null }>('pur_get_item_price', {
+        p_supplier_id: supplier, p_item_id: item.id, p_unit_id: unitId, p_outlet_id: outletOf(warehouseId) });
+      const fallback = Math.round(Number(item.last_purchase_cost) * Number(conv));
+      return { ...line, unit_price: String(p.pricelist ? Number(p.pricelist.price) : p.last ? Number(p.last.price) : fallback),
+        hint: { pricelist: p.pricelist ? Number(p.pricelist.price) : undefined, pricelistNo: p.pricelist?.pricelist_number, last: p.last ? Number(p.last.price) : undefined } };
+    } catch {
+      return line;
+    }
+  };
+
+  const updateLine = async (idx: number, patch: Partial<PoLine>) => {
+    let next = { ...lines[idx], ...patch };
+    if (patch.item_id !== undefined) next = { ...next, unit_key: unitOptions(patch.item_id)[0]?.key ?? '', unit_price: '', hint: undefined };
+    setLines((ls) => ls.map((l, i) => (i === idx ? next : l)));
+    if (patch.item_id !== undefined || patch.unit_key !== undefined) {
+      const priced = await lookupPrice(next);
+      setLines((ls) => ls.map((l, i) => (i === idx ? { ...priced, quantity: l.quantity } : l)));
+    }
+  };
+
+  // ganti supplier/gudang -> harga ikut pricelist supplier baru
+  useEffect(() => {
+    if (!lines.some((l) => l.item_id)) return;
+    Promise.all(lines.map((l) => lookupPrice(l))).then(setLines);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierId, warehouseId]);
 
   const valid = lines.filter((l) => l.item_id && Number(l.quantity) > 0);
   const total = valid.reduce((s, l) => s + Number(l.quantity) * Number(l.unit_price || 0), 0);
@@ -352,16 +376,20 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
                 </select>
               </td>
               <td>
-                <select value={l.unit_key} onChange={(e) => {
-                  const item = items.find((x) => x.id === l.item_id);
-                  const conv = Number(e.target.value.split('|')[1]);
-                  updateLine(idx, { unit_key: e.target.value, unit_price: item ? String(Math.round(Number(item.last_purchase_cost) * conv)) : l.unit_price });
-                }}>
+                <select value={l.unit_key} onChange={(e) => updateLine(idx, { unit_key: e.target.value })}>
                   {unitOptions(l.item_id).map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
                 </select>
               </td>
               <td><input type="number" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} style={{ width: 90 }} /></td>
-              <td><MoneyInput value={l.unit_price} onChange={(v) => updateLine(idx, { unit_price: v })} style={{ width: 120 }} /></td>
+              <td>
+                <MoneyInput value={l.unit_price} onChange={(v) => updateLine(idx, { unit_price: v })} style={{ width: 130 }} />
+                {l.hint?.pricelist !== undefined && (
+                  <div className={`small ${Number(l.unit_price) > l.hint.pricelist ? '' : 'muted'}`} style={Number(l.unit_price) > l.hint.pricelist ? { color: 'var(--danger)' } : undefined}>
+                    Pricelist {l.hint.pricelistNo}: {formatRupiah(l.hint.pricelist)}{Number(l.unit_price) > l.hint.pricelist && ' · di atas pricelist!'}
+                  </div>
+                )}
+                {l.hint?.last !== undefined && <div className="muted small">Terakhir: {formatRupiah(l.hint.last)}</div>}
+              </td>
               <td className="right">{formatRupiah(Number(l.quantity || 0) * Number(l.unit_price || 0))}</td>
               <td><button className="btn-sm btn-danger" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>✕</button></td>
             </tr>

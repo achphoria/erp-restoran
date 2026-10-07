@@ -17,14 +17,17 @@ const ENTITY: Record<string, string> = {
   inv_stock_transfers: 'Transfer stok', pur_suppliers: 'Supplier', pur_purchase_orders: 'Purchase order',
   pur_goods_receipts: 'Penerimaan barang', crm_promotions: 'Promo', crm_settings: 'Aturan poin',
   crm_membership_tiers: 'Level member', fin_accounts: 'Akun', pos_shifts: 'Shift', pos_orders: 'Order',
-  pos_order_items: 'Item order', sys_approval_requests: 'Persetujuan', sys_payment_gateways: 'Payment gateway',
+  pos_order_items: 'Item order', inv_item_sub_categories: 'Sub kategori', inv_item_categories: 'Kategori produk',
+  inv_units: 'Satuan', inv_item_units: 'Satuan produk', inv_item_stock_levels: 'Min/max stok', inv_recipes: 'Resep (BOM)',
+  inv_recipe_costs: 'Biaya resep', inv_productions: 'Produksi', pur_pricelists: 'Pricelist', pur_pricelist_items: 'Item pricelist',
+  mst_price_schedules: 'Jadwal harga', mst_price_schedule_items: 'Harga jadwal', mst_modifier_groups: 'Grup modifier', sys_approval_requests: 'Persetujuan', sys_payment_gateways: 'Payment gateway',
 };
 const ACTION: Record<string, [string, string]> = {
   login: ['Login', 'badge-info'], insert: ['Tambah', 'badge-success'], update: ['Ubah', 'badge'], delete: ['Hapus', 'badge-danger'],
   paid: ['Lunas', 'badge-success'], void: ['Void', 'badge-danger'], refunded: ['Refund', 'badge-danger'], merged: ['Gabung', 'badge'],
   posted: ['Posting', 'badge-success'], approved: ['Disetujui', 'badge-success'], rejected: ['Ditolak', 'badge-danger'],
   pending_approval: ['Minta persetujuan', 'badge-warning'], request_approval: ['Minta persetujuan', 'badge-warning'],
-  cancelled: ['Batal', 'badge'], open: ['Buka', 'badge-info'], closed: ['Tutup', 'badge'], update_secret: ['Ganti kunci', 'badge-warning'],
+  cancelled: ['Batal', 'badge'], import: ['Import Excel', 'badge-info'], open: ['Buka', 'badge-info'], closed: ['Tutup', 'badge'], update_secret: ['Ganti kunci', 'badge-warning'],
 };
 
 const fmt = (v: unknown) => (v === null || v === undefined ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));

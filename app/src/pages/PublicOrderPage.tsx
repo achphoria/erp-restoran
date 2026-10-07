@@ -6,7 +6,7 @@ import { Plus, ShoppingBag } from 'lucide-react';
 import Modal from '../components/Modal';
 import Logo from '../components/Logo';
 
-interface PublicModifier { id: string; name: string; extra_price: number }
+interface PublicModifier { id: string; name: string; extra_price: number; is_default?: boolean }
 interface PublicGroup { id: string; name: string; min_select: number; max_select: number; modifiers: PublicModifier[] }
 interface PublicItem {
   id: string; name: string; description: string | null; image_url: string | null;
@@ -259,7 +259,8 @@ export default function PublicOrderPage() {
 
 function CustomizeModal({ item, onClose, onAdd }: { item: PublicItem; onClose: () => void; onAdd: (m: PublicModifier[], note: string, qty: number) => void }) {
   const [qty, setQty] = useState(1);
-  const [selected, setSelected] = useState<{ group: string; mod: PublicModifier }[]>([]);
+  const [selected, setSelected] = useState<{ group: string; mod: PublicModifier }[]>(() =>
+    item.modifier_groups.flatMap((g) => g.modifiers.filter((m) => m.is_default).map((mod) => ({ group: g.id, mod }))));
   const [note, setNote] = useState('');
 
   const toggle = (g: PublicGroup, m: PublicModifier) =>
