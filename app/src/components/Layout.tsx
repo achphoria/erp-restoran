@@ -1,8 +1,9 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  BadgeCheck, BarChart3, Boxes, ChefHat, ClipboardList, Gift, LayoutDashboard, LogOut, Menu as MenuIcon, Package,
-  Pin, PinOff, Receipt, Settings, Timer, Truck, UtensilsCrossed, Wallet, X, type LucideIcon,
+  ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronDown, ClipboardCheck, ClipboardList, FileText,
+  Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
+  ScrollText, Settings, ShoppingCart, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -13,38 +14,89 @@ import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
 interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' }
+interface NavGroup { group: string; icon: LucideIcon; items: NavItem[] }
 
-const NAV: { group: string; items: NavItem[] }[] = [
+// "to" boleh membawa ?tab=... supaya menu langsung membuka tab di halaman modul
+const NAV: NavGroup[] = [
   {
-    group: 'Operasional',
+    group: 'Ringkasan', icon: LayoutDashboard,
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
+      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: 'pos.order', badge: 'approvals' },
+    ],
+  },
+  {
+    group: 'Kasir & Outlet', icon: Receipt,
+    items: [
       { to: '/pos', label: 'Kasir (POS)', icon: Receipt, permission: 'pos.order' },
       { to: '/orders', label: 'Daftar Order', icon: ClipboardList, permission: 'pos.order' },
       { to: '/kitchen', label: 'Layar Dapur', icon: ChefHat, permission: 'kds.update' },
       { to: '/shifts', label: 'Shift Kasir', icon: Timer, permission: 'pos.pay' },
+      { to: '/settlement', label: 'Settlement POS', icon: Banknote, permission: ['finance.view', 'finance.manage'] },
+      { to: '/customers', label: 'Member & Promo', icon: Gift, permission: 'crm.manage' },
     ],
   },
   {
-    group: 'Back Office',
+    group: 'Penjualan', icon: ShoppingCart,
     items: [
-      { to: '/menu', label: 'Menu', icon: UtensilsCrossed, permission: 'master.manage' },
+      { to: '/sales?tab=orders', label: 'Sales Order', icon: ShoppingCart, permission: 'sales.manage' },
+      { to: '/sales?tab=deliveries', label: 'Pengiriman', icon: Truck, permission: 'sales.manage' },
+      { to: '/sales?tab=invoices', label: 'Invoice & Piutang', icon: FileText, permission: ['sales.manage', 'finance.view', 'finance.manage'] },
+      { to: '/sales?tab=payments', label: 'Penerimaan Pembayaran', icon: HandCoins, permission: ['sales.manage', 'finance.view', 'finance.manage'] },
+      { to: '/sales?tab=customers', label: 'Pelanggan B2B', icon: Users, permission: 'sales.manage' },
+      { to: '/sales?tab=pricelists', label: 'Pricelist Jual', icon: Tags, permission: 'sales.manage' },
+    ],
+  },
+  {
+    group: 'Pembelian', icon: Truck,
+    items: [
+      { to: '/purchasing?tab=po', label: 'Purchase Order', icon: ScrollText, permission: 'purchasing.manage' },
+      { to: '/purchasing?tab=receipts', label: 'Penerimaan Barang', icon: PackageCheck, permission: 'purchasing.manage' },
+      { to: '/purchasing?tab=bills', label: 'Tagihan Cabang', icon: HandCoins, permission: ['purchasing.manage', 'finance.manage'] },
+      { to: '/purchasing?tab=suppliers', label: 'Supplier', icon: Store, permission: 'purchasing.manage' },
+      { to: '/purchasing?tab=pricelist', label: 'Pricelist Beli', icon: Tags, permission: 'purchasing.manage' },
+    ],
+  },
+  {
+    group: 'Persediaan', icon: Package,
+    items: [
+      { to: '/inventory?tab=stock', label: 'Stok', icon: Package, permission: 'inventory.manage' },
+      { to: '/inventory?tab=documents', label: 'Dokumen Stok', icon: ClipboardCheck, permission: 'inventory.manage' },
+      { to: '/inventory?tab=batches', label: 'Batch & Kedaluwarsa', icon: PackageOpen, permission: 'inventory.manage' },
+      { to: '/inventory?tab=production', label: 'Produksi', icon: ChefHat, permission: 'inventory.manage' },
+      { to: '/inventory?tab=movements', label: 'Kartu Stok', icon: ArrowLeftRight, permission: 'inventory.manage' },
+      { to: '/inventory?tab=warehouses', label: 'Gudang & Lokasi', icon: Warehouse, permission: 'inventory.manage' },
+    ],
+  },
+  {
+    group: 'Master Data', icon: Boxes,
+    items: [
       { to: '/products', label: 'Master Produk', icon: Boxes, permission: 'inventory.manage' },
-      { to: '/inventory', label: 'Inventory', icon: Package, permission: 'inventory.manage' },
-      { to: '/purchasing', label: 'Pembelian', icon: Truck, permission: 'purchasing.manage' },
-      { to: '/customers', label: 'Pelanggan & Promo', icon: Gift, permission: 'crm.manage' },
+      { to: '/menu', label: 'Menu', icon: UtensilsCrossed, permission: 'master.manage' },
     ],
   },
   {
-    group: 'Manajemen',
+    group: 'Keuangan & Laporan', icon: Wallet,
     items: [
-      { to: '/reports', label: 'Laporan', icon: BarChart3, permission: 'report.view' },
       { to: '/finance', label: 'Keuangan', icon: Wallet, permission: ['finance.view', 'finance.manage'] },
-      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: 'pos.order', badge: 'approvals' },
+      { to: '/reports', label: 'Laporan', icon: BarChart3, permission: 'report.view' },
       { to: '/settings', label: 'Pengaturan', icon: Settings, permission: ['user.manage', 'settings.manage', 'audit.view'] },
     ],
   },
 ];
+
+// menu aktif: path sama & tab sama (tanpa ?tab = menu pertama dengan path itu)
+function activeItem(pathname: string, search: string) {
+  const items = NAV.flatMap((g) => g.items);
+  const tab = new URLSearchParams(search).get('tab');
+  const same = items.filter((i) => i.to.split('?')[0] === pathname);
+  return same.find((i) => new URLSearchParams(i.to.split('?')[1] ?? '').get('tab') === tab) ?? same[0];
+}
+
+const OPEN_KEY = 'santap.nav_open_groups';
+const readOpen = (): string[] | null => {
+  try { const v = localStorage.getItem(OPEN_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+};
 
 const PIN_KEY = 'santap.sidebar_pinned';
 const readPinned = () => {
@@ -75,13 +127,22 @@ export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const pending = usePendingApprovals(!!profile);
+  const current = activeItem(location.pathname, location.search);
+  const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
+  const [open, setOpen] = useState<string[]>(() => readOpen() ?? ['Ringkasan', 'Kasir & Outlet']);
 
-  // tutup drawer HP setiap pindah halaman, perbarui judul tab
+  // tutup drawer HP setiap pindah halaman, perbarui judul tab, buka grup menu yang aktif
   useEffect(() => {
     setDrawerOpen(false);
-    const item = NAV.flatMap((g) => g.items).find((i) => i.to === location.pathname);
-    setDocumentTitle(item?.label);
-  }, [location.pathname, profile?.company_app_name]);
+    setDocumentTitle(current?.label);
+    if (currentGroup) setOpen((o) => (o.includes(currentGroup) ? o : [...o, currentGroup]));
+  }, [current, currentGroup, profile?.company_app_name]);
+
+  const toggleGroup = (g: string) => setOpen((o) => {
+    const next = o.includes(g) ? o.filter((x) => x !== g) : [...o, g];
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(next)); } catch { /* abaikan */ }
+    return next;
+  });
 
   const togglePin = () => {
     setPinned((p) => {
@@ -120,18 +181,31 @@ export default function Layout() {
         </div>
 
         <nav className="sidebar-nav">
-          {groups.map((g) => (
-            <div key={g.group}>
-              <div className="nav-group hide-collapsed">{g.group}</div>
-              {g.items.map(({ to, label, icon: Icon, badge }) => (
-                <NavLink key={to} to={to} end={to === '/'} className="nav-link" title={label}>
-                  <Icon size={20} />
-                  <span className="hide-collapsed">{label}</span>
-                  {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+          {groups.map((g) => {
+            const isOpen = open.includes(g.group);
+            const hasActive = g.group === currentGroup;
+            return (
+              <div key={g.group} className={`nav-section ${isOpen ? 'open' : ''}`}>
+                <button type="button" className={`nav-group-btn ${hasActive ? 'has-active' : ''}`} onClick={() => toggleGroup(g.group)}
+                  aria-expanded={isOpen} title={g.group}>
+                  <g.icon size={16} className="nav-group-icon" />
+                  <span className="hide-collapsed">{g.group}</span>
+                  <ChevronDown size={15} className="nav-chevron hide-collapsed" />
+                </button>
+                {isOpen && g.items.map((item) => {
+                  const { to, label, icon: Icon, badge } = item;
+                  return (
+                    <Link key={to} to={to} className={`nav-link ${item === current ? 'active' : ''}`} title={label}
+                      aria-current={item === current ? 'page' : undefined}>
+                      <Icon size={19} />
+                      <span className="hide-collapsed">{label}</span>
+                      {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
           {outlet && can('pos.order') && <QrOrderAlert outletId={outlet.id} />}
         </nav>
 

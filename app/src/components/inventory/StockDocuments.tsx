@@ -175,7 +175,7 @@ function AdjustmentForm({ type, companyId, warehouses, items, onClose, onDone }:
   const onScan = async (code: string) => {
     try {
       const r = await resolveBarcode(code, warehouseId);
-      if (!r || r.kind === 'package') return toast(r ? 'Ini label koli, terima di dokumen transfer' : `Kode ${code} tidak dikenal`, 'error');
+      if (!r || r.kind === 'package' || r.kind === 'delivery_package') return toast(r ? 'Ini label koli, terima di dokumen transfer' : `Kode ${code} tidak dikenal`, 'error');
       if (!items.some((it) => it.id === r.item_id)) return toast(`${r.item_name} tidak ada di daftar produk stok`, 'error');
       if (r.kind === 'batch' && r.warehouse_id !== warehouseId) toast(`Batch ${r.batch_code} tercatat di gudang lain`, 'info');
       const batchId = r.kind === 'batch' && r.warehouse_id === warehouseId ? r.batch_id! : '';

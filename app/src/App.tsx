@@ -19,6 +19,8 @@ const CustomersPage = lazy(() => import('./pages/CustomersPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const PublicOrderPage = lazy(() => import('./pages/PublicOrderPage'));
 const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
+const SalesPage = lazy(() => import('./pages/SalesPage'));
+const SettlementPage = lazy(() => import('./pages/SettlementPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 import { FeedbackProvider } from './components/Feedback';
 
@@ -57,6 +59,8 @@ function AppRoutes() {
         <Route path="products" element={<Guard permission="inventory.manage"><ProductsPage /></Guard>} />
         <Route path="inventory" element={<Guard permission="inventory.manage"><InventoryPage /></Guard>} />
         <Route path="purchasing" element={<Guard permission="purchasing.manage"><PurchasingPage /></Guard>} />
+        <Route path="sales" element={<Guard permission={['sales.manage', 'finance.view', 'finance.manage']}><SalesPage /></Guard>} />
+        <Route path="settlement" element={<Guard permission={['finance.view', 'finance.manage']}><SettlementPage /></Guard>} />
         <Route path="reports" element={<Guard permission="report.view"><ReportsPage /></Guard>} />
         <Route path="customers" element={<Guard permission="crm.manage"><CustomersPage /></Guard>} />
         <Route path="finance" element={<Guard permission={['finance.view', 'finance.manage']}><FinancePage /></Guard>} />

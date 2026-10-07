@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { useFeedback, useNotice } from '../components/Feedback';
-import { errorMessage, formatDateTime, formatNumber, formatRupiah } from '../lib/format';
+import { errorMessage, formatDateTime, formatNumber, formatRupiah, todayISO } from '../lib/format';
+import { useTabParam } from '../lib/useTabParam';
+import ScanInput from '../components/ScanInput';
+import BranchBillsTab from '../components/purchasing/BranchBillsTab';
+import { resolveBarcode } from '../components/inventory/batchUtils';
 import Modal from '../components/Modal';
 import MoneyInput from '../components/MoneyInput';
 import PricelistTab from '../components/PricelistTab';
@@ -10,21 +14,25 @@ import LabelPrintModal from '../components/inventory/LabelPrintModal';
 import { batchLabel } from '../components/inventory/batchUtils';
 import type { LabelData } from '../lib/barcode';
 
-type Tab = 'po' | 'receipts' | 'pricelist' | 'suppliers';
+type Tab = 'po' | 'receipts' | 'bills' | 'pricelist' | 'suppliers';
+const TABS: Tab[] = ['po', 'receipts', 'bills', 'pricelist', 'suppliers'];
 
-interface Supplier { id: string; code: string; name: string; contact_name: string | null; phone: string | null; payment_term_days: number }
+interface Supplier {
+  id: string; code: string; name: string; contact_name: string | null; phone: string | null; payment_term_days: number;
+  supplier_type: 'external' | 'internal'; linked_outlet_id: string | null; sys_outlets?: { name: string } | null;
+}
 interface Warehouse { id: string; name: string; outlet_id: string | null }
 interface Item { id: string; code: string; name: string; base_unit_id: string; last_purchase_cost: number; inv_units: { code: string } }
 interface ItemUnit { item_id: string; unit_id: string; conversion_qty: number; is_purchase_unit: boolean; inv_units: { code: string } }
 interface PurchaseOrder {
-  id: string; po_number: string | null; po_date: string; status: string; grand_total: number; note: string | null;
-  pur_suppliers: { name: string }; inv_warehouses: { name: string };
+  id: string; po_number: string | null; po_date: string; status: string; grand_total: number; note: string | null; sales_note: string | null;
+  pur_suppliers: { name: string; supplier_type: string }; inv_warehouses: { name: string };
   pur_purchase_order_items: { id: string; quantity: number; received_qty: number; unit_price: number; inv_items: { name: string }; inv_units: { code: string } }[];
 }
 interface GoodsReceipt {
   id: string; receipt_number: string | null; receipt_date: string; status: string; grand_total: number; posted_at: string | null;
-  supplier_invoice_number: string | null;
-  pur_suppliers: { name: string }; pur_purchase_orders: { po_number: string } | null;
+  supplier_invoice_number: string | null; delivery_id: string | null;
+  pur_suppliers: { name: string }; pur_purchase_orders: { po_number: string } | null; sal_deliveries: { delivery_number: string } | null;
 }
 
 const PO_STATUS: Record<string, [string, string]> = {
@@ -39,7 +47,7 @@ const PO_STATUS: Record<string, [string, string]> = {
 export default function PurchasingPage() {
   const { profile, can } = useAuth();
   const companyId = profile!.company_id;
-  const [tab, setTab] = useState<Tab>('po');
+  const [tab, setTab] = useTabParam<Tab>('po', TABS);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -51,20 +59,20 @@ export default function PurchasingPage() {
   const [editingSupplier, setEditingSupplier] = useState<Partial<Supplier> | null>(null);
   const [error, setError] = useState('');
   const setNotice = useNotice();
-  const { confirm } = useFeedback();
+  const { confirm, toast } = useFeedback();
 
   const load = useCallback(async () => {
     try {
       const [s, w, i, iu, po, gr] = await Promise.all([
-        must(supabase.from('pur_suppliers').select('*').eq('is_active', true).order('code')),
+        must(supabase.from('pur_suppliers').select('*, sys_outlets(name)').eq('is_active', true).order('supplier_type').order('code')),
         must(supabase.from('inv_warehouses').select('id, name, outlet_id').eq('is_active', true).order('code')),
         must(supabase.from('inv_items').select('id, code, name, base_unit_id, last_purchase_cost, inv_units(code)').eq('is_active', true).eq('is_purchasable', true).eq('approval_status', 'approved').order('name')),
         must(supabase.from('inv_item_units').select('item_id, unit_id, conversion_qty, is_purchase_unit, inv_units(code)')),
         must(supabase.from('pur_purchase_orders')
-          .select('*, pur_suppliers(name), inv_warehouses(name), pur_purchase_order_items(id, quantity, received_qty, unit_price, inv_items(name), inv_units(code))')
+          .select('*, pur_suppliers(name, supplier_type), inv_warehouses(name), pur_purchase_order_items(id, quantity, received_qty, unit_price, inv_items(name), inv_units(code))')
           .order('created_at', { ascending: false }).limit(50)),
         must(supabase.from('pur_goods_receipts')
-          .select('*, pur_suppliers(name), pur_purchase_orders(po_number)')
+          .select('*, pur_suppliers(name), pur_purchase_orders(po_number), sal_deliveries!pur_goods_receipts_delivery_id_fkey(delivery_number)')
           .order('created_at', { ascending: false }).limit(50)),
       ]);
       setSuppliers(s as Supplier[]);
@@ -104,13 +112,13 @@ export default function PurchasingPage() {
       <div className="page-header">
         <div>
           <h1>Pembelian</h1>
-          <p>Purchase Order ke supplier dan penerimaan barang ke gudang.</p>
+          <p>Purchase Order ke supplier pihak ke-3 atau cabang internal, penerimaan barang, dan tagihan antar cabang.</p>
         </div>
         {tab === 'po' && <button className="btn-primary" onClick={() => setCreatingPo(true)}>+ Purchase Order</button>}
         {tab === 'suppliers' && <button className="btn-primary" onClick={() => setEditingSupplier({ payment_term_days: 0 })}>+ Supplier</button>}
       </div>
       <div className="tabs">
-        {([['po', 'Purchase Order'], ['receipts', 'Penerimaan Barang'], ['pricelist', 'Pricelist'], ['suppliers', 'Supplier']] as [Tab, string][]).map(([k, v]) => (
+        {([['po', 'Purchase Order'], ['receipts', 'Penerimaan Barang'], ['bills', 'Tagihan Cabang'], ['pricelist', 'Pricelist Beli'], ['suppliers', 'Supplier']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -127,13 +135,13 @@ export default function PurchasingPage() {
                   <tr key={po.id}>
                     <td className="bold">{po.po_number ?? '(draft)'}</td>
                     <td>{po.po_date}</td>
-                    <td>{po.pur_suppliers.name}</td>
+                    <td>{po.pur_suppliers.name}{po.pur_suppliers.supplier_type === 'internal' && <div><span className="badge badge-primary">Cabang internal</span></div>}</td>
                     <td className="small">
                       {po.pur_purchase_order_items.map((i) => (
                         <div key={i.id}>{i.inv_items.name}: {formatNumber(i.received_qty)}/{formatNumber(i.quantity)} {i.inv_units.code}</div>
                       ))}
                     </td>
-                    <td><span className={`badge ${badge}`}>{label}</span></td>
+                    <td><span className={`badge ${badge}`}>{label}</span>{po.sales_note && <div className="muted small">{po.sales_note}</div>}</td>
                     <td className="right">{formatRupiah(po.status === 'draft'
                       ? po.pur_purchase_order_items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
                       : po.grand_total)}</td>
@@ -152,9 +160,9 @@ export default function PurchasingPage() {
                             }
                           }}>Hapus</button>
                         )}
-                        {['approved', 'partially_received'].includes(po.status) && (
-                          <button className="btn-sm btn-success" onClick={() => startReceiving(po.id)}>Terima Barang</button>
-                        )}
+                        {['approved', 'partially_received'].includes(po.status) && (po.pur_suppliers.supplier_type === 'internal'
+                          ? <span className="muted small">Diterima dari kiriman cabang</span>
+                          : <button className="btn-sm btn-success" onClick={() => startReceiving(po.id)}>Terima Barang</button>)}
                       </div>
                     </td>
                   </tr>
@@ -168,6 +176,16 @@ export default function PurchasingPage() {
 
       {tab === 'receipts' && (
         <div className="card table-wrap">
+          <div className="filter-bar">
+            <ScanInput placeholder="Scan label koli kiriman cabang" style={{ flex: '1 1 260px', maxWidth: 380 }} onScan={async (code) => {
+              try {
+                const r = await resolveBarcode(code);
+                if (r?.kind !== 'delivery_package' || !r.goods_receipt_id) return toast(r ? 'Bukan label koli kiriman cabang' : `Kode ${code} tidak dikenal`, 'error');
+                setReceivingId(r.goods_receipt_id);
+              } catch (e) { toast(errorMessage(e), 'error'); }
+            }} />
+            <span className="muted small">Kiriman dari cabang otomatis muncul sebagai draft penerimaan.</span>
+          </div>
           <table className="table">
             <thead><tr><th>No. Penerimaan</th><th>Waktu</th><th>Supplier</th><th>No. PO</th><th>No. Faktur</th><th>Status</th><th className="right">Total</th><th></th></tr></thead>
             <tbody>
@@ -175,12 +193,12 @@ export default function PurchasingPage() {
                 <tr key={gr.id}>
                   <td className="bold">{gr.receipt_number ?? '(draft)'}</td>
                   <td>{gr.posted_at ? formatDateTime(gr.posted_at) : gr.receipt_date}</td>
-                  <td>{gr.pur_suppliers.name}</td>
+                  <td>{gr.pur_suppliers.name}{gr.sal_deliveries && <div className="muted small">Kiriman {gr.sal_deliveries.delivery_number}</div>}</td>
                   <td>{gr.pur_purchase_orders?.po_number ?? '-'}</td>
                   <td>{gr.supplier_invoice_number ?? '-'}</td>
-                  <td><span className={`badge ${gr.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{gr.status}</span></td>
+                  <td><span className={`badge ${gr.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{gr.status === 'posted' ? 'Diterima' : gr.delivery_id ? 'Dalam perjalanan' : 'Draft'}</span></td>
                   <td className="right">{formatRupiah(gr.grand_total)}</td>
-                  <td className="right">{gr.status === 'draft' && <button className="btn-sm" onClick={() => setReceivingId(gr.id)}>Lanjutkan</button>}</td>
+                  <td className="right">{gr.status === 'draft' && <button className={`btn-sm ${gr.delivery_id ? 'btn-success' : ''}`} onClick={() => setReceivingId(gr.id)}>{gr.delivery_id ? 'Terima kiriman' : 'Lanjutkan'}</button>}</td>
                 </tr>
               ))}
               {!receipts.length && <tr><td colSpan={8} className="empty">Belum ada penerimaan barang.</td></tr>}
@@ -189,16 +207,19 @@ export default function PurchasingPage() {
         </div>
       )}
 
-      {tab === 'pricelist' && <PricelistTab suppliers={suppliers} items={items} itemUnits={itemUnits} />}
+      {tab === 'bills' && <BranchBillsTab />}
+      {tab === 'pricelist' && <PricelistTab suppliers={suppliers.filter((x) => x.supplier_type === 'external')} items={items} itemUnits={itemUnits} />}
 
       {tab === 'suppliers' && (
         <div className="card table-wrap">
           <table className="table">
-            <thead><tr><th>Kode</th><th>Nama</th><th>Kontak</th><th>Telepon</th><th>Termin</th><th></th></tr></thead>
+            <thead><tr><th>Kode</th><th>Nama</th><th>Tipe</th><th>Kontak</th><th>Telepon</th><th>Termin</th><th></th></tr></thead>
             <tbody>
               {suppliers.map((s) => (
                 <tr key={s.id}>
-                  <td>{s.code}</td><td className="bold">{s.name}</td><td>{s.contact_name}</td><td>{s.phone}</td>
+                  <td>{s.code}</td><td className="bold">{s.name}</td>
+                  <td>{s.supplier_type === 'internal' ? <span className="badge badge-primary">Cabang: {s.sys_outlets?.name}</span> : <span className="badge">Pihak ke-3</span>}</td>
+                  <td>{s.contact_name}</td><td>{s.phone}</td>
                   <td>{s.payment_term_days ? `${s.payment_term_days} hari` : 'Tunai'}</td>
                   <td className="right"><button className="btn-sm" onClick={() => setEditingSupplier(s)}>Edit</button></td>
                 </tr>
@@ -242,6 +263,9 @@ export default function PurchasingPage() {
               setEditingSupplier(null);
             })}>Simpan</button>
           </>}>
+          {editingSupplier.supplier_type === 'internal' && (
+            <div className="alert alert-info small">Supplier internal = outlet <b>{editingSupplier.sys_outlets?.name}</b>. PO ke supplier ini otomatis menjadi Sales Order di outlet tersebut, harga dari Pricelist Jual.</div>
+          )}
           <div className="form-grid">
             {([['code', 'Kode'], ['name', 'Nama'], ['contact_name', 'Kontak'], ['phone', 'Telepon']] as [keyof Supplier, string][]).map(([k, label]) => (
               <label key={k} className="field"><span>{label}</span>
@@ -256,7 +280,7 @@ export default function PurchasingPage() {
   );
 }
 
-interface PoLine { item_id: string; unit_key: string; quantity: string; unit_price: string; hint?: { pricelist?: number; pricelistNo?: string; last?: number } }
+interface PoLine { item_id: string; unit_key: string; quantity: string; unit_price: string; hint?: { pricelist?: number; pricelistNo?: string; last?: number; internal?: boolean; missing?: boolean } }
 
 function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits, onClose, onSaved }: {
   companyId: string; suppliers: Supplier[]; warehouses: Warehouse[]; items: Item[]; itemUnits: ItemUnit[];
@@ -286,6 +310,16 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
     const item = items.find((x) => x.id === line.item_id);
     if (!item || !line.unit_key) return line;
     const [unitId, conv] = line.unit_key.split('|');
+    const sup = suppliers.find((x) => x.id === supplier);
+    if (sup?.supplier_type === 'internal') {
+      try {
+        const price = await rpc<number | null>('sal_get_price', { p_company_id: companyId, p_seller_outlet_id: sup.linked_outlet_id, p_buyer_outlet_id: outletOf(warehouseId),
+          p_customer_id: null, p_item_id: item.id, p_unit_id: unitId, p_date: todayISO() });
+        return { ...line, unit_price: price === null ? '' : String(price), hint: { internal: true, missing: price === null } };
+      } catch {
+        return line;
+      }
+    }
     try {
       const p = await rpc<{ pricelist: { price: number; pricelist_number: string } | null; last: { price: number } | null }>('pur_get_item_price', {
         p_supplier_id: supplier, p_item_id: item.id, p_unit_id: unitId, p_outlet_id: outletOf(warehouseId) });
@@ -316,6 +350,8 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
 
   const valid = lines.filter((l) => l.item_id && Number(l.quantity) > 0);
   const total = valid.reduce((s, l) => s + Number(l.quantity) * Number(l.unit_price || 0), 0);
+  const internal = suppliers.find((x) => x.id === supplierId)?.supplier_type === 'internal';
+  const missingPrice = internal && valid.some((l) => l.hint?.missing);
 
   const save = async (approve: boolean) => {
     setBusy(true);
@@ -349,14 +385,16 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
     <Modal title="Purchase Order Baru" onClose={onClose} large
       footer={<>
         <span className="bold" style={{ marginRight: 'auto' }}>Total: {formatRupiah(total)}</span>
-        <button disabled={busy || !valid.length} onClick={() => save(false)}>Simpan Draft</button>
-        <button className="btn-primary" disabled={busy || !valid.length} onClick={() => save(true)}>Simpan & Setujui</button>
+        <button disabled={busy || !valid.length || missingPrice} onClick={() => save(false)}>Simpan Draft</button>
+        <button className="btn-primary" disabled={busy || !valid.length || missingPrice} onClick={() => save(true)}>Simpan & Setujui</button>
       </>}>
       {error && <div className="alert alert-error">{error}</div>}
+      {internal && <div className="alert alert-info small">PO ke cabang internal: harga dikunci dari <b>Pricelist Jual</b> cabang penjual. Setelah disetujui, PO otomatis menjadi Sales Order di cabang penjual.</div>}
       <div className="form-grid">
         <label className="field"><span>Supplier</span>
           <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <optgroup label="Pihak ke-3">{suppliers.filter((x) => x.supplier_type === 'external').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
+            <optgroup label="Cabang internal">{suppliers.filter((x) => x.supplier_type === 'internal').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
           </select>
         </label>
         <label className="field"><span>Kirim ke gudang</span>
@@ -385,7 +423,10 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
               </td>
               <td><input type="number" value={l.quantity} onChange={(e) => updateLine(idx, { quantity: e.target.value })} style={{ width: 90 }} /></td>
               <td>
-                <MoneyInput value={l.unit_price} onChange={(v) => updateLine(idx, { unit_price: v })} style={{ width: 130 }} />
+                <MoneyInput value={l.unit_price} disabled={internal} onChange={(v) => updateLine(idx, { unit_price: v })} style={{ width: 130 }} />
+                {l.hint?.internal && (l.hint.missing
+                  ? <div className="small" style={{ color: 'var(--danger)' }}>Belum ada di Pricelist Jual cabang</div>
+                  : <div className="muted small">Pricelist Jual cabang</div>)}
                 {l.hint?.pricelist !== undefined && (
                   <div className={`small ${Number(l.unit_price) > l.hint.pricelist ? '' : 'muted'}`} style={Number(l.unit_price) > l.hint.pricelist ? { color: 'var(--danger)' } : undefined}>
                     Pricelist {l.hint.pricelistNo}: {formatRupiah(l.hint.pricelist)}{Number(l.unit_price) > l.hint.pricelist && ' · di atas pricelist!'}
@@ -406,9 +447,11 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
 
 function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string; onClose: () => void; onPosted: (msg: string) => void }) {
   const [lines, setLines] = useState<{
-    id: string; quantity: number; unit_price: number; lot_number: string | null; expiry_date: string | null;
+    id: string; quantity: number; unit_price: number; lot_number: string | null; expiry_date: string | null; shipped_qty: number | null;
     inv_items: { name: string; track_batch: boolean; shelf_life_days: number | null }; inv_units: { code: string };
   }[]>([]);
+  const [delivery, setDelivery] = useState<{ delivery_number: string; seller: string } | null>(null);
+  const internal = !!delivery;
   const [invoice, setInvoice] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -416,10 +459,14 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
 
   useEffect(() => {
     must(supabase.from('pur_goods_receipt_items')
-      .select('id, quantity, unit_price, lot_number, expiry_date, inv_items(name, track_batch, shelf_life_days), inv_units(code)')
+      .select('id, quantity, unit_price, lot_number, expiry_date, shipped_qty, inv_items(name, track_batch, shelf_life_days), inv_units(code)')
       .eq('goods_receipt_id', receiptId).order('created_at'))
       .then((r) => setLines(r as unknown as typeof lines))
       .catch((e) => setError(errorMessage(e)));
+    must(supabase.from('pur_goods_receipts').select('delivery_id, pur_suppliers(name), sal_deliveries!pur_goods_receipts_delivery_id_fkey(delivery_number)').eq('id', receiptId).single())
+      .then((g: { delivery_id: string | null; pur_suppliers: { name: string }; sal_deliveries: { delivery_number: string } | null }) =>
+        setDelivery(g.delivery_id ? { delivery_number: g.sal_deliveries?.delivery_number ?? '', seller: g.pur_suppliers.name } : null))
+      .catch(() => setDelivery(null));
   }, [receiptId]);
 
   const post = async () => {
@@ -427,7 +474,9 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
     setError('');
     try {
       for (const l of lines) {
-        if (Number(l.quantity) > 0) {
+        if (internal) {
+          await must(supabase.from('pur_goods_receipt_items').update({ quantity: Math.max(0, Number(l.quantity) || 0) }).eq('id', l.id));
+        } else if (Number(l.quantity) > 0) {
           await must(supabase.from('pur_goods_receipt_items').update({
             quantity: l.quantity, unit_price: l.unit_price, lot_number: l.lot_number?.trim() || null, expiry_date: l.expiry_date || null,
           }).eq('id', l.id));
@@ -437,7 +486,8 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
       }
       await must(supabase.from('pur_goods_receipts').update({ supplier_invoice_number: invoice || null }).eq('id', receiptId));
       const r = await rpc<{ receipt_number: string }>('pur_post_goods_receipt', { p_id: receiptId });
-      const msg = `Penerimaan ${r.receipt_number} diposting. Stok sudah bertambah.`;
+      const short = internal ? lines.reduce((t, l) => t + Math.max(0, Number(l.shipped_qty) - Number(l.quantity)) * Number(l.unit_price), 0) : 0;
+      const msg = `Penerimaan ${r.receipt_number} diposting. Stok sudah bertambah.` + (short > 0 ? ` Kekurangan ${formatRupiah(short)} dicatat sebagai selisih kiriman (minta nota kredit ke penjual).` : '');
       // produk lacak batch: tawarkan cetak label batch yang baru dibuat
       if (lines.some((l) => l.inv_items.track_batch && Number(l.quantity) > 0)) {
         const b = await must(supabase.from('rpt_stock_batches').select('batch_code, item_name, lot_number, expiry_date, received_at, track_batch')
@@ -452,22 +502,25 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
   };
 
   return (
-    <Modal title="Penerimaan Barang" onClose={onClose} large
+    <Modal title={internal ? `Terima Kiriman ${delivery.delivery_number}` : 'Penerimaan Barang'} onClose={onClose} large
       footer={<><button onClick={onClose}>Simpan sebagai Draft</button><button className="btn-success" disabled={busy} onClick={post}>Terima & Posting ke Stok</button></>}>
       {error && <div className="alert alert-error">{error}</div>}
-      <label className="field" style={{ maxWidth: 300 }}><span>No. faktur supplier</span><input value={invoice} onChange={(e) => setInvoice(e.target.value)} /></label>
+      {internal
+        ? <div className="alert alert-info small">Kiriman dari <b>{delivery.seller}</b>. Isi qty yang benar-benar diterima. Tagihan mengikuti qty dikirim, kekurangan dicatat sebagai selisih kiriman sampai penjual memberi nota kredit. Batch & kedaluwarsa ikut dari penjual.</div>
+        : <label className="field" style={{ maxWidth: 300 }}><span>No. faktur supplier</span><input value={invoice} onChange={(e) => setInvoice(e.target.value)} /></label>}
       <table className="table" style={{ marginTop: 16 }}>
-        <thead><tr><th>Bahan</th><th>Qty diterima</th><th>Harga / satuan</th><th>Lot & kedaluwarsa</th><th className="right">Subtotal</th></tr></thead>
+        <thead><tr><th>Bahan</th>{internal && <th className="right">Dikirim</th>}<th>Qty diterima</th><th>Harga / satuan</th>{!internal && <th>Lot & kedaluwarsa</th>}<th className="right">Subtotal</th></tr></thead>
         <tbody>
           {lines.map((l, idx) => (
             <tr key={l.id}>
               <td>{l.inv_items.name}{l.inv_items.track_batch && <div><span className="badge badge-info">Lacak batch</span></div>}</td>
+              {internal && <td className="right">{formatNumber(l.shipped_qty)} {l.inv_units.code}</td>}
               <td className="row">
                 <input type="number" value={l.quantity} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} style={{ width: 90 }} />
                 {l.inv_units.code}
               </td>
-              <td><MoneyInput value={l.unit_price} onChange={(v) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(v) } : x))} style={{ width: 120 }} /></td>
-              <td>
+              <td><MoneyInput value={l.unit_price} disabled={internal} onChange={(v) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(v) } : x))} style={{ width: 120 }} /></td>
+              {!internal && <td>
                 <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
                   <input placeholder="No. lot" style={{ width: 90 }} value={l.lot_number ?? ''} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, lot_number: e.target.value } : x))} />
                   <input type="date" style={{ width: 140 }} value={l.expiry_date ?? ''} title="Tanggal kedaluwarsa"
@@ -476,14 +529,14 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
                 {l.inv_items.track_batch && !l.expiry_date && (l.inv_items.shelf_life_days
                   ? <div className="muted small">Kosong = otomatis {l.inv_items.shelf_life_days} hari dari hari ini</div>
                   : <div className="small" style={{ color: 'var(--danger)' }}>Wajib diisi</div>)}
-              </td>
+              </td>}
               <td className="right">{formatRupiah(l.quantity * l.unit_price)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="muted small">Isi 0 untuk barang yang tidak datang. Sisa PO bisa diterima di penerimaan berikutnya.
-        Setiap baris menjadi 1 batch stok (dipakai FEFO: kedaluwarsa duluan keluar duluan).</p>
+      {!internal && <p className="muted small">Isi 0 untuk barang yang tidak datang. Sisa PO bisa diterima di penerimaan berikutnya.
+        Setiap baris menjadi 1 batch stok (dipakai FEFO: kedaluwarsa duluan keluar duluan).</p>}
       {labels && <LabelPrintModal title="Cetak Label Batch" labels={labels.labels} onClose={() => onPosted(labels.msg)} />}
     </Modal>
   );

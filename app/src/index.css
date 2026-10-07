@@ -531,3 +531,22 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .stat-card-link { cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .stat-card-link:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.06); }
 .stat-card-link.active { border-color: var(--stat-color, var(--fresh)); box-shadow: 0 0 0 3px var(--primary-soft); }
+
+/* Sidebar: grup menu yang bisa dilipat */
+.nav-section { display: flex; flex-direction: column; gap: 2px; }
+.nav-section + .nav-section { margin-top: 2px; }
+.sidebar .nav-group-btn {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 32px; height: 32px;
+  padding: 0 16px; margin-top: 6px; border: 0; background: transparent; border-radius: 10px;
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); box-shadow: none;
+}
+.sidebar .nav-group-btn:hover:not(:disabled) { background: rgba(74, 189, 172, 0.08); border-color: transparent; color: var(--primary); }
+.sidebar .nav-group-btn.has-active { color: var(--primary); }
+.nav-group-icon { flex-shrink: 0; opacity: 0.8; }
+.nav-chevron { margin-left: auto; transition: transform 0.2s ease, opacity 0.15s ease; transform: rotate(-90deg); }
+.nav-section.open .nav-chevron { transform: rotate(0deg); }
+.sidebar .nav-section a.nav-link { height: 40px; font-size: 14px; }
+/* sidebar ciut: judul grup jadi garis tipis, ikon grup tetap terlihat */
+.app-shell:not(.sidebar-pinned) .sidebar:not(:hover) .nav-group-btn { justify-content: center; padding: 0; }
+.list-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer; gap: 10px; background: var(--surface); }
+.list-row:hover { border-color: var(--fresh); }

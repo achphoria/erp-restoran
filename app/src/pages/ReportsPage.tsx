@@ -32,6 +32,15 @@ export default function ReportsPage() {
   const [menu, setMenu] = useState<MenuSales[]>([]);
   const [payments, setPayments] = useState<PaymentSummary[]>([]);
   const [error, setError] = useState('');
+  const [bySource, setBySource] = useState<Record<string, number>>({});
+
+  // pendapatan per sumber (POS vs Sales Order) untuk outlet ini
+  useEffect(() => {
+    if (!outlet) return;
+    must(supabase.from('rpt_revenue_by_source').select('source, amount').eq('outlet_id', outlet.id).gte('revenue_date', from).lte('revenue_date', to))
+      .then((r: { source: string; amount: number }[]) => setBySource(r.reduce<Record<string, number>>((a, x) => ({ ...a, [x.source]: (a[x.source] ?? 0) + Number(x.amount) }), {})))
+      .catch(() => setBySource({}));
+  }, [outlet, from, to]);
 
   useEffect(() => {
     if (!outlet) return;
@@ -89,6 +98,16 @@ export default function ReportsPage() {
         <div className="card"><div className="stat-label">Transaksi</div><div className="stat-value">{formatNumber(totalOrders)}</div></div>
         <div className="card"><div className="stat-label">Tamu</div><div className="stat-value">{formatNumber(sum(daily, 'guest_count'))}</div></div>
         <div className="card"><div className="stat-label">Pajak terkumpul</div><div className="stat-value">{formatRupiah(sum(daily, 'tax_amount'))}</div></div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header"><h2>Pendapatan per sumber</h2><span className="muted small">sebelum pajak</span></div>
+        <div className="grid grid-4">
+          {([['pos', 'Sales POS'], ['sales_order_b2b', 'Sales Order B2B'], ['sales_order_internal', 'Sales Order antar cabang']] as const).map(([k, v]) => (
+            <div key={k}><div className="stat-label">{v}</div><div className="stat-value" style={{ fontSize: 20 }}>{formatRupiah(bySource[k] ?? 0)}</div></div>
+          ))}
+          <div><div className="stat-label">Total</div><div className="stat-value" style={{ fontSize: 20 }}>{formatRupiah(Object.values(bySource).reduce((a, b) => a + b, 0))}</div></div>
+        </div>
       </div>
 
       <div className="card table-wrap" style={{ marginTop: 16 }}>

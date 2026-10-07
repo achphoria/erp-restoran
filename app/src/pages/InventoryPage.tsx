@@ -6,8 +6,11 @@ import ProductionTab from '../components/ProductionTab';
 import StockDocuments from '../components/inventory/StockDocuments';
 import PurposesTab from '../components/inventory/PurposesTab';
 import BatchesTab from '../components/inventory/BatchesTab';
+import WarehousesTab from '../components/inventory/WarehousesTab';
+import { useTabParam } from '../lib/useTabParam';
 
-type Tab = 'stock' | 'production' | 'documents' | 'movements' | 'batches' | 'purposes';
+type Tab = 'stock' | 'production' | 'documents' | 'movements' | 'batches' | 'warehouses' | 'purposes';
+const TABS: Tab[] = ['stock', 'production', 'documents', 'movements', 'batches', 'warehouses', 'purposes'];
 
 interface Unit { id: string; code: string; name: string }
 interface ItemCategory { id: string; name: string }
@@ -24,7 +27,7 @@ interface StockBalance {
 export default function InventoryPage() {
   const { profile } = useAuth();
   const companyId = profile!.company_id;
-  const [tab, setTab] = useState<Tab>('stock');
+  const [tab, setTab] = useTabParam<Tab>('stock', TABS);
   const [units, setUnits] = useState<Unit[]>([]);
   const [categories, setCategories] = useState<ItemCategory[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -63,7 +66,7 @@ export default function InventoryPage() {
         </div>
       </div>
       <div className="tabs">
-        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Dokumen Stok'], ['batches', 'Batch & Kedaluwarsa'], ['movements', 'Kartu Stok'], ['purposes', 'Purpose & Akun']] as [Tab, string][]).map(([k, v]) => (
+        {([['stock', 'Stok'], ['production', 'Produksi'], ['documents', 'Dokumen Stok'], ['batches', 'Batch & Kedaluwarsa'], ['movements', 'Kartu Stok'], ['warehouses', 'Gudang & Lokasi'], ['purposes', 'Purpose & Akun']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -73,6 +76,7 @@ export default function InventoryPage() {
       {tab === 'documents' && <StockDocuments companyId={companyId} warehouses={warehouses} items={items} />}
       {tab === 'movements' && <MovementsTab {...ctx} />}
       {tab === 'batches' && <BatchesTab warehouses={warehouses} />}
+      {tab === 'warehouses' && <WarehousesTab companyId={companyId} onChanged={loadMaster} />}
       {tab === 'purposes' && <PurposesTab companyId={companyId} />}
     </>
   );
