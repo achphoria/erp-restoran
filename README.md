@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–024)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–025)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -20,6 +20,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase12.sql`](supabase/update_fase12.sql) (022: approval untuk semua transaksi + matriks pembuat/penyetuju)
   - [`supabase/update_fase13.sql`](supabase/update_fase13.sql) (023: user staf dibuat owner dengan username, lalu deploy Edge Function `staff-users`)
   - [`supabase/update_fase14.sql`](supabase/update_fase14.sql) (024: data contoh, reset, backup & restore)
+  - [`supabase/update_fase15.sql`](supabase/update_fase15.sql) (025: Simple Manufacturing ala ESB)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -225,6 +226,17 @@ Alternatif lewat CLI: `supabase functions deploy staff-users`.
   - **Restore**: unggah file backup perusahaan yang sama, lalu master & transaksi diganti isi backup.
   - **Reset**: *Hapus semua transaksi* (master tetap, stok nol, nomor dokumen mulai lagi) atau *Reset total* (master + transaksi).
     Perusahaan, outlet, gudang, user, role, COA, metode bayar & pengaturan tidak pernah dihapus. Konfirmasi dengan mengetik nama perusahaan.
+
+## Fase 15: Simple Manufacturing (ala ESB)
+- **Persediaan → Produksi**: tombol **Assembly** / **Disassembly**. Isinya Branch, **lokasi asal** (bahan diambil) dan **lokasi tujuan** (hasil masuk),
+  mis. dari Central Kitchen ke Warehouse.
+- **Beberapa BOM dalam 1 dokumen** (tab per BOM). Nomor dokumen `SM/YYYYMMDD/0001 - 1`, `- 2`, dst.
+- Per BOM: **satuan produksi** (mis. kg / PACK isi 9 PCS), manufacturing qty, **result qty** aktual & **kedaluwarsa** hasil (assembly).
+- Tabel bahan/hasil seperti ESB: Stok, Qty BOM, **Total by system**, **Total qty aktual** (bisa diubah, selisih vs BOM ditandai),
+  **weight factor** per transaksi (disassembly).
+- **Actual costing**: HPP hasil = nilai bahan yang benar-benar terpakai (harga batch FIFO) + biaya tambahan BOM.
+- Simpan draft lalu posting, atau langsung posting. Bisa wajib **approval** (matriks Approval Transaksi → Produksi).
+- View `rpt_production_variances`: selisih pemakaian vs BOM per bahan.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir
