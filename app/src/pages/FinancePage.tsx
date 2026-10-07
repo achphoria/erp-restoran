@@ -356,9 +356,9 @@ function JournalsTab({ accounts, manage, setError, setNotice }: Ctx) {
       </div>
       {creating && (
         <ManualJournalModal accounts={accounts} onClose={() => setCreating(false)}
-          onSaved={() => {
+          onSaved={(pending) => {
             setCreating(false);
-            setNotice('Jurnal manual tersimpan.');
+            setNotice(pending ? 'Jurnal manual dikirim ke penyetuju.' : 'Jurnal manual tersimpan.');
             load().catch((e) => setError(errorMessage(e)));
           }} />
       )}
@@ -384,7 +384,7 @@ function AccountSelect({ accounts, value, onChange, filter, placeholder = '— p
   );
 }
 
-function ManualJournalModal({ accounts, onClose, onSaved }: { accounts: Account[]; onClose: () => void; onSaved: () => void }) {
+function ManualJournalModal({ accounts, onClose, onSaved }: { accounts: Account[]; onClose: () => void; onSaved: (pending: boolean) => void }) {
   const [date, setDate] = useState(todayISO());
   const [description, setDescription] = useState('');
   const [lines, setLines] = useState([{ account_id: '', debit: '', credit: '' }, { account_id: '', debit: '', credit: '' }]);
@@ -400,11 +400,11 @@ function ManualJournalModal({ accounts, onClose, onSaved }: { accounts: Account[
     setBusy(true);
     setError('');
     try {
-      await rpc('fin_post_manual_journal', {
+      const jid = await rpc<string | null>('fin_post_manual_journal', {
         p_date: date, p_description: description,
         p_lines: lines.filter((l) => l.account_id).map((l) => ({ account_id: l.account_id, debit: Number(l.debit || 0), credit: Number(l.credit || 0) })),
       });
-      onSaved();
+      onSaved(jid === null);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -632,11 +632,11 @@ function PaySupplierModal({ supplierId, supplierName, payables, accounts, onClos
     setBusy(true);
     setError('');
     try {
-      const r = await rpc<{ payment_number: string }>('fin_pay_supplier', {
+      const r = await rpc<{ payment_number: string; pending_approval?: boolean }>('fin_pay_supplier', {
         p_supplier_id: supplierId, p_account_id: accountId, p_payment_date: date, p_reference_number: reference || null,
         p_allocations: Object.entries(amounts).filter(([, v]) => Number(v) > 0).map(([id, v]) => ({ goods_receipt_id: id, amount: Number(v) })),
       });
-      onPaid(`Pembayaran ${r.payment_number} ke ${supplierName} sebesar ${formatRupiah(total)} tercatat.`);
+      onPaid(r.pending_approval ? `Pembayaran ${formatRupiah(total)} ke ${supplierName} dikirim ke penyetuju.` : `Pembayaran ${r.payment_number} ke ${supplierName} sebesar ${formatRupiah(total)} tercatat.`);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);

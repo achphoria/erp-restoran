@@ -1707,6 +1707,118 @@ await check('setoran tunai kurang: selisih dicatat ke Selisih Kas & Settlement',
   await journalBalanced();
 });
 
+console.log('\nApproval semua transaksi (1 tingkat):');
+const U8 = '88888888-8888-8888-8888-888888888888';
+const approveLatest = async (type, approve = true) => {
+  const req = await val(`select id from sys_approval_requests where document_type = $1 and status = 'pending' order by requested_at desc limit 1`, [type]);
+  assert(req, `tidak ada permintaan ${type}`);
+  return val(`select sys_decide_approval($1, $2, 'tes')`, [req, approve]);
+};
+await check('jenis transaksi baru tersedia di aturan approval (default nonaktif)', async () => {
+  await loginAs(U1);
+  const n = await val(`select count(*)::int from sys_approval_rules where company_id = $1 and not is_enabled and document_type in
+    ('sales_order','credit_note','sales_payment','supplier_payment','pos_settlement','manual_journal','stock_transfer')`, [company1]);
+  assert(n === 7, `aturan baru ${n}`);
+  const role = (await one(`insert into sys_roles (company_id, code, name, permissions) values ($1, 'approver', 'Penyetuju', $2::jsonb) returning id`,
+    [company1, JSON.stringify(['approval.sales_order', 'approval.credit_note', 'approval.sales_payment', 'approval.supplier_payment',
+      'approval.pos_settlement', 'approval.manual_journal', 'approval.stock_transfer'])])).id;
+  await db.query(`insert into sys_user_invitations (company_id, email, role_id, outlet_ids) values ($1, 'penyetuju@test.com', $2, array[$3::uuid])`, [company1, role, outletId]);
+  await db.exec(`reset role; insert into auth.users values ('${U8}', 'penyetuju@test.com')`);
+  await loginAs(U8);
+  await db.query(`select sys_accept_invitation((sys_get_my_invitations()->0->>'id')::uuid, 'Pak Penyetuju')`);
+  await loginAs(U1);
+  await db.query(`update sys_approval_rules set is_enabled = true, min_amount = 0 where company_id = $1 and document_type in
+    ('sales_order','credit_note','sales_payment','supplier_payment','pos_settlement','manual_journal','stock_transfer')`, [company1]);
+});
+await check('SO: manajer konfirmasi -> menunggu; penyetuju (tanpa akses penjualan) menyetujui; tolak -> kembali draft', async () => {
+  await loginAs(U7);
+  const cust = await val(`select id from sal_customers where code = 'CUST1'`);
+  const mk = async () => {
+    const so = (await one(`insert into sal_sales_orders (company_id, outlet_id, customer_type, customer_id) values ($1, $2, 'external', $3) returning id`, [company1, outletId, cust])).id;
+    await db.query(`insert into sal_sales_order_items (company_id, sales_order_id, item_id, unit_id, quantity) values ($1, $2, $3, (select base_unit_id from inv_items where id = $3), 1)`,
+      [company1, so, await itemId('BTC01')]);
+    return so;
+  };
+  const a = await mk();
+  const r = await val(`select sal_confirm_sales_order($1)`, [a]);
+  assert(r.pending_approval === true && r.status === 'pending_approval', JSON.stringify(r));
+  await loginAs(U8);
+  await approveLatest('sales_order');
+  assert((await val(`select status from sal_sales_orders where id = $1`, [a])) === 'confirmed', 'SO tidak terkonfirmasi');
+  await loginAs(U7);
+  const b = await mk();
+  await db.query(`select sal_confirm_sales_order($1)`, [b]);
+  await loginAs(U8);
+  await approveLatest('sales_order', false);
+  assert((await val(`select status from sal_sales_orders where id = $1`, [b])) === 'draft', 'SO ditolak harus kembali draft');
+});
+await check('nota kredit & pembayaran invoice menunggu persetujuan lalu dieksekusi', async () => {
+  await loginAs(U7);
+  const inv = await one(`select id, outstanding_amount::float8 o from rpt_sales_invoices where customer_name = 'PT Katering Jaya' and status <> 'paid' limit 1`);
+  const cn = await val(`select sal_create_credit_note($1, 320, 'discount', 'pembulatan')`, [inv.id]);
+  assert(cn.pending_approval === true, JSON.stringify(cn));
+  assert(Number(await val(`select credited_amount from sal_invoices where id = $1`, [inv.id])) === 0, 'nota kredit langsung jalan');
+  await loginAs(U8);
+  await approveLatest('credit_note');
+  assert(Number(await val(`select credited_amount from sal_invoices where id = $1`, [inv.id])) === 320, 'nota kredit tidak dibuat');
+  await loginAs(U7);
+  const bank = await val(`select id from fin_accounts where system_key = 'bank' and company_id = $1`, [company1]);
+  const p = await val(`select sal_record_payment($1::jsonb, $2)`, [JSON.stringify([{ invoice_id: inv.id, amount: inv.o - 320 }]), bank]);
+  assert(p.pending_approval === true, JSON.stringify(p));
+  await loginAs(U8);
+  await approveLatest('sales_payment');
+  assert((await val(`select status from sal_invoices where id = $1`, [inv.id])) === 'paid', 'invoice belum lunas');
+});
+await check('bayar supplier & jurnal manual menunggu persetujuan', async () => {
+  await loginAs(U7);
+  const ap = await one(`select goods_receipt_id, supplier_id, outstanding_amount::float8 o from rpt_payables where outstanding_amount > 0 limit 1`);
+  const bank = await val(`select id from fin_accounts where system_key = 'bank' and company_id = $1`, [company1]);
+  const before = await val(`select count(*)::int from fin_supplier_payments`);
+  const r = await val(`select fin_pay_supplier($1, $2, current_date, $3::jsonb)`, [ap.supplier_id, bank, JSON.stringify([{ goods_receipt_id: ap.goods_receipt_id, amount: 1000 }])]);
+  assert(r.pending_approval === true && (await val(`select count(*)::int from fin_supplier_payments`)) === before, JSON.stringify(r));
+  const cash = await val(`select id from fin_accounts where system_key = 'cash' and company_id = $1`, [company1]);
+  const j = await val(`select fin_post_manual_journal(current_date, 'Koreksi kas', $1::jsonb)`, [JSON.stringify([{ account_id: bank, debit: 500 }, { account_id: cash, credit: 500 }])]);
+  assert(j === null, 'jurnal manual langsung jalan');
+  await loginAs(U8);
+  await approveLatest('supplier_payment');
+  await approveLatest('manual_journal');
+  await loginAs(U1);
+  assert((await val(`select count(*)::int from fin_supplier_payments`)) === before + 1, 'pembayaran supplier tidak dibuat');
+  assert((await val(`select count(*)::int from fin_journals where source_type = 'manual' and description = 'Koreksi kas'`)) === 1, 'jurnal manual tidak dibuat');
+  await journalBalanced();
+});
+await check('transfer gudang menunggu persetujuan, disetujui -> stok pindah', async () => {
+  await loginAs(U7);
+  const wh2 = await val(`select id from inv_warehouses where code = 'WH-B2'`);
+  const tr = (await one(`insert into inv_stock_transfers (company_id, from_warehouse_id, to_warehouse_id) values ($1, $2, $3) returning id`, [company1, await mainWh(), wh2])).id;
+  await db.query(`insert into inv_stock_transfer_items (company_id, stock_transfer_id, item_id, quantity) values ($1, $2, $3, 1)`, [company1, tr, await itemId('BTC01')]);
+  await db.query(`select inv_post_stock_transfer($1)`, [tr]);
+  assert((await val(`select status from inv_stock_transfers where id = $1`, [tr])) === 'pending_approval', 'harus menunggu');
+  await expectError(`select inv_post_stock_transfer($1)`, [tr], /menunggu persetujuan/);
+  await loginAs(U8);
+  await approveLatest('stock_transfer');
+  assert((await val(`select status from inv_stock_transfers where id = $1`, [tr])) === 'posted', 'transfer tidak jalan');
+});
+await check('settlement dengan selisih menunggu persetujuan; tanggal terkunci selama menunggu', async () => {
+  const debit = await val(`select id from mst_payment_methods where code = 'debit' and company_id = $1`, [company1]);
+  await loginAs(U1);
+  await withShift(async () => {
+    const o = await val(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM01') }] })]);
+    await db.query(`select pos_pay_order($1, $2::jsonb)`, [o.id, JSON.stringify([{ payment_method_id: debit, amount: o.grand_total }])]);
+  });
+  await loginAs(U7);
+  const day = await one(`select business_date::text d, net_amount::float8 net from rpt_pos_settlement_days where outlet_id = $1 and payment_method_id = $2 and settlement_id is null`, [outletId, debit]);
+  const r = await val(`select pos_create_settlement($1, $2, array[$3]::date[], $4)`, [outletId, debit, day.d, day.net - 100]);
+  assert(r.pending_approval === true, JSON.stringify(r));
+  await expectError(`select pos_create_settlement($1, $2, array[$3]::date[], $4)`, [outletId, debit, day.d, day.net], /menunggu persetujuan/);
+  await loginAs(U8);
+  const res = await approveLatest('pos_settlement');
+  assert(Number(res.result.difference_amount) === 100, JSON.stringify(res.result));
+  await loginAs(U1);
+  await db.query(`update sys_approval_rules set is_enabled = false where company_id = $1`, [company1]);
+  await journalBalanced();
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

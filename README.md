@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–021)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–022)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -17,6 +17,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase9.sql`](supabase/update_fase9.sql) (018: purpose waste/pemakaian/penyusutan ke COA + stock opname bertahap)
   - [`supabase/update_fase10.sql`](supabase/update_fase10.sql) (019: batch/lot & kedaluwarsa, HPP FIFO + FEFO, koli transfer, barcode)
   - [`supabase/update_fase11.sql`](supabase/update_fase11.sql) (020–021: Sales Order antar cabang & B2B, gudang per toko, settlement POS)
+  - [`supabase/update_fase12.sql`](supabase/update_fase12.sql) (022: approval untuk semua transaksi + matriks pembuat/penyetuju)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -185,6 +186,14 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
 - **Laporan**: pendapatan per sumber (Sales POS, Sales Order B2B, Sales Order antar cabang).
 - **Sidebar baru**: grup bisa dilipat (Ringkasan, Kasir & Outlet, Penjualan, Pembelian, Persediaan, Master Data, Keuangan & Laporan), dan menu
   langsung membuka tab yang dituju.
+
+## Fase 12: Approval semua transaksi (matriks)
+- **Pengaturan → Approval Transaksi**: satu tabel untuk 14 transaksi (SO, nota kredit, pembayaran invoice, refund, settlement,
+  PO, pricelist supplier, bayar supplier, penyesuaian/waste, opname, transfer, produk baru, biaya, jurnal manual).
+  Per baris: approval aktif/nonaktif, batas nominal, role **pembuat**, dan role **penyetuju** (1 tingkat).
+- Transaksi di atas batas dari pembuat masuk ke menu **Persetujuan**. Setelah disetujui, transaksi dijalankan otomatis.
+  Penyetuju tidak perlu akses modulnya. Role yang sekaligus pembuat & penyetuju (dan Owner) langsung jalan.
+- Settlement POS dinilai dari **selisih**, dan tanggal yang sedang menunggu persetujuan terkunci.
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

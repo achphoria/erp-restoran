@@ -23,6 +23,7 @@ const SalesPage = lazy(() => import('./pages/SalesPage'));
 const SettlementPage = lazy(() => import('./pages/SettlementPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 import { FeedbackProvider } from './components/Feedback';
+import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
 
 function Guard({ permission, children }: { permission: string | string[]; children: React.ReactNode }) {
   const { can } = useAuth();
@@ -37,6 +38,7 @@ function Home() {
   if (can('report.view')) return <DashboardPage />;
   if (can('pos.order')) return <Navigate to="/pos" replace />;
   if (can('kds.update')) return <Navigate to="/kitchen" replace />;
+  if (can(Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`))) return <Navigate to="/approvals" replace />;
   return <div className="card empty">Role Anda belum punya akses ke menu apa pun.</div>;
 }
 

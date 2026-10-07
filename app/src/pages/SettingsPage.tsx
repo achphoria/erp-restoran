@@ -7,7 +7,7 @@ import Modal from '../components/Modal';
 import Avatar from '../components/Avatar';
 import ProfileModal from '../components/ProfileModal';
 import CompanyTab from '../components/settings/CompanyTab';
-import ApprovalRulesTab from '../components/settings/ApprovalRulesTab';
+import ApprovalMatrixTab from '../components/settings/ApprovalMatrixTab';
 import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
 import ActivityLogTab from '../components/settings/ActivityLogTab';
 
@@ -105,7 +105,7 @@ export default function SettingsPage() {
     ['users', 'User & Undangan', can('user.manage')],
     ['roles', 'Role & Hak Akses', can('user.manage')],
     ['outlets', 'Outlet', can('settings.manage')],
-    ['approvals', 'Approval', can('settings.manage')],
+    ['approvals', 'Approval Transaksi', can('settings.manage')],
     ['payment', 'Pembayaran Online', can('settings.manage')],
     ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage'])],
   ];
@@ -132,7 +132,7 @@ export default function SettingsPage() {
       {tab === 'roles' && <RolesTab companyId={companyId} roles={roles} act={act} />}
       {tab === 'outlets' && <OutletsTab outlets={outlets} act={act} onCreated={refreshProfile} />}
       {tab === 'company' && <CompanyTab />}
-      {tab === 'approvals' && <ApprovalRulesTab />}
+      {tab === 'approvals' && <ApprovalMatrixTab />}
       {tab === 'payment' && <PaymentGatewayTab />}
       {tab === 'logs' && <ActivityLogTab />}
     </>
