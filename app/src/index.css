@@ -528,3 +528,6 @@ code { background: var(--surface-2); border: 1px solid var(--border); border-rad
 .koli-card.active { border-color: var(--fresh); box-shadow: 0 0 0 3px var(--primary-soft); }
 .koli-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
 .koli-head code { font-weight: 700; }
+.stat-card-link { cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.stat-card-link:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+.stat-card-link.active { border-color: var(--stat-color, var(--fresh)); box-shadow: 0 0 0 3px var(--primary-soft); }
