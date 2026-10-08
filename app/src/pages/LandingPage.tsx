@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, BadgeCheck, ChefHat, LogIn, Network, Package, QrCode, Receipt, ScanBarcode, ShieldCheck, Store, Truck, Users, Wallet,
+  ArrowRight, BadgeCheck, ChefHat, HandHeart, Languages, LogIn, Network, Package, QrCode, Receipt, ScanBarcode, ShieldCheck, Smartphone, Sprout, Store, Truck, Users, Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import Gunungan from '../components/Gunungan';
@@ -31,6 +31,14 @@ const FEATURES: [LucideIcon, string, string][] = [
   [ShieldCheck, 'Akses aman per branch', 'Staf hanya melihat branch atau brand miliknya, dikunci langsung di database.'],
 ];
 
+// alasan SEMAR cocok untuk UMKM
+const UMKM: [LucideIcon, string, string][] = [
+  [Sprout, 'Mulai dari satu warung', 'Tidak perlu jadi restoran besar dulu. Mulai dari kasir & stok, fitur lain menyusul saat usaha tumbuh.'],
+  [Languages, 'Bahasa Indonesia sepenuhnya', 'Istilah yang akrab untuk pedagang: struk, shift, opname, setoran, tanpa jargon yang membingungkan.'],
+  [Smartphone, 'Cukup HP atau tablet', 'Jalan di browser. Kasir pakai tablet, juragan pantau omzet dari HP di mana saja.'],
+  [HandHeart, 'Naik kelas tanpa ganti sistem', 'Dari gerobak, cabang, brand baru, sampai grup PT, datanya tetap di satu tempat.'],
+];
+
 const JOURNEY: [LucideIcon, string, string][] = [
   [Store, 'Warung pertama', 'Kasir, menu, dan stok rapi sejak hari pertama.'],
   [Package, 'Buka cabang', 'Gudang per toko, central kitchen, transfer stok antar cabang.'],
@@ -49,7 +57,8 @@ export default function LandingPage() {
         <nav className="lp-links">
           <a href="#punakawan">Modul</a>
           <a href="#fitur">Fitur</a>
-          <a href="#filosofi">Filosofi</a>
+          <a href="#umkm">UMKM</a>
+          <a href="#dalang">Sang Dalang</a>
         </nav>
         <Link to="/login" className="btn btn-primary lp-nav-cta"><LogIn size={16} /> Masuk</Link>
       </header>
@@ -57,6 +66,7 @@ export default function LandingPage() {
       {/* HERO: kelir (layar wayang) dengan cahaya blencong */}
       <section className="lp-hero">
         <div className="lp-hero-copy">
+          <span className="lp-pill">🇮🇩 Mendukung UMKM kuliner Indonesia</span>
           <span className="lp-eyebrow">{APP_LONG_NAME}</span>
           <h1>Abdi setia untuk <em>usaha kuliner</em> Anda.</h1>
           <p>
@@ -134,6 +144,29 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* UMKM */}
+      <section id="umkm" className="lp-section">
+        <div className="lp-umkm">
+          <div className="lp-umkm-copy">
+            <span className="lp-eyebrow">Untuk UMKM</span>
+            <h2>Sistem sekelas restoran besar, untuk warung & kedai Indonesia.</h2>
+            <p>
+              {APP_NAME} lahir untuk UMKM kuliner: pemilik warung, kedai kopi, katering, sampai usaha yang baru buka cabang kedua.
+              Pembukuan rapi, stok terkendali, dan laporan jelas, supaya usaha kecil bisa naik kelas.
+            </p>
+            <span className="lp-umkm-badge"><HandHeart size={16} /> Karya anak bangsa, untuk usaha anak bangsa</span>
+          </div>
+          <div className="lp-umkm-grid">
+            {UMKM.map(([Icon, title, desc]) => (
+              <div key={title} className="lp-umkm-item">
+                <span className="lp-feature-icon"><Icon size={20} /></span>
+                <div><h3>{title}</h3><p>{desc}</p></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* PERJALANAN USAHA */}
       <section className="lp-section">
         <div className="lp-head">
@@ -168,6 +201,31 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* SANG DALANG: pembuat sistem */}
+      <section id="dalang" className="lp-section">
+        <div className="lp-dalang">
+          <figure className="lp-dalang-photo">
+            <img src={`${import.meta.env.BASE_URL}dalang-achphoria.jpg`} alt="Achphoria, dalang SEMAR" width={928} height={1152} loading="lazy" />
+          </figure>
+          <div className="lp-dalang-copy">
+            <span className="lp-eyebrow">Sang Dalang</span>
+            <h2>Di balik layar, selalu ada dalang.</h2>
+            <p>
+              Dalam pertunjukan wayang, dalang yang menghidupkan setiap tokoh: Semar, Gareng, Petruk, dan Bagong bergerak di tangannya
+              semalam suntuk. {APP_NAME} pun punya dalangnya sendiri.
+            </p>
+            <div className="lp-dalang-card">
+              <div className="lp-dalang-name">Achphoria</div>
+              <div className="lp-dalang-role">Dalang {APP_NAME} · Developer</div>
+              <p>
+                Merancang dan membangun {APP_NAME}, dari layar kasir sampai jurnal akuntansi, dengan satu lakon:
+                membantu UMKM kuliner Indonesia naik kelas.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="lp-final">
         <h2>Siap ditemani {APP_NAME}?</h2>
         <p>Daftar sebagai pemilik usaha, lalu buatkan akun untuk kasir, gudang, dan tim Anda.</p>
@@ -179,7 +237,7 @@ export default function LandingPage() {
 
       <footer className="lp-footer">
         <span><b>{APP_NAME}</b> · {APP_LONG_NAME}</span>
-        <span>Abdi setia usaha kuliner</span>
+        <span>Dalang: <b>Achphoria</b> · Untuk UMKM kuliner Indonesia 🇮🇩</span>
       </footer>
     </div>
   );
