@@ -80,7 +80,7 @@ export const ATT_FLAGS: Record<string, string> = {
 };
 export const ATT_STATUS: Record<string, [string, string]> = {
   present: ['Hadir', 'badge-success'], late: ['Telat', 'badge-warning'], absent: ['Alpa', 'badge-danger'],
-  off: ['Libur', ''], scheduled: ['Terjadwal', 'badge-info'],
+  off: ['Libur', ''], scheduled: ['Terjadwal', 'badge-info'], leave: ['Cuti', 'badge-info'],
 };
 export const fmtTime = (t: string | null | undefined) =>
   t ? new Date(t).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—';
@@ -94,3 +94,29 @@ export const addDays = (iso: string, n: number) => {
 };
 // Senin dari minggu tanggal tsb
 export const mondayOf = (iso: string) => addDays(iso, -((new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7));
+
+// ---------------------------------------------------------------- cuti & izin
+// lampiran cuti (surat dokter, undangan, ...) -> hr-files/<company>/<employee>/leave/<acak>.<ext>
+export async function uploadLeaveAttachment(companyId: string, employeeId: string, file: File): Promise<string> {
+  const isImage = file.type.startsWith('image/');
+  if (!isImage && file.type !== 'application/pdf') throw new Error('Lampiran harus foto atau PDF');
+  if (!isImage && file.size > 5 * 1024 * 1024) throw new Error('PDF maksimal 5 MB');
+  const path = `${companyId}/${employeeId}/leave/${crypto.randomUUID().slice(0, 8)}.${isImage ? 'webp' : 'pdf'}`;
+  const body = isImage ? await resizeImage(file, 1600) : file;
+  const { error } = await supabase.storage.from('hr-files').upload(path, body, { contentType: isImage ? 'image/webp' : 'application/pdf' });
+  if (error) throw new Error(error.message);
+  return path;
+}
+export const LEAVE_STATUS: Record<string, [string, string]> = {
+  pending: ['Menunggu', 'badge-warning'], approved: ['Disetujui', 'badge-success'], rejected: ['Ditolak', 'badge-danger'], cancelled: ['Dibatalkan', ''],
+};
+export const LEAVE_POLICY: Record<string, string> = {
+  after_12_months: 'Berhak setelah 12 bulan kerja', prorata: 'Prorata di tahun pertama', immediate: 'Langsung berhak sejak masuk',
+};
+// "12 Okt" atau "12–14 Okt"
+export function dateRange(a: string, b: string) {
+  const f = (iso: string, o: Intl.DateTimeFormatOptions) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('id-ID', { ...o, timeZone: 'UTC' });
+  if (a === b) return f(a, { weekday: 'short', day: 'numeric', month: 'short' });
+  return a.slice(0, 7) === b.slice(0, 7) ? `${f(a, { day: 'numeric' })}–${f(b, { day: 'numeric', month: 'short' })}` : `${f(a, { day: 'numeric', month: 'short' })} – ${f(b, { day: 'numeric', month: 'short' })}`;
+}
+export const fmtDays = (n: number | string) => `${Number(n).toLocaleString('id-ID')} hari`;

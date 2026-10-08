@@ -72,11 +72,12 @@ export default function AttendanceTab({ companyId, outlets }: { companyId: strin
   const exportXlsx = () => {
     const per = new Map<string, any>();
     for (const r of rows) {
-      const p = per.get(r.employee_id) ?? { 'No. Karyawan': r.employee_number, Nama: r.full_name, Jabatan: r.position ?? '', Hadir: 0, Telat: 0, 'Total telat (mnt)': 0, Alpa: 0, Libur: 0, 'Pulang cepat (mnt)': 0 };
+      const p = per.get(r.employee_id) ?? { 'No. Karyawan': r.employee_number, Nama: r.full_name, Jabatan: r.position ?? '', Hadir: 0, Telat: 0, 'Total telat (mnt)': 0, Alpa: 0, Libur: 0, Cuti: 0, 'Pulang cepat (mnt)': 0 };
       if (r.status === 'present' || r.status === 'late') p.Hadir++;
       if (r.status === 'late') { p.Telat++; p['Total telat (mnt)'] += r.late_minutes; }
       if (r.status === 'absent') p.Alpa++;
       if (r.status === 'off') p.Libur++;
+      if (r.status === 'leave') p.Cuti++;
       p['Pulang cepat (mnt)'] += r.early_leave_minutes;
       per.set(r.employee_id, p);
     }
@@ -85,7 +86,7 @@ export default function AttendanceTab({ companyId, outlets }: { companyId: strin
       { name: 'Detail', widths: [12, 14, 26, 16, 10, 8, 8, 10, 10, 10, 30, 14], rows: rows.map((r) => ({
         Tanggal: r.work_date, 'No. Karyawan': r.employee_number, Nama: r.full_name, Outlet: r.outlet ?? '', Shift: r.shift ?? '',
         Masuk: r.check_in_at ? fmtTime(r.check_in_at) : '', Pulang: r.check_out_at ? fmtTime(r.check_out_at) : '',
-        Status: ATT_STATUS[r.status]?.[0] ?? r.status, 'Telat (mnt)': r.late_minutes, 'Jarak masuk (m)': r.check_in_distance_m ?? '',
+        Status: r.status === 'leave' ? r.leave_type : ATT_STATUS[r.status]?.[0] ?? r.status, 'Telat (mnt)': r.late_minutes, 'Jarak masuk (m)': r.check_in_distance_m ?? '',
         Catatan: (r.flags ?? []).map((f: string) => ATT_FLAGS[f] ?? f).join(', '), Review: r.review_status === 'none' ? '' : r.review_status,
       })) },
     ]);
@@ -160,7 +161,7 @@ export default function AttendanceTab({ companyId, outlets }: { companyId: strin
                 <td className="small">{fmtTime(r.check_in_at)}{r.check_in_distance_m != null && <div className="muted">{fmtDist(r.check_in_distance_m)}</div>}</td>
                 <td className="small">{fmtTime(r.check_out_at)}{r.check_out_distance_m != null && <div className="muted">{fmtDist(r.check_out_distance_m)}</div>}</td>
                 <td>
-                  <span className={`badge ${ATT_STATUS[r.status]?.[1] ?? ''}`}>{ATT_STATUS[r.status]?.[0] ?? r.status}{r.status === 'late' ? ` ${r.late_minutes}m` : ''}</span>
+                  <span className={`badge ${ATT_STATUS[r.status]?.[1] ?? ''}`}>{r.status === 'leave' ? r.leave_type : ATT_STATUS[r.status]?.[0] ?? r.status}{r.status === 'late' ? ` ${r.late_minutes}m` : ''}</span>
                   {(r.flags ?? []).filter((f: string) => f !== 'no_geofence').map((f: string) => <span key={f} className="badge att-flag">{ATT_FLAGS[f] ?? f}</span>)}
                   {r.review_status === 'pending' && <span className="badge badge-info">review</span>}
                   {r.review_status === 'rejected' && <span className="badge badge-danger">ditolak</span>}

@@ -55,7 +55,8 @@ export default function MyAttendance({ companyId }: { companyId: string }) {
         <button className="btn-sm" onClick={openHistory}><History size={13} /> Riwayat</button>
       </div>
       <div className="me-shift">
-        {s.is_off ? <span className="badge">Libur terjadwal</span>
+        {s.leave && <span className="badge badge-info">{s.leave.leave_type}{s.leave.half_day ? ' (½ hari)' : ''}</span>}
+        {s.leave && !s.leave.half_day ? null : s.is_off ? <span className="badge">Libur terjadwal</span>
           : s.shift ? <><span className="shift-dot" style={{ background: s.shift_color }} /> Shift <b>{s.shift}</b> {hhmm(s.start_time)}–{hhmm(s.end_time)}</>
             : <span className="muted">Tidak ada jadwal shift</span>}
         {s.outlet && <span className="muted"> · {s.outlet}</span>}
@@ -87,7 +88,7 @@ export default function MyAttendance({ companyId }: { companyId: string }) {
               <div key={r.work_date} className={`me-day ${r.work_date === todayIso ? 'today' : ''}`}>
                 <small>{dayName(r.work_date)}</small>
                 <b>{new Date(`${r.work_date}T00:00:00Z`).getUTCDate()}</b>
-                {r.is_off ? <span className="me-day-off">Libur</span>
+                {r.leave ? <span className="me-day-off" style={{ color: r.leave.color }}>Cuti</span> : r.is_off ? <span className="me-day-off">Libur</span>
                   : r.shift ? <span className="me-day-shift" style={{ borderColor: r.shift_color }} title={`${hhmm(r.start_time)}–${hhmm(r.end_time)}`}>{hhmm(r.start_time)}</span>
                     : <span className="muted">—</span>}
               </div>

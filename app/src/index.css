@@ -782,3 +782,21 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .geo-box { margin: 12px 0 0; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: 12px; }
 .geo-box legend { display: inline-flex; align-items: center; gap: 5px; padding: 0 6px; font-weight: 700; font-size: 13px; }
 .geo-box .field button { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Cuti & izin */
+.me-leave, .me-inbox { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.me-inbox { border-color: var(--accent); }
+.me-leave-balance { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; background: var(--primary-soft); }
+.me-leave-balance > div:first-child { display: grid; justify-items: center; min-width: 64px; }
+.me-leave-balance b { font-size: 30px; line-height: 1; color: var(--primary); }
+.me-leave-balance small { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.me-team { display: grid; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.leave-cal { font-size: 12px; }
+.leave-cal th, .leave-cal td { padding: 6px 2px; text-align: center; min-width: 24px; }
+.leave-cal th:first-child, .leave-cal td:first-child { text-align: left; padding-left: 8px; min-width: 130px; white-space: nowrap; }
+.leave-cal th.sun { color: var(--danger); }
+.leave-cal .today { background: var(--primary-soft); }
+.leave-cell { display: block; height: 18px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; }
+.leave-cell.pending { opacity: .55; background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.45) 0 3px, transparent 3px 7px) !important; }
+.leave-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.me-hist-row > span.row { flex-shrink: 0; flex-wrap: nowrap; }

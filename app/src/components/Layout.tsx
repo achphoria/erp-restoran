@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -17,7 +17,7 @@ import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
 // permission 'platform' = khusus Platform Admin (developer); 'self' = semua user yang login
-interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' | 'attendance' }
+interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' | 'attendance' | 'leave' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
 // "to" boleh membawa ?tab=... supaya menu langsung membuka tab di halaman modul
@@ -27,7 +27,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/saya', label: 'Beranda Saya', icon: UserRound, permission: 'self' },
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
-      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
+      { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', 'approval.leave', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
     ],
   },
   {
@@ -93,6 +93,7 @@ const NAV: NavGroup[] = [
       { to: '/hr?tab=employees', label: 'Karyawan', icon: Users, permission: ['hr.view', 'hr.manage'] },
       { to: '/hr?tab=roster', label: 'Jadwal Shift', icon: CalendarClock, permission: ['hr.manage', 'hr.attendance'] },
       { to: '/hr?tab=attendance', label: 'Absensi', icon: Fingerprint, permission: ['hr.view', 'hr.manage', 'hr.attendance'], badge: 'attendance' },
+      { to: '/hr?tab=leave', label: 'Cuti & Izin', icon: CalendarHeart, permission: ['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave'], badge: 'leave' },
       { to: '/hr?tab=structure', label: 'Jabatan & Departemen', icon: Network, permission: 'hr.manage' },
       { to: '/hr?tab=announcements', label: 'Pengumuman', icon: Megaphone, permission: 'hr.manage' },
     ],
@@ -184,6 +185,20 @@ function useAttendancePending(enabled: boolean) {
   return count;
 }
 
+// Pengajuan cuti yang menunggu keputusan saya (event 'hr-leave-changed' = baru diproses)
+function useLeavePending(enabled: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    const refresh = () => rpc<number>('hr_leave_pending_count').then(setCount).catch(() => setCount(0));
+    refresh();
+    const timer = window.setInterval(refresh, 120_000);
+    window.addEventListener('hr-leave-changed', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('hr-leave-changed', refresh); };
+  }, [enabled]);
+  return count;
+}
+
 // Logo brand dari outlet aktif (fallback: logo perusahaan). Event 'brand-updated' = brand baru disimpan.
 function useBrandLogo(brandId?: string) {
   const [logo, setLogo] = useState<string | null>(null);
@@ -210,8 +225,9 @@ export default function Layout() {
   const pending = usePendingApprovals(!!profile);
   const signups = useNewSignups(!!profile?.is_platform_admin);
   const attPending = useAttendancePending(!!profile && can(['hr.manage', 'hr.attendance']));
+  const leavePending = useLeavePending(!!profile && can(['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave']));
   const logoSrc = useBrandLogo(outlet?.brand_id) ?? profile?.company_logo_url;
-  const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : b === 'attendance' ? attPending : 0);
+  const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : b === 'attendance' ? attPending : b === 'leave' ? leavePending : 0);
   const current = activeItem(location.pathname, location.search);
   const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
   // accordion: hanya 1 grup terbuka; default = grup halaman yang sedang dibuka
