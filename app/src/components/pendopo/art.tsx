@@ -257,6 +257,14 @@ export const OfficeBack = memo(function OfficeBack({ hour, minute }: { hour: num
         {[552, 828].map((x) => <rect key={x} x={x - 5} y="654" width="10" height="34" rx="4" fill="#c9a35d" stroke="#a8843f" />)}
       </g>
 
+      {/* dingklik (bangku kecil) di kedua ujung meja nongkrong */}
+      {[512, 878].map((x) => (
+        <g key={x}>
+          <rect x={x - 24} y={680} width={48} height={9} rx="3" fill={WOOD_L} stroke={WOOD_D} strokeWidth="1.5" />
+          <rect x={x - 20} y={689} width={7} height={22} fill={WOOD_D} /><rect x={x + 13} y={689} width={7} height={22} fill={WOOD_D} />
+        </g>
+      ))}
+
       {/* radio transistor di atas dingklik */}
       <g>
         <rect x="950" y="664" width="80" height="10" rx="3" fill={WOOD} />
@@ -333,18 +341,34 @@ export const DeskFronts = memo(function DeskFronts() {
   );
 });
 
-// Meja kopi di depan lincak (paling depan)
+// Meja gaple di depan lincak (paling depan): kartu, gaple, kopi, pisang goreng
 export const CoffeeTable = memo(function CoffeeTable() {
+  const tiles = [[618, 672, 0], [636, 670, 1], [656, 673, 0], [676, 670, 1], [728, 672, 0], [748, 669, 1]];
   return (
     <g>
-      <g>
-        <rect x={600} y={684} width={180} height={12} rx="5" fill="#8a5a30" />
-        <rect x={612} y={696} width={8} height={20} fill="#6b4423" /><rect x={760} y={696} width={8} height={20} fill="#6b4423" />
-        <rect x={622} y={668} width={18} height={18} rx="3" fill="#f4f1e8" stroke="#bbb" /><rect x={624} y={663} width={14} height={6} fill="#3a2414" />
-        <ellipse cx={690} cy={680} rx={26} ry={6} fill="#e8e1cf" /><ellipse cx={682} cy={676} rx={10} ry={5} fill="#d99a3c" /><ellipse cx={698} cy={676} rx={10} ry={5} fill="#c9862e" />
-        <path d="M740 686V670Q740 662 750 662H760Q770 662 770 670V686Z" fill="#c9ccd1" stroke="#8d9198" strokeWidth="1.5" />
-        <circle className="pd-steam" cx={631} cy={656} r="4" fill="#fff" />
-      </g>
+      <rect x={576} y={684} width={232} height={12} rx="5" fill="#8a5a30" />
+      <rect x={588} y={696} width={8} height={20} fill="#6b4423" /><rect x={788} y={696} width={8} height={20} fill="#6b4423" />
+      {/* kartu gaple (domino) */}
+      {tiles.map(([x, y, v], i) => (
+        <g key={i} transform={`rotate(${(i % 3) * 8 - 8} ${x + 7} ${y + 4})`}>
+          <rect x={x} y={y} width={16} height={9} rx="1.5" fill="#fbf8ef" stroke="#3a2414" strokeWidth="1" />
+          <line x1={x + 8} y1={y} x2={x + 8} y2={y + 9} stroke="#3a2414" strokeWidth="0.8" />
+          <circle cx={x + 4} cy={y + 4.5} r="1.2" fill="#c0392b" /><circle cx={x + 12} cy={y + 3} r="1" fill="#1d2433" />
+          {v ? <circle cx={x + 12} cy={y + 6} r="1" fill="#1d2433" /> : null}
+        </g>
+      ))}
+      {/* kartu remi */}
+      {[[690, 668, -12, '#c0392b'], [700, 670, 6, '#1d2433'], [770, 668, 14, '#c0392b']].map(([x, y, r, c], i) => (
+        <g key={i} transform={`rotate(${r} ${x} ${y})`}>
+          <rect x={x as number} y={y as number} width={11} height={15} rx="1.5" fill="#fff" stroke="#bbb" />
+          <text x={(x as number) + 2.5} y={(y as number) + 10} fontSize="8" fill={c as string}>{i === 1 ? '♠' : '♥'}</text>
+        </g>
+      ))}
+      {/* tumpukan kartu & kopi */}
+      <rect x={598} y={674} width={14} height={9} rx="1.5" fill="#2f6fb0" stroke="#1d4f80" /><rect x={600} y={672} width={14} height={9} rx="1.5" fill="#2f6fb0" stroke="#1d4f80" />
+      <rect x={786} y={666} width={16} height={18} rx="3" fill="#f4f1e8" stroke="#bbb" /><rect x={788} y={661} width={12} height={6} fill="#3a2414" />
+      <circle className="pd-steam" cx={794} cy={654} r="4" fill="#fff" />
+      <ellipse cx={716} cy={682} rx={18} ry={4} fill="#e8e1cf" /><ellipse cx={710} cy={679} rx={7} ry={3.5} fill="#d99a3c" /><ellipse cx={722} cy={679} rx={7} ry={3.5} fill="#c9862e" />
     </g>
   );
 });

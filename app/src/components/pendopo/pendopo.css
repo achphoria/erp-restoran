@@ -196,3 +196,19 @@
   @keyframes semar-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 }
 @media (prefers-reduced-motion: reduce) { .pd-confetti { display: none; } .semar-panel { animation: none; } }
+
+/* kamera zoom (saat ngobrol dengan Semar) */
+.pd-zoom { position: absolute; inset: 0; transform-origin: 50% 50%; transition: transform 0.9s cubic-bezier(.4,.1,.2,1); will-change: transform; }
+.pd-label { transform-origin: 50% 100%; transition: transform 0.9s cubic-bezier(.4,.1,.2,1), opacity 0.3s; }
+.pd-scene.zoomed .pd-label { transform: translate(-50%, -100%) scale(0.58); }
+.pd-focus-tag {
+  position: absolute; left: 12px; top: 12px; z-index: 4; padding: 4px 10px; border-radius: 999px;
+  background: rgba(29,36,51,0.78); color: #fff; font-size: 11.5px; font-weight: 700; animation: pd-pop 0.3s ease-out;
+}
+.pd-scene.zoomed::after {   /* vignette sinematik */
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 3;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.28) 100%);
+}
+.pd-ai { font-size: 10px; font-weight: 700; color: var(--text-muted); }
+.pd-ai.on { color: #16a34a; }
+@media (prefers-reduced-motion: reduce) { .pd-zoom { transition: none; } }
