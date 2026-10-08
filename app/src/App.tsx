@@ -87,7 +87,7 @@ function AppRoutes() {
         <Route path="platform" element={<PlatformPage />} />
         <Route path="saya" element={<MyHomePage />} />
         <Route path="tugas" element={<TasksPage />} />
-        <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave']}><HrPage /></Guard>} />
+        <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave', 'hr.appraisal']}><HrPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -2687,5 +2687,69 @@ await check('SOP harian: dibuat otomatis per hari untuk role-nya; item foto waji
   assert(rep.runs.length === 1 && Number(rep.runs[0].done) === 2 && rep.templates[0].role === (await val(`select name from sys_roles where id = $1`, [cashierRoleId])), JSON.stringify(rep).slice(0, 300));
 });
 
+console.log('\nSDM / HR (fase E - penilaian kinerja):');
+let periodId, apprAndi;
+await check('Penilaian: nilai akhir berbobot & grade; kriteria otomatis tanpa data diabaikan', async () => {
+  const crit = JSON.stringify([{ key: 'a', kind: 'rating', weight: 50 }, { key: 'b', kind: 'rating', weight: 50 }, { key: 'c', kind: 'auto', metric: 'tasks', weight: 40 }]);
+  const r = await val(`select hr_appraisal_score($1::jsonb, $2::jsonb, $3::jsonb)`, [crit, JSON.stringify({ a: { score: 5 }, b: { score: 3 } }), JSON.stringify({ tasks: { score: null } })]);
+  assert(Number(r.score) === 4 && r.grade === 'B', JSON.stringify(r));
+  const r2 = await val(`select hr_appraisal_score($1::jsonb, $2::jsonb, $3::jsonb)`, [crit, JSON.stringify({ a: { score: 5 }, b: { score: 5 } }), JSON.stringify({ tasks: { score: 1 } })]);
+  assert(Number(r2.score) === 3.86 && r2.grade === 'B', JSON.stringify(r2));
+  assert((await val(`select hr_rate_to_score(0.97)`)) === 4 && (await val(`select hr_rate_to_score(0.5)`)) === 1, 'skala');
+});
+await check('Penilaian: template per role, periode, mulai penilaian (karyawan berakun mulai dari penilaian diri)', async () => {
+  await loginAs(U1);
+  await db.query(`insert into hr_appraisal_templates (company_id, name, criteria) values ($1, 'Umum', $2::jsonb)`, [company1, JSON.stringify([
+    { key: 'hadir', name: 'Kehadiran', kind: 'auto', metric: 'attendance', weight: 20 }, { key: 'kualitas', name: 'Kualitas kerja', kind: 'rating', weight: 80 }])]);
+  await db.query(`insert into hr_appraisal_templates (company_id, name, role_id, criteria) values ($1, 'Kasir', $2, $3::jsonb)`, [company1, cashierRoleId, JSON.stringify([
+    { key: 'hadir', name: 'Kehadiran', kind: 'auto', metric: 'attendance', weight: 15 }, { key: 'tepat', name: 'Tepat waktu', kind: 'auto', metric: 'punctuality', weight: 15 },
+    { key: 'tugas', name: 'Tugas', kind: 'auto', metric: 'tasks', weight: 20 }, { key: 'layan', name: 'Pelayanan', kind: 'rating', weight: 30 },
+    { key: 'tim', name: 'Kerja sama', kind: 'rating', weight: 20 }])]);
+  periodId = await val(`insert into hr_appraisal_periods (company_id, name, start_date, end_date) values ($1, 'Q4', current_date - 30, current_date + 30) returning id`, [company1]);
+  const res = await val(`select hr_appraisal_start($1)`, [periodId]);
+  assert(res.created >= 3, JSON.stringify(res));
+  const andi = await one(`select id, template_name, status, reviewer_id from hr_appraisals where period_id = $1 and employee_id = $2`, [periodId, empAndi]);
+  assert(andi.template_name === 'Kasir' && andi.status === 'self' && andi.reviewer_id === U6, JSON.stringify(andi));
+  apprAndi = andi.id;
+  assert((await val(`select status from hr_appraisals where period_id = $1 and employee_id = (select id from hr_employees where full_name = 'Siti Aminah')`, [periodId])) === 'manager', 'tanpa akun langsung ke atasan');
+  assert((await val(`select hr_appraisal_start($1)`, [periodId])).created === 0, 'tidak dobel');
+  await loginAs(KASIR);
+  await expectError(`select hr_appraisal_start($1)`, [periodId], /izin/);
+  await expectError(`insert into hr_appraisal_templates (company_id, name) values ($1, 'x')`, [company1], /row-level security/);
+});
+await check('Penilaian: diri sendiri -> atasan langsung (metrik otomatis) -> karyawan konfirmasi; nilai atasan tersembunyi sebelum dikirim', async () => {
+  await loginAs(KASIR);
+  const mine = await val(`select hr_my_appraisals()`);
+  assert(mine.some((m) => m.id === apprAndi && m.access === 'self') && (await val(`select hr_appraisal_todo_count()`)) >= 1, JSON.stringify(mine));
+  assert((await val(`select count(*)::int from hr_appraisals`)) === 0, 'kasir membaca tabel langsung');
+  await expectError(`select hr_appraisal_submit_manager($1, '{}'::jsonb, null, null, null)`, [apprAndi], /bukan penilai/);
+  await db.query(`select hr_appraisal_submit_self($1, $2::jsonb, 'Saya sudah berusaha')`, [apprAndi, JSON.stringify({ layan: { score: 5 }, tim: { score: 4 } })]);
+  await expectError(`select hr_appraisal_submit_self($1, '{}'::jsonb)`, [apprAndi], /sudah dikirim/);
+  await loginAs(U6);   // atasan langsung
+  assert((await val(`select hr_my_appraisals()`)).some((m) => m.id === apprAndi && m.access === 'reviewer'), 'atasan melihat');
+  const d = await val(`select hr_appraisal_detail($1)`, [apprAndi]);
+  assert(d.self_scores.layan.score === 5 && d.live_metrics.attendance.scheduled >= 1, JSON.stringify(d.live_metrics));
+  await expectError(`select hr_appraisal_submit_manager($1, $2::jsonb, null, null, null)`, [apprAndi, JSON.stringify({ layan: { score: 4 } })], /wajib dinilai/);
+  const r = await val(`select hr_appraisal_submit_manager($1, $2::jsonb, 'Ramah', 'Datang lebih pagi', 'Belajar latte art')`, [apprAndi, JSON.stringify({ layan: { score: 4 }, tim: { score: 4 } })]);
+  assert(r.grade && Number(r.score) > 0, JSON.stringify(r));
+  await loginAs(KASIR);
+  const mineDone = await val(`select hr_appraisal_detail($1)`, [apprAndi]);
+  assert(mineDone.status === 'acknowledge' && mineDone.grade === r.grade && mineDone.goals === 'Belajar latte art' && mineDone.metrics.attendance, JSON.stringify(mineDone).slice(0, 300));
+  await db.query(`select hr_appraisal_acknowledge($1, 'Terima kasih, siap')`, [apprAndi]);
+  await loginAs(U1);
+  const ov = await val(`select hr_appraisal_overview($1)`, [periodId]);
+  assert(ov.find((x) => x.id === apprAndi).status === 'done', JSON.stringify(ov));
+  await db.query(`select hr_appraisal_reopen($1)`, [apprAndi]);
+  assert((await val(`select status from hr_appraisals where id = $1`, [apprAndi])) === 'manager', 'buka lagi');
+  await loginAs(U4b);
+  assert((await val(`select hr_appraisal_detail($1)`, [apprAndi])) === null && (await val(`select hr_my_appraisals()`)).length === 0, 'bocor ke PT lain');
+});
+await check('Penilaian: karyawan tidak melihat nilai atasan sebelum dikirim', async () => {
+  // dibuka lagi -> status manager: nilai atasan disembunyikan dari karyawan
+  await loginAs(KASIR);
+  const d = await val(`select hr_appraisal_detail($1)`, [apprAndi]);
+  assert(d.status === 'manager' && !('manager_scores' in d) && !('grade' in d) && !('live_metrics' in d && d.live_metrics), JSON.stringify(Object.keys(d)));
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
