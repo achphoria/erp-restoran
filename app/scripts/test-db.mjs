@@ -2013,6 +2013,49 @@ await check('produksi bisa wajib approval: manajer -> menunggu; penyetuju (tanpa
   await journalBalanced();
 });
 
+console.log('\nAkses branch & role template:');
+const U10 = '10101010-1010-1010-1010-101010101010';
+await check('role template dibuat sekali (tidak dobel); HO default semua branch', async () => {
+  await loginAs(U1);
+  const n = await val(`select sys_create_role_templates()`);
+  assert(n === 11, `template ${n}`);
+  assert((await val(`select sys_create_role_templates()`)) === 0, 'dobel');
+  assert((await val(`select default_outlet_scope from sys_roles where code = 'finance' and company_id = $1`, [company1])) === 'all', 'scope finance');
+});
+await check('user terkunci di 1 branch hanya melihat & mengubah data branch itu', async () => {
+  const role = await val(`select id from sys_roles where code = 'store_manager' and company_id = $1`, [company1]);
+  await db.exec(`reset role; insert into auth.users values ('${U10}', 'sm.sc@staff.santap.local')`);
+  await db.query(`select sys_register_staff_user($1, $2, 'sm.sc', 'Store Manager SC', $3, array[$4]::uuid[], $5)`, [U10, company1, role, sc, U1]);
+  await loginAs(U10);
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me.outlets.length === 1 && me.outlets[0].id === sc && me.outlet_scope === 'selected', JSON.stringify(me.outlets));
+  const seen = await one(`select
+    (select count(*)::int from pos_orders where outlet_id = $1) main_orders,
+    (select count(*)::int from inv_stocks s join inv_warehouses w on w.id = s.warehouse_id where w.outlet_id = $1) main_stocks,
+    (select count(*)::int from inv_stocks s join inv_warehouses w on w.id = s.warehouse_id where w.outlet_id = $2) sc_stocks,
+    (select count(*)::int from sal_sales_orders where outlet_id = $2 or buyer_outlet_id = $2) sc_so,
+    (select count(*)::int from rpt_stock_balances where warehouse_id = $3) main_report`, [outletId, sc, await mainWh()]);
+  assert(seen.main_orders === 0 && seen.main_stocks === 0 && seen.main_report === 0 && seen.sc_stocks > 0 && seen.sc_so > 0, JSON.stringify(seen));
+  // tidak bisa membuat dokumen stok untuk gudang branch lain
+  await expectError(`insert into inv_stock_adjustments (company_id, warehouse_id, adjustment_type) values ($1, $2, 'adjustment')`, [company1, await mainWh()], /row-level security/);
+  await db.query(`insert into inv_stock_adjustments (company_id, warehouse_id, adjustment_type) values ($1, $2, 'adjustment')`, [company1, ck]);
+  // POS juga terkunci
+  await expectError(`select pos_save_order($1::jsonb)`, [JSON.stringify({ outlet_id: outletId, sales_channel: 'takeaway', items: [{ menu_item_id: await menuId('MNM01') }] })], /akses ke outlet/);
+});
+await check('akses semua branch: lihat semua outlet termasuk branch baru', async () => {
+  await loginAs(U1);
+  const role = await val(`select id from sys_roles where code = 'store_manager' and company_id = $1`, [company1]);
+  await expectError(`select sys_set_user_access($1, $2, 'selected', array[]::uuid[])`, [U10, role], /minimal 1 branch/);
+  await db.query(`select sys_set_user_access($1, $2, 'all', array[]::uuid[])`, [U10, role]);
+  const n = await val(`select sys_create_outlet('OUT09', 'Cabang Baru')`);
+  await loginAs(U10);
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me.outlet_scope === 'all' && me.outlets.some((o) => o.id === n.id) && me.outlets.some((o) => o.id === outletId), JSON.stringify(me.outlets.length));
+  assert((await val(`select count(*)::int from pos_orders where outlet_id = $1`, [outletId])) > 0, 'order outlet utama tidak terlihat');
+  await loginAs(U1);
+  assert((await val(`select sys_list_users()`)).find((u) => u.id === U10).outlet_scope === 'all', 'daftar user');
+});
+
 console.log('\nNama aplikasi:');
 await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', async () => {
   await loginAs(U1);

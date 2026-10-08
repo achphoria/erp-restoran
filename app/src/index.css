@@ -625,3 +625,12 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .nowrap { white-space: nowrap; }
 .table tr.clickable-row { cursor: pointer; }
 .table tr.clickable-row:hover td { background: rgba(74, 189, 172, 0.06); }
+
+/* Pilihan akses branch */
+.branch-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.branch-option { display: flex; align-items: flex-start; justify-content: flex-start; gap: 10px; text-align: left; white-space: normal; height: auto; padding: 10px 12px; }
+.branch-option > svg { flex-shrink: 0; margin-top: 2px; color: var(--text-muted); }
+.branch-option span { display: grid; gap: 2px; }
+.branch-option small { font-weight: 400; color: var(--text-muted); line-height: 1.35; }
+.branch-option.active { border-color: var(--fresh); background: var(--primary-soft); box-shadow: 0 0 0 2px var(--primary-soft); }
+.branch-option.active > svg, .branch-option.active b { color: var(--primary); }
