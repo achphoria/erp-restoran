@@ -1,0 +1,100 @@
+<!-- SEMAR: template email "Confirm signup" untuk Supabase Auth.
+     Pasang di Supabase Dashboard > Authentication > Emails > Confirm signup.
+     Subject: Konfirmasi email Anda · SEMAR
+     Variabel Supabase: {{ .ConfirmationURL }} = link konfirmasi, {{ .Email }} = email pendaftar -->
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Konfirmasi email Anda · SEMAR</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f3f6; font-family:'Plus Jakarta Sans', Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1d2433;">
+  <!-- teks pratinjau di daftar inbox -->
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">Satu langkah lagi untuk mengaktifkan akun usaha Anda di SEMAR.</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f3f6;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px; background:#ffffff; border-radius:20px; overflow:hidden; border:1px solid #dfdce3;">
+
+          <!-- kepala: kelir hijau dengan logo gunungan -->
+          <tr>
+            <td align="center" bgcolor="#1F7F72" style="background:#1F7F72; background-image:linear-gradient(135deg,#1F7F72,#0F3D37); padding:32px 24px 28px;">
+              <img src="https://achphoria.github.io/erp-restoran/email-logo.png" width="64" height="64" alt="SEMAR" style="display:block; border:0; border-radius:16px;">
+              <div style="margin-top:14px; font-size:24px; font-weight:800; letter-spacing:4px; color:#ffffff;">SEMAR</div>
+              <div style="margin-top:4px; font-size:12px; color:#cdeee8;">Sistem ERP, Manajemen, Akuntansi &amp; Restoran</div>
+            </td>
+          </tr>
+          <tr><td style="height:5px; line-height:5px; font-size:0; background:#F7B733;">&nbsp;</td></tr>
+
+          <!-- isi -->
+          <tr>
+            <td style="padding:32px 32px 8px;">
+              <h1 style="margin:0 0 10px; font-size:22px; line-height:1.3; color:#1d2433;">Sugeng rawuh, juragan! 🙏</h1>
+              <p style="margin:0 0 14px; font-size:15px; line-height:1.65; color:#4b5266;">
+                Terima kasih sudah mendaftarkan usaha di <b style="color:#1d2433;">SEMAR</b>.
+                Satu langkah lagi: konfirmasi email <b style="color:#1d2433;">{{ .Email }}</b> supaya akun Anda aktif.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:8px 32px 24px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#E2410F" style="border-radius:12px;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank"
+                       style="display:inline-block; padding:14px 28px; font-size:16px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px;">
+                      Konfirmasi email saya
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- langkah berikutnya -->
+          <tr>
+            <td style="padding:0 32px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e3f5f2; border-radius:14px;">
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <div style="font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#1F7F72; margin-bottom:8px;">Setelah konfirmasi</div>
+                    <div style="font-size:14px; line-height:1.8; color:#1d2433;">
+                      <b style="color:#1F7F72;">1.</b> Isi nama usaha &amp; outlet pertama Anda<br>
+                      <b style="color:#1F7F72;">2.</b> Atur menu, harga, dan stok bahan<br>
+                      <b style="color:#1F7F72;">3.</b> Buatkan akun untuk kasir &amp; tim Anda
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- link cadangan -->
+          <tr>
+            <td style="padding:20px 32px 28px;">
+              <p style="margin:0 0 6px; font-size:12.5px; line-height:1.6; color:#6a6f7e;">Tombol tidak bisa diklik? Salin link ini ke browser:</p>
+              <p style="margin:0; font-size:12px; line-height:1.5; word-break:break-all;"><a href="{{ .ConfirmationURL }}" style="color:#1F7F72;">{{ .ConfirmationURL }}</a></p>
+              <p style="margin:16px 0 0; font-size:12.5px; line-height:1.6; color:#6a6f7e;">Tidak merasa mendaftar? Abaikan saja email ini, akun tidak akan aktif tanpa konfirmasi.</p>
+            </td>
+          </tr>
+
+          <!-- kaki -->
+          <tr>
+            <td align="center" style="padding:20px 24px 26px; border-top:1px solid #eceaf0; background:#f7f6f9;">
+              <div style="font-size:15px; font-weight:800; color:#1F7F72;">“Urip iku urup.”</div>
+              <div style="margin-top:2px; font-size:12px; color:#a36a00;">Hidup itu menyala: memberi terang bagi sekitarnya.</div>
+              <div style="margin-top:12px; font-size:11.5px; line-height:1.6; color:#8a8f9c;">
+                SEMAR · Abdi setia usaha kuliner<br>
+                Dibuat oleh <b>Achphoria</b> untuk UMKM kuliner Indonesia 🇮🇩
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

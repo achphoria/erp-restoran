@@ -272,6 +272,16 @@ select id, 'developer' from auth.users where email = 'EMAIL_ANDA@contoh.com';
 ```
 Untuk mencabut: `delete from sys_platform_admins where user_id = (select id from auth.users where email = 'EMAIL_ANDA@contoh.com');`
 
+## Email pendaftaran (Supabase Auth)
+Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).
+
+1. **Authentication → URL Configuration**: isi **Site URL** dengan `https://achphoria.github.io/erp-restoran/`
+   dan tambahkan alamat yang sama di **Redirect URLs** (supaya link di email tidak mengarah ke localhost).
+2. **Authentication → Emails → Confirm signup**: isi Subject `Konfirmasi email Anda · SEMAR`, lalu tempel seluruh isi file template ke kolom body.
+3. **Disarankan: Custom SMTP** (Authentication → Emails → SMTP Settings), misalnya Resend atau Brevo.
+   Pengirim bawaan Supabase hanya untuk uji coba: kuotanya sangat kecil dan bisa hanya mengirim ke anggota tim project,
+   sehingga pendaftar sungguhan mungkin tidak menerima email.
+
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir
 - **Fase 5 – Central kitchen & HR**: produksi bahan setengah jadi, absensi, payroll
