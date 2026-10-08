@@ -45,7 +45,7 @@ await db.exec(`
   create role anon nologin;
   create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key, email text);
+  create table auth.users (id uuid primary key, email text, created_at timestamptz default now(), email_confirmed_at timestamptz, last_sign_in_at timestamptz);
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth to anon, authenticated;
@@ -2157,6 +2157,29 @@ await check('akses per brand: user melihat outlet brand-nya, termasuk outlet bar
   assert(await val(`select sys_can_access_outlet($1)`, [o2.id]), 'outlet baru brand tidak bisa diakses');
   assert(!(await val(`select sys_can_access_outlet($1)`, [outletId])), 'outlet brand lain bisa diakses');
   assert((await val(`select count(*)::int from pos_orders where outlet_id = $1`, [outletId])) === 0, 'order brand lain terlihat');
+});
+
+console.log('\nPendaftar baru (console platform):');
+await check('pendaftar: daftar akun, status setup, badge & tandai sudah dilihat', async () => {
+  const U11 = '11111111-0000-0000-0000-000000000011';
+  await loginAs(U1);
+  await expectError(`select sys_platform_signups()`, [], /Platform Admin/);
+  assert((await val(`select sys_platform_new_signups()`)) === 0, 'non-admin harus 0');
+  await db.exec(`reset role; insert into auth.users (id, email) values ('${U11}', 'calon@warung.com')`);
+  await loginAs(U2);
+  const list = await val(`select sys_platform_signups()`);
+  const by = (e) => list.find((x) => x.email === e);
+  assert(by('calon@warung.com')?.status === 'pending' && by('calon@warung.com').is_new, 'pendaftar belum setup');
+  assert(by('owner1@test.com')?.status === 'owner' && by('owner1@test.com').company_name, 'owner');
+  assert(by('pelayan@test.com')?.status === 'staff', 'staf undangan email');
+  assert(!list.some((x) => x.email.endsWith('@staff.santap.local')), 'staf username ikut tampil');
+  assert((await val(`select sys_platform_new_signups()`)) >= 1, 'badge kosong');
+  await db.query(`select sys_platform_mark_signups_seen()`);
+  assert((await val(`select sys_platform_new_signups()`)) === 0, 'badge tidak hilang');
+  await db.exec(`reset role; insert into auth.users (id, email, created_at) values (gen_random_uuid(), 'baru2@warung.com', now() + interval '1 second')`);
+  await loginAs(U2);
+  assert((await val(`select sys_platform_new_signups()`)) === 1, 'pendaftar berikutnya tidak terhitung');
+  assert((await val(`select sys_platform_companies()`)).every((c) => typeof c.is_new === 'boolean'), 'tanda PT baru');
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

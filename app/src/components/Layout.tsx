@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  Network, ScrollText, ServerCog, Settings, ShieldAlert, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  Network, ScrollText, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -17,7 +17,7 @@ import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
 // permission 'platform' = khusus Platform Admin (developer)
-interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' }
+interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
 // "to" boleh membawa ?tab=... supaya menu langsung membuka tab di halaman modul
@@ -108,6 +108,7 @@ const NAV: NavGroup[] = [
   {
     group: 'Platform', icon: ServerCog,
     items: [
+      { to: '/platform?tab=signups', label: 'Pendaftar', icon: UserPlus, permission: 'platform', badge: 'signups' },
       { to: '/platform?tab=companies', label: 'Semua Perusahaan', icon: Building2, permission: 'platform' },
       { to: '/platform?tab=groups', label: 'Grup Usaha', icon: Network, permission: 'platform' },
     ],
@@ -144,6 +145,20 @@ function usePendingApprovals(enabled: boolean) {
   return count;
 }
 
+// Jumlah pendaftar baru untuk Platform Admin (cek berkala; event 'platform-signups-seen' = sudah dibuka)
+function useNewSignups(enabled: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    const refresh = () => rpc<number>('sys_platform_new_signups').then(setCount).catch(() => setCount(0));
+    refresh();
+    const timer = window.setInterval(refresh, 120_000);
+    window.addEventListener('platform-signups-seen', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('platform-signups-seen', refresh); };
+  }, [enabled]);
+  return count;
+}
+
 export default function Layout() {
   const { profile, outlet, setOutletId, can, signOut, switchCompany } = useAuth();
   const location = useLocation();
@@ -155,6 +170,8 @@ export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const pending = usePendingApprovals(!!profile);
+  const signups = useNewSignups(!!profile?.is_platform_admin);
+  const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : 0);
   const current = activeItem(location.pathname, location.search);
   const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
   // accordion: hanya 1 grup terbuka; default = grup halaman yang sedang dibuka
@@ -231,13 +248,14 @@ export default function Layout() {
                         aria-current={item === current ? 'page' : undefined}>
                         <Icon size={20} />
                         <span className="hide-collapsed">{label}</span>
-                        {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
+                        {badgeCount(badge) > 0 && <span className="nav-badge">{badgeCount(badge)}</span>}
                       </Link>
                     );
                   })}
                 </div>
               );
             }
+            const groupBadge = g.items.reduce((n, i) => n + badgeCount(i.badge), 0);
             const isOpen = open === g.group;
             const hasActive = g.group === currentGroup;
             return (
@@ -245,6 +263,7 @@ export default function Layout() {
                 <button type="button" className="nav-group-btn" onClick={() => toggleGroup(g.group)} aria-expanded={isOpen} title={g.group}>
                   <g.icon size={20} className="nav-group-icon" />
                   <span className="hide-collapsed">{g.group}</span>
+                  {!isOpen && groupBadge > 0 && <span className="nav-badge">{groupBadge}</span>}
                   <ChevronRight size={16} className="nav-chevron hide-collapsed" />
                 </button>
                 {isOpen && (
@@ -255,7 +274,7 @@ export default function Layout() {
                         <Link key={to} to={to} className={`nav-sublink ${item === current ? 'active' : ''}`} title={label}
                           aria-current={item === current ? 'page' : undefined}>
                           <span>{label}</span>
-                          {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
+                          {badgeCount(badge) > 0 && <span className="nav-badge">{badgeCount(badge)}</span>}
                         </Link>
                       );
                     })}

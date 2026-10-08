@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Plus, UserMinus, UserPlus } from 'lucide-react';
+import { LogIn, MailCheck, Plus, UserMinus, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../components/Feedback';
 import { rpc } from '../lib/supabase';
@@ -9,31 +9,52 @@ import { useTabParam } from '../lib/useTabParam';
 
 interface CompanyRow {
   id: string; code: string; name: string; is_active: boolean; created_at: string; group_id: string | null; group_name: string | null;
-  users: number; outlets: number; brands: number; owners: string | null; orders_30d: number; last_activity: string | null;
+  users: number; outlets: number; brands: number; owners: string | null; orders_30d: number; last_activity: string | null; is_new?: boolean;
 }
+interface SignupRow {
+  user_id: string; email: string; created_at: string; email_confirmed_at: string | null; last_sign_in_at: string | null;
+  full_name: string | null; company_id: string | null; company_name: string | null; company_active: boolean | null; role_name: string | null;
+  status: 'pending' | 'owner' | 'staff'; is_new: boolean;
+}
+type SignupFilter = 'all' | SignupRow['status'];
+const STATUS: Record<SignupRow['status'], [string, string]> = {
+  pending: ['Belum setup usaha', 'badge-warning'],
+  owner: ['Owner PT', 'badge-success'],
+  staff: ['Staf (undangan email)', 'badge-primary'],
+};
 interface GroupRow {
   id: string; code: string; name: string;
   companies: { id: string; name: string }[];
   members: { user_id: string; full_name: string; email: string | null; home_company: string }[];
 }
-type Tab = 'companies' | 'groups';
+type Tab = 'signups' | 'companies' | 'groups';
 
 // Console Platform: khusus Platform Admin (developer). Status platform admin diberikan lewat SQL Editor.
 export default function PlatformPage() {
   const { profile, switchCompany } = useAuth();
   const { toast, confirm, prompt } = useFeedback();
   const navigate = useNavigate();
-  const [tab, setTab] = useTabParam<Tab>('companies', ['companies', 'groups']);
+  const [tab, setTab] = useTabParam<Tab>('signups', ['signups', 'companies', 'groups']);
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [signups, setSignups] = useState<SignupRow[]>([]);
+  const [signupFilter, setSignupFilter] = useState<SignupFilter>('all');
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
-    const [c, g] = await Promise.all([rpc<CompanyRow[]>('sys_platform_companies'), rpc<GroupRow[]>('sys_platform_groups')]);
+    const [c, g, s] = await Promise.all([
+      rpc<CompanyRow[]>('sys_platform_companies'), rpc<GroupRow[]>('sys_platform_groups'), rpc<SignupRow[]>('sys_platform_signups'),
+    ]);
     setCompanies(c);
     setGroups(g);
+    setSignups(s);
   }, []);
   useEffect(() => { load().catch((e) => toast(errorMessage(e), 'error')); }, [load, toast]);
+  // membuka tab Pendaftar = notifikasi pendaftar baru sudah dibaca (tanda "Baru" tetap tampil sampai halaman dimuat ulang)
+  useEffect(() => {
+    if (tab !== 'signups' || !profile?.is_platform_admin) return;
+    rpc('sys_platform_mark_signups_seen').then(() => window.dispatchEvent(new Event('platform-signups-seen'))).catch(() => undefined);
+  }, [tab, profile?.is_platform_admin]);
 
   const run = async (fn: () => Promise<unknown>, msg?: string) => {
     try {
@@ -78,6 +99,10 @@ export default function PlatformPage() {
   };
 
   const q = search.trim().toLowerCase();
+  const signupCount = (f: SignupFilter) => signups.filter((s) => f === 'all' || s.status === f).length;
+  const shownSignups = signups.filter((s) => (signupFilter === 'all' || s.status === signupFilter)
+    && (!q || [s.email, s.full_name, s.company_name].some((v) => v?.toLowerCase().includes(q))));
+  const newSignups = signups.filter((s) => s.is_new).length;
   const shown = companies.filter((c) => !q || [c.name, c.code, c.owners, c.group_name].some((v) => v?.toLowerCase().includes(q)));
 
   return (
@@ -89,9 +114,55 @@ export default function PlatformPage() {
         </div>
       </div>
       <div className="tabs">
+        <button className={tab === 'signups' ? 'active' : ''} onClick={() => setTab('signups')}>
+          Pendaftar ({signups.length}){newSignups > 0 && <span className="badge badge-danger" style={{ marginLeft: 6 }}>{newSignups} baru</span>}
+        </button>
         <button className={tab === 'companies' ? 'active' : ''} onClick={() => setTab('companies')}>Semua Perusahaan ({companies.length})</button>
         <button className={tab === 'groups' ? 'active' : ''} onClick={() => setTab('groups')}>Grup Usaha ({groups.length})</button>
       </div>
+
+      {tab === 'signups' && (
+        <div className="card table-wrap">
+          <div className="card-header">
+            <h2>Pendaftar</h2>
+            <input placeholder="Cari email, nama, PT…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 260 }} />
+          </div>
+          <div className="choice-list" style={{ marginBottom: 12 }}>
+            {(['all', 'pending', 'owner', 'staff'] as SignupFilter[]).map((f) => (
+              <button key={f} className={signupFilter === f ? 'active' : ''} onClick={() => setSignupFilter(f)}>
+                {f === 'all' ? 'Semua' : STATUS[f][0]} ({signupCount(f)})
+              </button>
+            ))}
+          </div>
+          <table className="table">
+            <thead><tr><th>Akun</th><th>Daftar</th><th>Email</th><th>Login terakhir</th><th>Status</th><th>Perusahaan</th></tr></thead>
+            <tbody>
+              {shownSignups.map((s) => (
+                <tr key={s.user_id}>
+                  <td>
+                    <b>{s.email}</b>{s.is_new && <span className="badge badge-danger" style={{ marginLeft: 6 }}>Baru</span>}
+                    <div className="muted small">{s.full_name ?? 'Belum mengisi nama'}</div>
+                  </td>
+                  <td className="small nowrap">{formatDateTime(s.created_at)}</td>
+                  <td className="small">{s.email_confirmed_at ? <span title={formatDateTime(s.email_confirmed_at)}><MailCheck size={14} style={{ verticalAlign: -2 }} /> Terkonfirmasi</span>
+                    : <span className="muted">Belum konfirmasi</span>}</td>
+                  <td className="small muted nowrap">{s.last_sign_in_at ? formatDateTime(s.last_sign_in_at) : '—'}</td>
+                  <td><span className={`badge ${STATUS[s.status][1]}`}>{STATUS[s.status][0]}</span></td>
+                  <td className="small">
+                    {s.company_name ? <>{s.company_name}{s.company_active === false && <span className="badge" style={{ marginLeft: 6 }}>Nonaktif</span>}
+                      {s.role_name && <div className="muted">{s.role_name}</div>}</> : <span className="muted">—</span>}
+                  </td>
+                </tr>
+              ))}
+              {!shownSignups.length && <tr><td colSpan={6} className="empty">Belum ada pendaftar.</td></tr>}
+            </tbody>
+          </table>
+          <div className="alert alert-info small" style={{ marginTop: 12, marginBottom: 0 }}>
+            <b>Belum setup usaha</b> = sudah daftar email tetapi belum mengisi nama usaha & outlet di halaman awal (atau belum menerima undangan).
+            Staf yang dibuat owner dengan username tidak ditampilkan di sini.
+          </div>
+        </div>
+      )}
 
       {tab === 'companies' && (
         <div className="card table-wrap">
@@ -104,7 +175,7 @@ export default function PlatformPage() {
             <tbody>
               {shown.map((c) => (
                 <tr key={c.id}>
-                  <td><b>{c.name}</b>{c.id === profile.home_company_id && <span className="muted"> (PT Anda)</span>}<div className="muted small">{c.brands} brand · sejak {formatDateTime(c.created_at)}</div></td>
+                  <td><b>{c.name}</b>{c.is_new && <span className="badge badge-danger" style={{ marginLeft: 6 }}>Baru</span>}{c.id === profile.home_company_id && <span className="muted"> (PT Anda)</span>}<div className="muted small">{c.brands} brand · sejak {formatDateTime(c.created_at)}</div></td>
                   <td className="small">{c.owners ?? '—'}</td>
                   <td>
                     <select value={c.group_id ?? ''} aria-label={`Grup ${c.name}`}
