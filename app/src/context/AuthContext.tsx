@@ -13,6 +13,8 @@ interface AuthState {
   /** true bila user punya salah satu permission yang diberikan */
   can: (permission: string | string[]) => boolean;
   refreshProfile: () => Promise<void>;
+  /** pindah PT (grup usaha / mode support). null = kembali ke PT sendiri */
+  switchCompany: (companyId: string | null) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -70,6 +72,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [userId]);
 
+  const switchCompany = useCallback(async (companyId: string | null) => {
+    await rpc('sys_switch_company', { p_company_id: companyId });
+    // outlet tersimpan milik PT lama: kembali ke outlet pertama PT tujuan
+    setOutletIdState(null);
+    try { localStorage.removeItem(OUTLET_KEY); } catch { /* abaikan */ }
+    await refreshProfile();
+  }, [refreshProfile]);
+
   const setOutletId = (id: string) => {
     setOutletIdState(id);
     try {
@@ -96,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, profile, loading, outlet, setOutletId, can, refreshProfile, signOut }}
+      value={{ session, profile, loading, outlet, setOutletId, can, refreshProfile, switchCompany, signOut }}
     >
       {children}
     </AuthContext.Provider>

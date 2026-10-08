@@ -5,15 +5,16 @@ import { useFeedback } from '../Feedback';
 import { errorMessage } from '../../lib/format';
 import { generatePassword, invokeStaffUsers, USERNAME_RE } from '../../lib/staff';
 import { rpc } from '../../lib/supabase';
-import BranchAccessPicker, { type OutletScope } from './BranchAccessPicker';
+import BranchAccessPicker, { accessValid, type OutletScope } from './BranchAccessPicker';
 
 interface Role { id: string; name: string; code: string; permissions: string[]; default_outlet_scope?: OutletScope }
-interface Outlet { id: string; name: string }
+interface Outlet { id: string; name: string; brand_id?: string }
+interface Brand { id: string; name: string; is_active: boolean }
 
 const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined);
 
 // Owner/admin membuat user staf: nama, username, password, role, outlet (tanpa email & tanpa daftar)
-export function CreateStaffUserModal({ roles, outlets, onClose, onDone }: { roles: Role[]; outlets: Outlet[]; onClose: () => void; onDone: (msg: string) => void }) {
+export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onDone }: { roles: Role[]; outlets: Outlet[]; brands?: Brand[]; onClose: () => void; onDone: (msg: string) => void }) {
   const { toast } = useFeedback();
   const staffRoles = roles.filter((r) => !r.permissions.includes('*'));
   const [fullName, setFullName] = useState('');
@@ -22,17 +23,19 @@ export function CreateStaffUserModal({ roles, outlets, onClose, onDone }: { role
   const [roleId, setRoleId] = useState(staffRoles.find((r) => r.code === 'cashier')?.id ?? staffRoles[0]?.id ?? '');
   const [outletIds, setOutletIds] = useState<string[]>(outlets.length === 1 ? [outlets[0].id] : []);
   const [scope, setScope] = useState<OutletScope>(staffRoles.find((r) => r.id === roleId)?.default_outlet_scope ?? 'selected');
+  const [brandIds, setBrandIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ username: string; password: string } | null>(null);
   const uname = username.trim().toLowerCase();
-  const valid = fullName.trim() && USERNAME_RE.test(uname) && password.length >= 8 && roleId && (scope === 'all' || outletIds.length);
+  const valid = fullName.trim() && USERNAME_RE.test(uname) && password.length >= 8 && roleId && accessValid(scope, outletIds, brandIds);
 
   const save = async () => {
     setBusy(true);
     try {
-      const ids = scope === 'all' ? outlets.map((o) => o.id) : outletIds;
+      const ids = scope === 'all' ? outlets.map((o) => o.id)
+        : scope === 'brands' ? outlets.filter((o) => o.brand_id && brandIds.includes(o.brand_id)).map((o) => o.id) : outletIds;
       const r = await invokeStaffUsers<{ username: string; user_id: string }>({ action: 'create', username: uname, password, full_name: fullName.trim(), role_id: roleId, outlet_ids: ids });
-      await rpc('sys_set_user_access', { p_user_id: r.user_id, p_role_id: roleId, p_outlet_scope: scope, p_outlet_ids: ids, p_is_active: true });
+      await rpc('sys_set_user_access', { p_user_id: r.user_id, p_role_id: roleId, p_outlet_scope: scope, p_outlet_ids: ids, p_is_active: true, p_brand_ids: scope === 'brands' ? brandIds : null });
       setCreated({ username: r.username, password });
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -78,7 +81,8 @@ export function CreateStaffUserModal({ roles, outlets, onClose, onDone }: { role
           </select></label>
       </div>
       <div style={{ marginTop: 12 }}>
-        <BranchAccessPicker outlets={outlets} scope={scope} outletIds={outletIds} onChange={(s, ids) => { setScope(s); setOutletIds(ids); }} />
+        <BranchAccessPicker outlets={outlets} brands={brands.filter((b) => b.is_active)} scope={scope} outletIds={outletIds} brandIds={brandIds}
+          onChange={(s, ids, bids) => { setScope(s); setOutletIds(ids); setBrandIds(bids); }} />
       </div>
       <p className="muted small">Tips: pakai pola <b>nama.outlet</b> supaya username unik, mis. <code>andi.pluit</code>. Role Owner tidak bisa diberikan ke staf.</p>
     </Modal>

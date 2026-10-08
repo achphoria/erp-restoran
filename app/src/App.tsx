@@ -22,6 +22,7 @@ const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const SalesPage = lazy(() => import('./pages/SalesPage'));
 const SettlementPage = lazy(() => import('./pages/SettlementPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
+const PlatformPage = lazy(() => import('./pages/PlatformPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
 
@@ -69,6 +70,7 @@ function AppRoutes() {
         <Route path="settings" element={<Guard permission="settings.manage"><SettingsPage section="settings" /></Guard>} />
         <Route path="users" element={<Guard permission={['user.manage', 'settings.manage', 'audit.view']}><SettingsPage section="users" /></Guard>} />
         <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="platform" element={<PlatformPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
