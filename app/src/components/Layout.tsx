@@ -1,12 +1,14 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  ScrollText, Settings, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  Network, ScrollText, ServerCog, Settings, ShieldAlert, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
+import { errorMessage } from '../lib/format';
+import { useFeedback } from './Feedback';
 import { setDocumentTitle } from '../lib/brand';
 import Logo from './Logo';
 import { APPROVAL_DOCS } from './settings/approvalCatalog';
@@ -14,6 +16,7 @@ import Avatar from './Avatar';
 import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
+// permission 'platform' = khusus Platform Admin (developer)
 interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
@@ -96,9 +99,17 @@ const NAV: NavGroup[] = [
     group: 'Pengaturan', icon: Settings,
     items: [
       { to: '/settings?tab=company', label: 'Perusahaan & Logo', icon: Building2, permission: 'settings.manage' },
+      { to: '/settings?tab=brands', label: 'Brand', icon: Tags, permission: 'settings.manage' },
       { to: '/settings?tab=outlets', label: 'Outlet', icon: Store, permission: 'settings.manage' },
       { to: '/settings?tab=payment', label: 'Pembayaran Online', icon: CreditCard, permission: 'settings.manage' },
       { to: '/settings?tab=data', label: 'Data & Backup', icon: DatabaseBackup, permission: '*' },
+    ],
+  },
+  {
+    group: 'Platform', icon: ServerCog,
+    items: [
+      { to: '/platform?tab=companies', label: 'Semua Perusahaan', icon: Building2, permission: 'platform' },
+      { to: '/platform?tab=groups', label: 'Grup Usaha', icon: Network, permission: 'platform' },
     ],
   },
 ];
@@ -134,8 +145,10 @@ function usePendingApprovals(enabled: boolean) {
 }
 
 export default function Layout() {
-  const { profile, outlet, setOutletId, can, signOut } = useAuth();
+  const { profile, outlet, setOutletId, can, signOut, switchCompany } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { toast } = useFeedback();
   const [pinned, setPinned] = useState(readPinned);
   // halaman lebar (page-sheet) menyesuaikan lebar sidebar
   useEffect(() => { document.body.classList.toggle('sidebar-pinned', pinned); }, [pinned]);
@@ -163,7 +176,20 @@ export default function Layout() {
     });
   };
 
-  const groups = NAV.map((g) => ({ ...g, items: g.items.filter((i) => can(i.permission)) })).filter((g) => g.items.length);
+  const allowed = (i: NavItem) => (i.permission === 'platform' ? !!profile?.is_platform_admin : can(i.permission));
+  const groups = NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length);
+
+  // PT yang bisa dipindah: PT sendiri + PT grup (+ PT yang sedang dimasuki mode support)
+  const companies = [...(profile?.companies ?? [])];
+  if (profile && !companies.some((c) => c.id === profile.company_id)) companies.push({ id: profile.company_id, name: profile.company_name, group_name: null });
+  const changeCompany = async (id: string | null) => {
+    try {
+      await switchCompany(id === profile?.home_company_id ? null : id);
+      navigate('/');
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
 
   return (
     <div className={`app-shell ${pinned ? 'sidebar-pinned' : ''} ${drawerOpen ? 'drawer-open' : ''}`}>
@@ -242,6 +268,11 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar-footer">
+          {companies.length > 1 && (
+            <select className="hide-collapsed" value={profile?.company_id} onChange={(e) => changeCompany(e.target.value)} aria-label="Perusahaan aktif">
+              {companies.map((c) => <option key={c.id} value={c.id}>🏢 {c.name}{c.id === profile?.home_company_id ? ' (PT saya)' : ''}</option>)}
+            </select>
+          )}
           {profile && profile.outlets.length > 1 && (
             <select className="hide-collapsed" value={outlet?.id} onChange={(e) => setOutletId(e.target.value)} aria-label="Outlet aktif">
               {profile.outlets.map((o) => <option key={o.id} value={o.id}>📍 {o.name}</option>)}
@@ -260,7 +291,18 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main" key={profile?.company_id}>
+        {profile?.acting_mode && (
+          <div className={`acting-banner ${profile.acting_mode}`}>
+            <ShieldAlert size={18} />
+            <span>
+              {profile.acting_mode === 'support'
+                ? <>Mode support: Anda masuk ke <b>{profile.company_name}</b> sebagai Platform support. Semua perubahan dicatat di log aktivitas PT ini.</>
+                : <>Anda di <b>{profile.company_name}</b>{profile.group_name ? ` (grup ${profile.group_name})` : ''} sebagai Pemilik grup.</>}
+            </span>
+            <button className="btn-sm" onClick={() => changeCompany(null)}>Kembali ke {profile.home_company_name ?? 'PT saya'}</button>
+          </div>
+        )}
         <Suspense fallback={<div className="grid">{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 90 }} />)}</div>}>
           <Outlet />
         </Suspense>

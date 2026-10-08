@@ -2065,5 +2065,99 @@ await check('nama aplikasi bisa diatur & muncul di profil (kosong = default)', a
   await expectError(`update sys_companies set app_name = '   ' where id = $1`, [company1], /check/);
 });
 
+console.log('\nPlatform admin, grup usaha & brand:');
+const U4b = '44444444-4444-4444-4444-444444444444';
+let company2, company4;
+await check('owner/staf biasa tidak bisa console platform, pindah PT, atau jadi platform admin', async () => {
+  await db.exec('reset role');
+  company2 = await val(`select company_id from sys_users where id = $1`, [U2]);
+  company4 = await val(`select company_id from sys_users where id = $1`, [U4b]);
+  for (const u of [U1, U7]) {
+    await loginAs(u);
+    await expectError(`select sys_platform_companies()`, [], /Platform Admin/);
+    await expectError(`select sys_switch_company($1)`, [company2], /tidak punya akses/);
+  }
+  await expectError(`insert into sys_platform_admins (user_id) values ($1)`, [U7], /row-level security/);
+  await loginAs(U1);
+  await expectError(`insert into sys_platform_admins (user_id) values ($1)`, [U1], /row-level security/);
+  assert((await val(`select sys_get_my_profile()`)).is_platform_admin === false, 'bukan platform admin');
+});
+await check('platform admin (diberi lewat SQL) masuk PT lain mode support, akses penuh & tercatat', async () => {
+  await db.exec('reset role');
+  await db.query(`insert into sys_platform_admins (user_id, note) values ($1, 'developer')`, [U2]);
+  await loginAs(U2);
+  const list = await val(`select sys_platform_companies()`);
+  assert(list.length >= 3 && list.some((c) => c.id === company1 && c.owners.includes('owner1@test.com') && c.outlets > 1), JSON.stringify(list[0]));
+  const me0 = await val(`select sys_get_my_profile()`);
+  assert(me0.is_platform_admin && me0.company_id === company2 && me0.acting_mode === null, JSON.stringify(me0.acting_mode));
+  assert((await val(`select sys_switch_company($1)`, [company1])).mode === 'support', 'mode');
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me.company_id === company1 && me.role_name === 'Platform support' && me.permissions[0] === '*'
+    && me.outlets.length > 1 && me.home_company_id === company2, JSON.stringify({ c: me.company_name, r: me.role_name }));
+  assert((await val(`select count(*)::int from pos_orders`)) > 0, 'order PT tujuan tidak terlihat');
+  await db.query(`update sys_companies set phone = '0800111' where id = $1`, [company1]);
+  const log = await one(`select user_name from sys_activity_logs where company_id = $1 and entity_type = 'sys_companies' and action = 'update' order by id desc limit 1`, [company1]);
+  assert(log.user_name.endsWith('(Platform support)'), log.user_name);
+  assert((await val(`select count(*)::int from sys_activity_logs where company_id = $1 and action = 'support_enter'`, [company1])) === 1, 'masuk tidak tercatat');
+  await db.query(`select sys_switch_company(null)`);
+  const back = await val(`select sys_get_my_profile()`);
+  assert(back.company_id === company2 && back.acting_mode === null, 'tidak kembali');
+  assert((await val(`select count(*)::int from pos_orders`)) === 0, 'masih melihat data PT lain');
+});
+await check('grup usaha: pemilik grup pindah antar PT di grupnya saja', async () => {
+  await loginAs(U2);
+  const g = await val(`select sys_platform_save_group(null, 'grp1', 'Achphoria Group')`);
+  await db.query(`select sys_platform_set_company_group($1, $2)`, [company1, g]);
+  await db.query(`select sys_platform_set_company_group($1, $2)`, [company2, g]);
+  await db.query(`select sys_platform_add_group_member($1, 'OWNER1@test.com')`, [g]);
+  await expectError(`select sys_platform_add_group_member($1, 'tidakada@test.com')`, [g], /belum terdaftar/);
+  const grp = (await val(`select sys_platform_groups()`)).find((x) => x.id === g);
+  assert(grp.code === 'GRP1' && grp.companies.length === 2 && grp.members.length === 1, JSON.stringify(grp));
+  await loginAs(U1);
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me.companies.length === 2 && me.group_name === 'Achphoria Group', JSON.stringify(me.companies));
+  assert((await val(`select sys_switch_company($1)`, [company2])).mode === 'group', 'mode grup');
+  const me2 = await val(`select sys_get_my_profile()`);
+  assert(me2.company_id === company2 && me2.role_name === 'Pemilik grup', me2.role_name);
+  assert((await val(`select name from sys_companies`)) === 'Kedai Lain', 'bukan PT tujuan');
+  await db.query(`insert into sys_brands (company_id, code, name) values ($1, 'GRPX', 'Brand Dari Grup')`, [company2]);
+  assert((await val(`select user_name from sys_activity_logs where company_id = $1 and entity_type = 'sys_brands' order by id desc limit 1`, [company2])).endsWith('(Pemilik grup)'), 'log grup');
+  await expectError(`select sys_switch_company($1)`, [company4], /tidak punya akses/);
+  // dikeluarkan dari grup = otomatis kembali ke PT sendiri
+  await loginAs(U2);
+  await db.query(`select sys_platform_remove_group_member($1, $2)`, [g, U1]);
+  await loginAs(U1);
+  assert((await val(`select sys_get_my_profile()`)).company_id === company1, 'masih di PT grup');
+  await expectError(`select sys_switch_company($1)`, [company2], /tidak punya akses/);
+});
+await check('PT dinonaktifkan platform: user-nya tidak bisa masuk', async () => {
+  await loginAs(U2);
+  await db.query(`select sys_platform_set_company_active($1, false)`, [company4]);
+  await loginAs(U4b);
+  assert((await val(`select sys_get_my_profile()`)) === null, 'masih bisa masuk');
+  assert((await val(`select count(*)::int from fin_accounts`)) === 0, 'masih bisa lihat data');
+  await loginAs(U2);
+  await db.query(`select sys_platform_set_company_active($1, true)`, [company4]);
+  await loginAs(U4b);
+  assert((await val(`select sys_get_my_profile()`)) !== null, 'tidak aktif lagi');
+});
+await check('akses per brand: user melihat outlet brand-nya, termasuk outlet baru brand itu', async () => {
+  await loginAs(U1);
+  const b2 = await val(`insert into sys_brands (company_id, code, name) values ($1, 'BR02', 'Brand Kedua') returning id`, [company1]);
+  const o1 = await val(`select sys_create_outlet('BRD01', 'Outlet Brand Kedua', null, $1)`, [b2]);
+  assert(o1.brand_id === b2, 'brand outlet');
+  const role = await val(`select id from sys_roles where code = 'store_manager' and company_id = $1`, [company1]);
+  await expectError(`select sys_set_user_access($1, $2, 'brands', array[]::uuid[], true, array[]::uuid[])`, [U10, role], /minimal 1 brand/);
+  await db.query(`select sys_set_user_access($1, $2, 'brands', array[]::uuid[], true, array[$3]::uuid[])`, [U10, role, b2]);
+  const o2 = await val(`select sys_create_outlet('BRD02', 'Outlet Brand Kedua Baru', null, $1)`, [b2]);
+  assert((await val(`select sys_list_users()`)).find((u) => u.id === U10).brand_ids[0] === b2, 'daftar user');
+  await loginAs(U10);
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me.outlet_scope === 'brands' && me.outlets.length === 2 && me.outlets.some((o) => o.id === o2.id), JSON.stringify(me.outlets));
+  assert(await val(`select sys_can_access_outlet($1)`, [o2.id]), 'outlet baru brand tidak bisa diakses');
+  assert(!(await val(`select sys_can_access_outlet($1)`, [outletId])), 'outlet brand lain bisa diakses');
+  assert((await val(`select count(*)::int from pos_orders where outlet_id = $1`, [outletId])) === 0, 'order brand lain terlihat');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

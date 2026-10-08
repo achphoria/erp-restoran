@@ -2,6 +2,7 @@ export interface Outlet {
   id: string;
   code: string;
   name: string;
+  brand_id?: string;
 }
 
 export interface Profile {
@@ -18,6 +19,16 @@ export interface Profile {
   role_name: string;
   permissions: string[];
   outlets: Outlet[];
+  outlet_scope?: 'all' | 'selected' | 'brands';
+  /** developer / pengelola platform (diberikan lewat SQL) */
+  is_platform_admin?: boolean;
+  /** null = di PT sendiri; 'group' = pemilik grup di PT lain; 'support' = platform admin di PT lain */
+  acting_mode?: 'group' | 'support' | null;
+  home_company_id?: string;
+  home_company_name?: string;
+  group_name?: string | null;
+  /** PT yang bisa dipindah: PT sendiri + PT di grup usaha */
+  companies?: { id: string; name: string; group_name: string | null }[];
 }
 
 export interface MenuCategory {

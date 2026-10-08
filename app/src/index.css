@@ -634,3 +634,9 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .branch-option small { font-weight: 400; color: var(--text-muted); line-height: 1.35; }
 .branch-option.active { border-color: var(--fresh); background: var(--primary-soft); box-shadow: 0 0 0 2px var(--primary-soft); }
 .branch-option.active > svg, .branch-option.active b { color: var(--primary); }
+
+/* banner saat berada di PT lain (pemilik grup / platform support) */
+.acting-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-sm); font-weight: 500; }
+.acting-banner span { flex: 1; min-width: 200px; }
+.acting-banner.support { background: var(--warning-soft); color: var(--warning); border: 1px solid #f5dc9c; }
+.acting-banner.group { background: var(--info-soft); color: var(--info); border: 1px solid #c9dcf2; }

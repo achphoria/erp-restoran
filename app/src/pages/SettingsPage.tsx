@@ -13,19 +13,20 @@ import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
 import ActivityLogTab from '../components/settings/ActivityLogTab';
 import DataToolsTab from '../components/settings/DataToolsTab';
 import { CreateStaffUserModal, ResetPasswordModal } from '../components/settings/StaffUserModal';
-import BranchAccessPicker, { type OutletScope } from '../components/settings/BranchAccessPicker';
+import BranchAccessPicker, { accessValid, type OutletScope } from '../components/settings/BranchAccessPicker';
+import BrandsTab, { type BrandRow } from '../components/settings/BrandsTab';
 
-type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
+type Tab = 'company' | 'users' | 'roles' | 'brands' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
 
 interface Role { id: string; code: string; name: string; permissions: string[]; default_outlet_scope?: OutletScope }
 interface OutletRow {
-  id: string; code: string; name: string; address: string | null; phone: string | null;
+  id: string; code: string; name: string; address: string | null; phone: string | null; brand_id: string;
   tax_rate: number; service_charge_rate: number; rounding_unit: number; is_active: boolean;
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
 }
 interface UserRow {
   id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
-  role_id: string; role_name: string; role_code: string; outlet_ids: string[]; outlet_scope: OutletScope; created_at: string;
+  role_id: string; role_name: string; role_code: string; outlet_ids: string[]; brand_ids: string[]; outlet_scope: OutletScope; created_at: string;
 }
 interface Invitation { id: string; email: string; role_id: string; outlet_ids: string[]; status: string; created_at: string }
 
@@ -66,6 +67,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
     ['approvals', 'Approval Transaksi', can('settings.manage'), 'users'],
     ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage']), 'users'],
     ['company', 'Perusahaan & Logo', can('settings.manage'), 'settings'],
+    ['brands', 'Brand', can('settings.manage'), 'settings'],
     ['outlets', 'Outlet', can('settings.manage'), 'settings'],
     ['payment', 'Pembayaran Online', can('settings.manage'), 'settings'],
     ['data', 'Data & Backup', !!profile?.permissions.includes('*'), 'settings'],
@@ -74,6 +76,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
   const [tab, setTab] = useTabParam<Tab>(visible[0]?.[0] ?? 'company', visible.map(([k]) => k));
   const [roles, setRoles] = useState<Role[]>([]);
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
+  const [brands, setBrands] = useState<BrandRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [error, setError] = useState('');
@@ -81,12 +84,14 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
 
   const load = useCallback(async () => {
     try {
-      const [r, o] = await Promise.all([
+      const [r, o, b] = await Promise.all([
         must(supabase.from('sys_roles').select('*').order('created_at')),
         must(supabase.from('sys_outlets').select('*').order('code')),
+        must(supabase.from('sys_brands').select('*').order('created_at')),
       ]);
       setRoles(r as Role[]);
       setOutlets(o as OutletRow[]);
+      setBrands(b as BrandRow[]);
       if (section === 'users' && can('user.manage')) {
         const [u, i] = await Promise.all([
           rpc<UserRow[]>('sys_list_users'),
@@ -121,7 +126,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
       <div className="page-header">
         <div>
           <h1>{section === 'users' ? 'User Management' : 'Pengaturan'}</h1>
-          <p>{section === 'users' ? 'User & akses branch, role & hak akses, approval transaksi, dan log aktivitas.' : `Perusahaan, outlet, pembayaran online & data · ${profile?.company_name}`}</p>
+          <p>{section === 'users' ? 'User & akses branch, role & hak akses, approval transaksi, dan log aktivitas.' : `Perusahaan, brand, outlet, pembayaran online & data · ${profile?.company_name}`}</p>
         </div>
       </div>
       <div className="tabs">
@@ -132,11 +137,12 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
       {error && <div className="alert alert-error">{error}</div>}
 
       {tab === 'users' && (
-        <UsersTab companyId={companyId} users={users} invitations={invitations} roles={roles} outlets={outlets}
+        <UsersTab companyId={companyId} users={users} invitations={invitations} roles={roles} outlets={outlets} brands={brands}
           currentUserId={profile!.user_id} act={act} />
       )}
       {tab === 'roles' && <RolesTab companyId={companyId} roles={roles} act={act} />}
-      {tab === 'outlets' && <OutletsTab outlets={outlets} act={act} onCreated={refreshProfile} />}
+      {tab === 'brands' && <BrandsTab companyId={companyId} brands={brands} outlets={outlets} act={act} />}
+      {tab === 'outlets' && <OutletsTab outlets={outlets} brands={brands} act={act} onCreated={refreshProfile} />}
       {tab === 'company' && <CompanyTab />}
       {tab === 'approvals' && <ApprovalMatrixTab />}
       {tab === 'payment' && <PaymentGatewayTab />}
@@ -149,8 +155,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
 type Act = (fn: () => Promise<string | void>) => Promise<void>;
 
 // ---------------------------------------------------------------- User & undangan
-function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId, act }: {
-  companyId: string; users: UserRow[]; invitations: Invitation[]; roles: Role[]; outlets: OutletRow[];
+function UsersTab({ companyId, users, invitations, roles, outlets, brands, currentUserId, act }: {
+  companyId: string; users: UserRow[]; invitations: Invitation[]; roles: Role[]; outlets: OutletRow[]; brands: BrandRow[];
   currentUserId: string; act: Act;
 }) {
   const [inviting, setInviting] = useState(false);
@@ -185,6 +191,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
                 <td className="small">{u.username ? <><code>{u.username}</code> <span className="muted">(username)</span></> : u.email}<div className="muted">{u.phone ?? '—'}</div></td>
                 <td><span className="badge badge-primary">{u.role_name}</span></td>
                 <td className="small">{u.outlet_scope === 'all' ? <span className="badge badge-primary">Semua branch</span>
+                  : u.outlet_scope === 'brands' ? <span className="badge badge-primary">Brand: {u.brand_ids.map((id) => brands.find((b) => b.id === id)?.name).filter(Boolean).join(', ')}</span>
                   : u.outlet_ids.length === 1 ? <span title="Terkunci di 1 branch">🔒 {outletNames(u.outlet_ids)}</span> : outletNames(u.outlet_ids) || '-'}</td>
                 <td className="small muted">{u.last_login_at ? formatDateTime(u.last_login_at) : 'Belum pernah'}</td>
                 <td>{u.is_active ? <span className="badge badge-success">Aktif</span> : <span className="badge">Nonaktif</span>}</td>
@@ -244,7 +251,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
           }} />
       )}
 
-      {creating && <CreateStaffUserModal roles={roles} outlets={outlets} onClose={() => setCreating(false)}
+      {creating && <CreateStaffUserModal roles={roles} outlets={outlets} brands={brands} onClose={() => setCreating(false)}
         onDone={(msg) => { setCreating(false); act(async () => msg); }} />}
       {resetting && <ResetPasswordModal user={{ id: resetting.id, full_name: resetting.full_name, username: resetting.username! }}
         onClose={() => setResetting(null)} onDone={(msg) => { setResetting(null); act(async () => msg); }} />}
@@ -254,12 +261,15 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
       )}
 
       {editing && (
-        <UserAccessModal title={`Edit ${editing.full_name}`} roles={roles} outlets={outlets} withActive withScope
+        <UserAccessModal title={`Edit ${editing.full_name}`} roles={roles} outlets={outlets} brands={brands} withActive withScope
           initial={editing}
           onClose={() => setEditing(null)}
-          onSave={async ({ role_id, outlet_ids, is_active, outlet_scope }) => {
+          onSave={async ({ role_id, outlet_ids, brand_ids, is_active, outlet_scope }) => {
             await act(async () => {
-              await rpc('sys_set_user_access', { p_user_id: editing.id, p_role_id: role_id, p_outlet_scope: outlet_scope ?? 'selected', p_outlet_ids: outlet_ids, p_is_active: is_active });
+              await rpc('sys_set_user_access', {
+                p_user_id: editing.id, p_role_id: role_id, p_outlet_scope: outlet_scope ?? 'selected', p_outlet_ids: outlet_ids,
+                p_is_active: is_active, p_brand_ids: outlet_scope === 'brands' ? brand_ids : null,
+              });
               setEditing(null);
               return 'User diperbarui.';
             });
@@ -269,13 +279,14 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
   );
 }
 
-function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive, withScope, onClose, onSave }: {
-  title: string; roles: Role[]; outlets: OutletRow[];
-  initial: { role_id?: string; outlet_ids: string[]; is_active: boolean; outlet_scope?: OutletScope };
+function UserAccessModal({ title, roles, outlets, brands = [], initial, withEmail, withActive, withScope, onClose, onSave }: {
+  title: string; roles: Role[]; outlets: OutletRow[]; brands?: BrandRow[];
+  initial: { role_id?: string; outlet_ids: string[]; brand_ids?: string[]; is_active: boolean; outlet_scope?: OutletScope };
   withEmail?: boolean; withActive?: boolean; withScope?: boolean;
   onClose: () => void;
-  onSave: (v: { email?: string; role_id: string; outlet_ids: string[]; is_active: boolean; outlet_scope?: OutletScope }) => Promise<void>;
+  onSave: (v: { email?: string; role_id: string; outlet_ids: string[]; brand_ids: string[]; is_active: boolean; outlet_scope?: OutletScope }) => Promise<void>;
 }) {
+  const [brandIds, setBrandIds] = useState<string[]>(initial.brand_ids ?? []);
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState(initial.role_id ?? '');
   const [outletIds, setOutletIds] = useState<string[]>(initial.outlet_ids);
@@ -288,10 +299,10 @@ function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive
     <Modal title={title} onClose={onClose}
       footer={<>
         <button onClick={onClose}>Batal</button>
-        <button className="btn-primary" disabled={busy || !roleId || (withEmail && !/^\S+@\S+\.\S+$/.test(email)) || (!isOwnerRole && scope === 'selected' && !outletIds.length)}
+        <button className="btn-primary" disabled={busy || !roleId || (withEmail && !/^\S+@\S+\.\S+$/.test(email)) || (!isOwnerRole && (withScope ? !accessValid(scope, outletIds, brandIds) : !outletIds.length))}
           onClick={async () => {
             setBusy(true);
-            await onSave({ email, role_id: roleId, outlet_ids: outletIds, is_active: isActive, outlet_scope: withScope ? scope : 'selected' });
+            await onSave({ email, role_id: roleId, outlet_ids: outletIds, brand_ids: brandIds, is_active: isActive, outlet_scope: withScope ? scope : 'selected' });
             setBusy(false);
           }}>Simpan</button>
       </>}>
@@ -306,8 +317,8 @@ function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive
           </select>
         </label>
         {withScope ? (
-          <BranchAccessPicker outlets={outlets} scope={scope} outletIds={outletIds} ownerRole={isOwnerRole}
-            onChange={(s, ids) => { setScope(s); setOutletIds(ids); }} />
+          <BranchAccessPicker outlets={outlets} brands={brands.filter((b) => b.is_active)} scope={scope} outletIds={outletIds} brandIds={brandIds} ownerRole={isOwnerRole}
+            onChange={(s, ids, bids) => { setScope(s); setOutletIds(ids); setBrandIds(bids); }} />
         ) : (
           <div>
             <div className="muted small" style={{ marginBottom: 6 }}>Akses outlet {isOwnerRole && '(owner otomatis bisa akses semua)'}</div>
@@ -398,24 +409,24 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
 }
 
 // ---------------------------------------------------------------- Outlet
-function OutletsTab({ outlets, act, onCreated }: { outlets: OutletRow[]; act: Act; onCreated: () => Promise<void> }) {
+function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[]; brands: BrandRow[]; act: Act; onCreated: () => Promise<void> }) {
   const [editing, setEditing] = useState<Partial<OutletRow> | null>(null);
 
   const save = () => act(async () => {
     const e = editing!;
     if (e.id) {
       await must(supabase.from('sys_outlets').update({
-        name: e.name, address: e.address, phone: e.phone, tax_rate: e.tax_rate,
+        name: e.name, brand_id: e.brand_id, address: e.address, phone: e.phone, tax_rate: e.tax_rate,
         service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit, is_active: e.is_active,
         is_qr_order_enabled: e.is_qr_order_enabled, qr_requires_confirmation: e.qr_requires_confirmation,
       }).eq('id', e.id));
     } else {
-      const o = await rpc<OutletRow>('sys_create_outlet', { p_code: e.code, p_name: e.name, p_address: e.address ?? null });
+      const o = await rpc<OutletRow>('sys_create_outlet', { p_code: e.code, p_name: e.name, p_address: e.address ?? null, p_brand_id: e.brand_id ?? null });
       await must(supabase.from('sys_outlets').update({
         phone: e.phone, tax_rate: e.tax_rate, service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit,
       }).eq('id', o.id));
-      await onCreated();
     }
+    await onCreated();
     setEditing(null);
     return 'Outlet disimpan.';
   });
@@ -431,15 +442,16 @@ function OutletsTab({ outlets, act, onCreated }: { outlets: OutletRow[]; act: Ac
     <div className="card table-wrap">
       <div className="card-header">
         <h2>Outlet</h2>
-        <button className="btn-primary" onClick={() => setEditing({ tax_rate: 10, service_charge_rate: 0, rounding_unit: 100, is_active: true })}>+ Outlet Baru</button>
+        <button className="btn-primary" onClick={() => setEditing({ tax_rate: 10, service_charge_rate: 0, rounding_unit: 100, is_active: true, brand_id: brands[0]?.id })}>+ Outlet Baru</button>
       </div>
       <table className="table">
-        <thead><tr><th>Kode</th><th>Nama</th><th>Alamat</th><th className="right">PB1</th><th className="right">Service</th><th className="right">Pembulatan</th><th></th></tr></thead>
+        <thead><tr><th>Kode</th><th>Nama</th><th>Brand</th><th>Alamat</th><th className="right">PB1</th><th className="right">Service</th><th className="right">Pembulatan</th><th></th></tr></thead>
         <tbody>
           {outlets.map((o) => (
             <tr key={o.id}>
               <td>{o.code}</td>
               <td className="bold">{o.name} {!o.is_active && <span className="badge">Nonaktif</span>}</td>
+              <td className="small">{brands.find((b) => b.id === o.brand_id)?.name ?? '—'}</td>
               <td className="small">{o.address}</td>
               <td className="right">{Number(o.tax_rate)}%</td>
               <td className="right">{Number(o.service_charge_rate)}%</td>
@@ -456,6 +468,12 @@ function OutletsTab({ outlets, act, onCreated }: { outlets: OutletRow[]; act: Ac
           <div className="form-grid">
             {field('code', 'Kode (mis. OUT02)', 'text', !!editing.id)}
             {field('name', 'Nama outlet')}
+            <label className="field"><span>Brand</span>
+              <select value={editing.brand_id ?? ''} onChange={(ev) => setEditing({ ...editing, brand_id: ev.target.value })}>
+                {brands.filter((b) => b.is_active || b.id === editing.brand_id).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              {editing.id && <small className="muted">Menu yang tampil di kasir mengikuti brand outlet.</small>}
+            </label>
             {field('address', 'Alamat')}
             {field('phone', 'Telepon')}
             {field('tax_rate', 'Pajak PB1 (%)', 'number')}

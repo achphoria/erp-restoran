@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–026)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–027)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -22,6 +22,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase14.sql`](supabase/update_fase14.sql) (024: data contoh, reset, backup & restore)
   - [`supabase/update_fase15.sql`](supabase/update_fase15.sql) (025: Simple Manufacturing ala ESB)
   - [`supabase/update_fase16.sql`](supabase/update_fase16.sql) (026: akses branch per user + role template)
+  - [`supabase/update_fase17.sql`](supabase/update_fase17.sql) (027: platform admin, grup usaha multi PT, master brand & akses per brand)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -65,7 +66,7 @@ erp-restoran/
 │   │   ├── 007_finance.sql                      COA, jurnal otomatis, biaya, hutang, laporan keuangan
 │   │   ├── 008_crm_promotions.sql               member, poin, level, promo otomatis & voucher
 │   │   └── 009_qr_order.sql                     pesan mandiri lewat QR meja (tanpa login)
-│   ├── setup_all.sql                            gabungan 001–009 (database baru)
+│   ├── setup_all.sql                            gabungan semua migrasi (database baru)
 │   ├── update_fase3.sql                         gabungan 006–007
 │   └── update_fase4.sql                         gabungan 008–009
 └── app/                                         React + Vite + TypeScript
@@ -247,6 +248,26 @@ Alternatif lewat CLI: `supabase functions deploy staff-users`.
   maupun membuat dokumen untuk gudang branch B. Transfer & SO antar cabang terlihat oleh kedua branch.
 - **Pengaturan → Role → Buat role template**: GM, Finance & Accounting, Purchasing, Cost Control, Sales B2B, Marketing, Admin/HR-IT,
   Head Chef CK, Staf Gudang, Store Manager, Supervisor (lengkap dengan hak akses, penyetuju & akses branch default).
+
+## Fase 17: Platform admin, grup usaha (multi PT) & brand
+Tingkatan: **Platform Admin** (developer) → **Grup usaha** → **Perusahaan / PT** → **Brand** → **Outlet / branch**.
+- **Owner & staf biasa** hanya melihat PT-nya sendiri (data antar PT tetap terpisah total).
+- **Platform Admin** (menu *Platform*): melihat semua perusahaan yang memakai aplikasi, membuat grup usaha, memetakan PT ke grup,
+  menonaktifkan / mengaktifkan PT, dan **Masuk** ke PT mana pun (mode support = akses penuh seperti owner).
+  Selama mode support muncul banner kuning, dan semua perubahan tercatat di log aktivitas PT itu dengan tanda *(Platform support)*.
+- **Grup usaha**: beberapa PT dikelompokkan (mapping, bukan merge). *Pemilik grup* bisa pindah antar PT di grupnya
+  lewat pilihan 🏢 perusahaan di sidebar, dengan akses penuh (log ditandai *(Pemilik grup)*).
+  PT baru tetap dibuat lewat daftar biasa, lalu Platform Admin memasukkannya ke grup.
+- **Pengaturan → Brand**: 1 PT bisa punya beberapa brand; setiap outlet dipilih brand-nya (menu kasir mengikuti brand outlet).
+- **Akses per brand** (User Management → Akses): user melihat semua branch milik brand tertentu, termasuk branch baru brand itu.
+
+### Menjadikan akun Anda Platform Admin (sekali, lewat SQL Editor)
+Status Platform Admin sengaja **tidak bisa** diberikan dari aplikasi. Jalankan di Supabase SQL Editor (ganti emailnya):
+```sql
+insert into sys_platform_admins (user_id, note)
+select id, 'developer' from auth.users where email = 'EMAIL_ANDA@contoh.com';
+```
+Untuk mencabut: `delete from sys_platform_admins where user_id = (select id from auth.users where email = 'EMAIL_ANDA@contoh.com');`
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir
