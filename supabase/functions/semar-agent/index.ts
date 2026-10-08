@@ -72,6 +72,13 @@ Aturan penting:
 - company_id diisi otomatis oleh sistem; jangan mengisinya.
 - Pesan yang diawali [Sistem] adalah catatan otomatis dari aplikasi (hasil persetujuan/penolakan usulan).
 
+Pembelian & forecasting:
+- Untuk pertanyaan kebutuhan beli, stok cukup berapa hari, atau saran belanja: pakai analisa_kebutuhan_beli. Jelaskan dengan tabel singkat: bahan, stok, pemakaian/hari, cukup berapa hari, saran beli, supplier & harga terbaik. Sebutkan asumsinya (periode data & target hari).
+- Pilih supplier dengan harga pricelist termurah yang masih berlaku; bila tidak ada pricelist, pakai supplier pembelian terakhir. Sebutkan alasan pilihanmu.
+- Untuk membuat PO pakai usulkan_po: SATU PO = satu supplier + satu gudang (bila beberapa supplier, buat beberapa usulan). Isi supplier_id, gudang_id & item_id dari data (jangan mengarang id), sertakan nama supaya Juragan mudah membaca. Harga boleh dikosongkan, sistem mengisinya dari pricelist/pembelian terakhir.
+- Default PO disimpan sebagai draft (ajukan=false). Set ajukan=true hanya bila Juragan meminta langsung diajukan/disetujui; PO tetap mengikuti matriks approval perusahaan.
+- Jangan pernah bilang PO sudah dibuat sebelum ada pesan [Sistem] bahwa usulan disetujui.
+
 ${GUIDE}`;
 }
 
@@ -106,6 +113,46 @@ export const TOOLS = [
         hanya_jumlah: { type: 'boolean' },
       },
       required: ['tabel'],
+    },
+  },
+  {
+    name: 'analisa_kebutuhan_beli',
+    description: 'Forecast kebutuhan beli per bahan: stok, pemakaian per hari (dari kartu stok), cukup untuk berapa hari, stok minimum, saran beli dalam satuan beli, opsi supplier & harga dari pricelist aktif, dan pembelian terakhir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        gudang_id: { type: 'string', description: 'Kosongkan untuk semua gudang yang bisa diakses' },
+        hari_data: { type: 'integer', minimum: 1, maximum: 180, description: 'Periode data pemakaian (default 14 hari)' },
+        cukup_hari: { type: 'integer', minimum: 1, maximum: 90, description: 'Target stok cukup untuk berapa hari (default 7)' },
+        cari: { type: 'string', description: 'Filter nama/kode bahan' },
+      },
+    },
+  },
+  {
+    name: 'usulkan_po',
+    description: 'Usulkan Purchase Order (pembelian ke supplier). TIDAK langsung dibuat: owner melihat usulan lalu menekan Setujui. Satu PO = satu supplier + satu gudang.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        supplier_id: { type: 'string' }, supplier_nama: { type: 'string' },
+        gudang_id: { type: 'string' }, gudang_nama: { type: 'string' },
+        tanggal_kirim: { type: 'string', description: 'YYYY-MM-DD, opsional' },
+        catatan: { type: 'string' },
+        ajukan: { type: 'boolean', description: 'true = langsung ajukan/setujui (ikut matriks approval); false = draft' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              item_id: { type: 'string' }, nama: { type: 'string' }, unit_id: { type: 'string', description: 'Kosong = satuan beli' },
+              satuan: { type: 'string' }, qty: { type: 'number' }, harga: { type: 'number', description: 'Harga per satuan; kosong = otomatis' },
+            },
+            required: ['item_id', 'qty'],
+          },
+        },
+        ringkasan: { type: 'string', description: 'mis. "PO susu & gula ke CV Susu Segar untuk 7 hari"' },
+      },
+      required: ['supplier_id', 'gudang_id', 'items', 'ringkasan'],
     },
   },
   {
@@ -173,7 +220,28 @@ export async function runReadTool(db: Db, name: string, input: Json): Promise<st
     if (error) return `Gagal membaca: ${error.message}`;
     return input.hanya_jumlah ? JSON.stringify({ jumlah: count }) : clip({ jumlah_total: count, ditampilkan: data?.length ?? 0, baris: data });
   }
+  if (name === 'analisa_kebutuhan_beli') {
+    const { data, error } = await db.rpc('ai_purchase_forecast', {
+      p_warehouse_id: input.gudang_id || null, p_days: input.hari_data ?? 14, p_cover_days: input.cukup_hari ?? 7, p_search: input.cari || null,
+    });
+    if (error) return `Gagal menganalisa: ${error.message}`;
+    return clip(data);
+  }
   return `Alat tidak dikenal: ${name}`;
+}
+
+// usulan PO -> payload fungsi database
+export const poPayload = (input: Json) => ({
+  supplier_id: input.supplier_id, warehouse_id: input.gudang_id, expected_date: input.tanggal_kirim || null,
+  note: input.catatan || null, submit: !!input.ajukan,
+  items: (input.items ?? []).map((i: Json) => ({ item_id: i.item_id, unit_id: i.unit_id || null, qty: i.qty, harga: i.harga ?? null, nama: i.nama })),
+});
+
+// pratinjau PO (dry run): harga terisi otomatis, error ketahuan sebelum owner menyetujui
+export async function previewPo(db: Db, input: Json) {
+  const { data, error } = await db.rpc('ai_create_purchase_order', { p: poPayload(input), p_dry_run: true });
+  if (error) return { error: error.message as string };
+  return { preview: data as Json };
 }
 
 // validasi usulan; kembalikan pesan error (string) atau null bila valid
@@ -268,9 +336,19 @@ async function saveMessages(db: Db, profile: Json, conversationId: string, msgs:
   if (error) throw new Error(`Gagal menyimpan obrolan: ${error.message}`);
 }
 
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po'];
 function findProposal(history: Json[], actionId: string) {
-  for (const m of history) for (const b of m.content as Block[]) if (b.type === 'tool_use' && b.id === actionId && b.name === 'usulkan_perubahan') return b.input as Json;
+  for (const m of history) for (const b of m.content as Block[]) {
+    if (b.type === 'tool_use' && b.id === actionId && PROPOSAL_TOOLS.includes(b.name)) return { name: b.name as string, input: b.input as Json };
+  }
   return null;
+}
+
+export async function executePo(db: Db, input: Json) {
+  const { data, error } = await db.rpc('ai_create_purchase_order', { p: poPayload(input), p_dry_run: false });
+  if (error) return { ok: false, message: error.message as string };
+  const total = new Intl.NumberFormat('id-ID').format(Number(data?.total ?? 0));
+  return { ok: true, message: `PO ${data?.po_number ?? '(draft)'} ${data?.status} · total Rp ${total}`, po: data };
 }
 
 // ---------------------------------------------------------------------------- Claude
@@ -321,10 +399,12 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
 
   if (body.action === 'execute' || body.action === 'reject') {
     const history = await loadHistory(db, conversationId);
-    const proposal = findProposal(history, String(body.action_id));
-    if (!proposal) return { status: 404, body: { error: 'Usulan tidak ditemukan.' } };
+    const found = findProposal(history, String(body.action_id));
+    if (!found) return { status: 404, body: { error: 'Usulan tidak ditemukan.' } };
     if (history.some((m) => m.meta?.action_id === body.action_id)) return { status: 409, body: { error: 'Usulan ini sudah diproses.' } };
-    const result = body.action === 'execute' ? await executeProposal(db, proposal, profile.company_id) : { ok: true, message: 'ditolak owner', count: 0 };
+    const proposal = found.input;
+    const result: Json = body.action !== 'execute' ? { ok: true, message: 'ditolak owner', count: 0 }
+      : found.name === 'usulkan_po' ? await executePo(db, proposal) : await executeProposal(db, proposal, profile.company_id);
     const status = body.action === 'reject' ? 'rejected' : result.ok ? 'executed' : 'failed';
     const note = body.action === 'reject'
       ? `[Sistem] Juragan MENOLAK usulan "${proposal.ringkasan}". Tidak ada data yang berubah.`
@@ -372,7 +452,14 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
     const results: Block[] = [];
     for (const b of assistant.content.filter((x) => x.type === 'tool_use')) {
       try {
-        if (b.name === 'usulkan_perubahan') {
+        if (b.name === 'usulkan_po') {
+          const r = await previewPo(db, b.input ?? {});
+          if (r.error) results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan PO ditolak sistem: ${r.error}`, is_error: true });
+          else {
+            pending.push({ id: b.id, kind: 'po', ...b.input, preview: r.preview });
+            results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan PO #${b.id.slice(-6)} sudah ditampilkan ke Juragan dan MENUNGGU persetujuan. Belum ada PO yang dibuat. PRATINJAU: ${JSON.stringify(r.preview)}` });
+          }
+        } else if (b.name === 'usulkan_perubahan') {
           const err = await validateProposal(db, b.input);
           if (err) results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan ditolak sistem: ${err}`, is_error: true });
           else {

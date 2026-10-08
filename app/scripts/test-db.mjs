@@ -2279,5 +2279,43 @@ await check('landing page hanya menampilkan brand berlogo yang mengizinkan (bisa
   await db.query(`update sys_companies set is_active = true where id = $1`, [company1]);
 });
 
+console.log('\nSemar: forecasting & membuat PO:');
+await check('forecast kebutuhan beli: stok, pemakaian per hari, saran beli & opsi supplier', async () => {
+  await loginAs(U1);
+  const f = await val(`select ai_purchase_forecast(null, 30, 7)`);
+  assert(f.items.length > 0 && f.gudang.length > 0, JSON.stringify(f).slice(0, 200));
+  const used = f.items.find((i) => Number(i.pemakaian_per_hari) > 0);
+  assert(used && used.cukup_untuk_hari !== undefined && used.saran_beli >= 0 && used.satuan_beli && used.unit_id_beli, JSON.stringify(used));
+  assert(f.items.every((i) => Array.isArray(i.opsi_supplier)), 'opsi supplier');
+  await loginAs(U6);
+  await expectError(`select ai_purchase_forecast()`, [], /izin/);
+});
+await check('PO dari Semar: pratinjau tidak menyimpan, draft & diajukan tersimpan dengan harga otomatis', async () => {
+  await loginAs(U1);
+  const sup = await val(`select id from pur_suppliers where code = 'SUP01' and company_id = $1`, [company1]);
+  const wh = await mainWh();
+  const item = await itemId('BHN05');
+  const before = await val(`select count(*)::int from pur_purchase_orders`);
+  const payload = { supplier_id: sup, warehouse_id: wh, items: [{ item_id: item, qty: 2 }] };
+  const prev = await val(`select ai_create_purchase_order($1::jsonb, true)`, [JSON.stringify(payload)]);
+  assert(prev.items.length === 1 && Number(prev.items[0].harga) > 0 && prev.items[0].sumber_harga && Number(prev.total) > 0, JSON.stringify(prev));
+  assert((await val(`select count(*)::int from pur_purchase_orders`)) === before, 'pratinjau menyimpan PO');
+  const draft = await val(`select ai_create_purchase_order($1::jsonb, false)`, [JSON.stringify(payload)]);
+  assert(draft.status === 'draft', JSON.stringify(draft));
+  const po = await one(`select status, note, (select count(*)::int from pur_purchase_order_items where purchase_order_id = p.id) n from pur_purchase_orders p where id = $1`, [draft.id]);
+  assert(po.status === 'draft' && po.n === 1 && /Semar/.test(po.note), JSON.stringify(po));
+  const sent = await val(`select ai_create_purchase_order($1::jsonb, false)`, [JSON.stringify({ ...payload, submit: true })]);
+  assert(['disetujui', 'menunggu persetujuan'].includes(sent.status) && (sent.po_number ?? '').startsWith('PO/'), JSON.stringify(sent));
+  // supplier perusahaan lain & qty 0 ditolak
+  await db.exec('reset role');
+  const other = (await one(`select id from pur_suppliers where company_id <> $1 limit 1`, [company1]))?.id;
+  await loginAs(U1);
+  if (other) await expectError(`select ai_create_purchase_order($1::jsonb, true)`, [JSON.stringify({ ...payload, supplier_id: other })], /Supplier tidak ditemukan/);
+  await expectError(`select ai_create_purchase_order($1::jsonb, true)`, [JSON.stringify({ ...payload, items: [{ item_id: item, qty: 0 }] })], /lebih dari 0/);
+  // kasir/pelayan tidak boleh membuat PO
+  await loginAs(U6);
+  await expectError(`select ai_create_purchase_order($1::jsonb, true)`, [JSON.stringify(payload)], /izin/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
