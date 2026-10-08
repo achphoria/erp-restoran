@@ -48,6 +48,8 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'user.manage', label: 'Kelola user & role', group: 'Admin' },
   { key: 'settings.manage', label: 'Kelola perusahaan, outlet, approval & pembayaran online', group: 'Admin' },
   { key: 'audit.view', label: 'Lihat log aktivitas', group: 'Admin' },
+  { key: 'hr.view', label: 'Lihat data karyawan', group: 'SDM / HR' },
+  { key: 'hr.manage', label: 'Kelola karyawan, jabatan & pengumuman', group: 'SDM / HR' },
   { key: 'approval.purchase_order', label: 'Menyetujui purchase order', group: 'Persetujuan' },
   { key: 'approval.expense', label: 'Menyetujui biaya operasional', group: 'Persetujuan' },
   { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
@@ -78,6 +80,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [brands, setBrands] = useState<BrandRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [staff, setStaff] = useState<{ full_name: string; employee_number: string; user_id: string }[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [error, setError] = useState('');
   const setNotice = useNotice();
@@ -98,6 +101,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
           must(supabase.from('sys_user_invitations').select('*').eq('status', 'pending').order('created_at', { ascending: false })),
         ]);
         setUsers(u);
+        // karyawan yang tertaut ke akun (data orang dikelola di SDM / HR)
+        if (can(['hr.view', 'hr.manage'])) setStaff(await must(supabase.from('hr_employees').select('full_name, employee_number, user_id').not('user_id', 'is', null)));
         setInvitations(i as Invitation[]);
       }
     } catch (e) {
@@ -137,7 +142,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
       {error && <div className="alert alert-error">{error}</div>}
 
       {tab === 'users' && (
-        <UsersTab companyId={companyId} users={users} invitations={invitations} roles={roles} outlets={outlets} brands={brands}
+        <UsersTab companyId={companyId} users={users} staff={staff} invitations={invitations} roles={roles} outlets={outlets} brands={brands}
           currentUserId={profile!.user_id} act={act} />
       )}
       {tab === 'roles' && <RolesTab companyId={companyId} roles={roles} act={act} />}
@@ -155,7 +160,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
 type Act = (fn: () => Promise<string | void>) => Promise<void>;
 
 // ---------------------------------------------------------------- User & undangan
-function UsersTab({ companyId, users, invitations, roles, outlets, brands, currentUserId, act }: {
+function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, brands, currentUserId, act }: {
+  staff?: { full_name: string; employee_number: string; user_id: string }[];
   companyId: string; users: UserRow[]; invitations: Invitation[]; roles: Role[]; outlets: OutletRow[]; brands: BrandRow[];
   currentUserId: string; act: Act;
 }) {
@@ -185,7 +191,10 @@ function UsersTab({ companyId, users, invitations, roles, outlets, brands, curre
                 <td>
                   <div className="row" style={{ flexWrap: 'nowrap' }}>
                     <Avatar name={u.full_name} src={u.avatar_url} size={36} />
-                    <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
+                    <span>
+                      <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
+                      {(() => { const st = staff.find((x) => x.user_id === u.id); return st ? <div className="muted small">👤 {st.employee_number} · data karyawan</div> : null; })()}
+                    </span>
                   </div>
                 </td>
                 <td className="small">{u.username ? <><code>{u.username}</code> <span className="muted">(username)</span></> : u.email}<div className="muted">{u.phone ?? '—'}</div></td>

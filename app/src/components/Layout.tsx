@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  Network, ScrollText, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  IdCard, Megaphone, UserRound, Network, ScrollText, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -16,7 +16,7 @@ import Avatar from './Avatar';
 import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
-// permission 'platform' = khusus Platform Admin (developer)
+// permission 'platform' = khusus Platform Admin (developer); 'self' = semua user yang login
 interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
@@ -25,6 +25,7 @@ const NAV: NavGroup[] = [
   {
     group: 'Ringkasan', icon: LayoutDashboard, flat: true,
     items: [
+      { to: '/saya', label: 'Beranda Saya', icon: UserRound, permission: 'self' },
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
       { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
     ],
@@ -84,6 +85,14 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/finance', label: 'Keuangan', icon: Wallet, permission: ['finance.view', 'finance.manage'] },
       { to: '/reports', label: 'Laporan', icon: BarChart3, permission: 'report.view' },
+    ],
+  },
+  {
+    group: 'SDM / HR', icon: IdCard,
+    items: [
+      { to: '/hr?tab=employees', label: 'Karyawan', icon: Users, permission: ['hr.view', 'hr.manage'] },
+      { to: '/hr?tab=structure', label: 'Jabatan & Departemen', icon: Network, permission: 'hr.manage' },
+      { to: '/hr?tab=announcements', label: 'Pengumuman', icon: Megaphone, permission: 'hr.manage' },
     ],
   },
   {
@@ -207,7 +216,7 @@ export default function Layout() {
     });
   };
 
-  const allowed = (i: NavItem) => (i.permission === 'platform' ? !!profile?.is_platform_admin : can(i.permission));
+  const allowed = (i: NavItem) => (i.permission === 'self' ? !!profile : i.permission === 'platform' ? !!profile?.is_platform_admin : can(i.permission));
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length);
 
   // PT yang bisa dipindah: PT sendiri + PT grup (+ PT yang sedang dimasuki mode support)
