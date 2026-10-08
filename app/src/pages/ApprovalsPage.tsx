@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeCheck, Check, X } from 'lucide-react';
+import { BadgeCheck, CalendarHeart, Check, X } from 'lucide-react';
 import { APPROVAL_DOCS } from '../components/settings/approvalCatalog';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../components/Feedback';
@@ -13,7 +13,9 @@ interface ApprovalRequest {
   decider: { full_name: string } | null;
 }
 
-const DOC_TYPES = APPROVAL_DOCS;
+// cuti & izin: penyetuju diatur di Role & Hak Akses (approval.leave), jumlahnya hari, bukan rupiah
+const DOC_TYPES: Record<string, { label: string; icon: typeof BadgeCheck }> = { ...APPROVAL_DOCS, leave: { label: 'Cuti & Izin', icon: CalendarHeart } };
+const amountText = (r: { document_type: string; amount: number }) => (r.document_type === 'leave' ? `${Number(r.amount).toLocaleString('id-ID')} hari` : formatRupiah(r.amount));
 
 const STATUS: Record<string, [string, string]> = {
   pending: ['Menunggu', 'badge-warning'],
@@ -63,7 +65,7 @@ export default function ApprovalsPage() {
   const decide = async (r: ApprovalRequest, approve: boolean) => {
     let note: string | null = null;
     if (approve) {
-      if (!(await confirm({ title: 'Setujui permintaan?', message: <>{r.title}<br /><b>{formatRupiah(r.amount)}</b><br />Aksi akan langsung dijalankan.</>, confirmLabel: 'Setujui' }))) return;
+      if (!(await confirm({ title: 'Setujui permintaan?', message: <>{r.title}<br /><b>{amountText(r)}</b><br />Aksi akan langsung dijalankan.</>, confirmLabel: 'Setujui' }))) return;
     } else {
       note = await prompt({ title: 'Tolak permintaan', label: 'Alasan penolakan', placeholder: 'contoh: harga terlalu tinggi' });
       if (note === null) return;
@@ -124,7 +126,7 @@ export default function ApprovalsPage() {
                     <span className={`badge ${badge}`}>{label}</span>
                   </div>
                   <div className="bold" style={{ fontSize: 15, margin: '4px 0' }}>{r.title}</div>
-                  <div className="stat-value" style={{ fontSize: 20, margin: 0 }}>{formatRupiah(r.amount)}</div>
+                  <div className="stat-value" style={{ fontSize: 20, margin: 0 }}>{amountText(r)}</div>
                   <div className="muted small" style={{ marginTop: 6 }}>
                     Diajukan {r.requester?.full_name ?? '-'} · {formatDateTime(r.requested_at)}
                     {r.decided_at && <> · {label} oleh {r.decider?.full_name ?? '-'} {formatDateTime(r.decided_at)}</>}

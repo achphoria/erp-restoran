@@ -2484,5 +2484,119 @@ await check('Absensi: koreksi absen diajukan karyawan, disetujui HR, tidak bisa 
   await expectError(`select hr_review_correction($1, false)`, [id], /sudah diproses/);
 });
 
+console.log('\nSDM / HR (fase C - cuti & izin):');
+const dOff = (n) => val(`select to_char(current_date + $1::int, 'YYYY-MM-DD')`, [n]);
+const typeId = (code) => val(`select id from hr_leave_types where company_id = $1 and code = $2`, [company1, code]);
+let cutiReq, supervisorEmp;
+await check('Cuti: jenis cuti standar otomatis (perusahaan lama & baru)', async () => {
+  await loginAs(U1);
+  assert((await val(`select count(*)::int from hr_leave_types where company_id = $1`, [company1])) === 6, 'jenis cuti PT 1');
+  await db.exec('reset role');
+  assert((await val(`select count(*)::int from hr_leave_types where company_id = $1`, [company2])) === 6, 'jenis cuti PT 2');
+  const c = await val(`insert into sys_companies (code, name) values ('CUTI-BARU', 'PT Cuti Baru') returning id`);
+  assert((await val(`select count(*)::int from hr_leave_types where company_id = $1`, [c])) === 6, 'PT baru');
+});
+await check('Cuti: saldo 12 hari berlaku setelah 12 bulan kerja; penyesuaian saldo; prorata', async () => {
+  await loginAs(KASIR);
+  const cuti = await typeId('CUTI');
+  const [s, e] = [await dOff(20), await dOff(21)];
+  // Andi baru 200 hari kerja -> belum berhak
+  await expectError(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: cuti, start_date: s, end_date: e, reason: 'Pulang kampung' })], /Sisa cuti tidak cukup.*berhak cuti mulai/);
+  await loginAs(U1);
+  await db.query(`insert into hr_leave_adjustments (company_id, employee_id, year, days, note) values ($1, $2, extract(year from $3::date), 3, 'Saldo awal')`, [company1, empAndi, s]);
+  await loginAs(KASIR);
+  const r = await val(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: cuti, start_date: s, end_date: e, reason: 'Pulang kampung' })]);
+  assert(r.status === 'pending' && Number(r.days) === 2 && r.approval_request_id, JSON.stringify(r));
+  cutiReq = r.id;
+  const my = await val(`select hr_my_leave()`);
+  assert(Number(my.balance.remaining) === 1 && Number(my.balance.pending) === 2 && my.types.length === 6, JSON.stringify(my.balance));
+  await expectError(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: await typeId('IZIN'), start_date: e, end_date: e, reason: 'x' })], /bertabrakan/);
+  // prorata: tahun masuk dihitung sebanding bulan kerja
+  await loginAs(U1);
+  await db.query(`insert into hr_settings (company_id, leave_policy) values ($1, 'prorata') on conflict (company_id) do update set leave_policy = 'prorata'`, [company1]);
+  const b = await val(`select hr_leave_balance($1, extract(year from current_date)::int)`, [empAndi]);
+  const joinYear = Number(await val(`select extract(year from join_date)::int from hr_employees where id = $1`, [empAndi]));
+  const expect = joinYear < new Date().getUTCFullYear() ? 12 : Math.floor(12 * (13 - Number(await val(`select extract(month from join_date)::int from hr_employees where id = $1`, [empAndi]))) / 12);
+  assert(Number(b.entitlement) === expect && b.policy === 'prorata', JSON.stringify(b));
+  await db.query(`update hr_settings set leave_policy = 'after_12_months' where company_id = $1`, [company1]);
+});
+await check('Cuti: sakit 2 hari wajib surat dokter; hari libur tidak dihitung; batas hari per jenis', async () => {
+  await loginAs(KASIR);
+  const sakit = await typeId('SAKIT');
+  const [s, e] = [await dOff(40), await dOff(41)];
+  await expectError(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: sakit, start_date: s, end_date: e, reason: 'Demam' })], /wajib melampirkan/);
+  const doc = `${company1}/${empAndi}/leave/surat-dokter.jpg`;
+  await db.query(`insert into storage.objects (bucket_id, name) values ('hr-files', $1)`, [doc]);
+  await expectError(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: sakit, start_date: s, end_date: e, reason: 'Demam', attachment_path: `${company1}/${empAndi}/kontrak.pdf` })], /Lampiran tidak valid/);
+  const r = await val(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: sakit, start_date: s, end_date: e, reason: 'Demam', attachment_path: doc })]);
+  assert(r.attachment_path === doc && Number(r.days) === 2, JSON.stringify(r));
+  // libur terjadwal di tengah rentang tidak dihitung
+  await loginAs(U1);
+  await db.query(`select hr_roster_save($1::jsonb)`, [JSON.stringify([{ employee_id: empAndi, work_date: await dOff(30), is_off: true }])]);
+  await loginAs(KASIR);
+  const iz = await val(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: await typeId('IZIN'), start_date: await dOff(29), end_date: await dOff(31), reason: 'Urusan keluarga' })]);
+  assert(Number(iz.days) === 2, `hari izin ${iz.days}`);
+  const half = await val(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: await typeId('IZIN'), start_date: await dOff(33), half_day: true, reason: 'Ke bank' })]);
+  assert(Number(half.days) === 0.5, `setengah hari ${half.days}`);
+  await expectError(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: await typeId('MENIKAH'), start_date: await dOff(50), end_date: await dOff(53), reason: 'Nikah' })], /maksimal 3 hari/);
+  await expectError(`select hr_decide_leave($1, true)`, [iz.id], /sendiri/);
+  await expectError(`select sys_decide_approval($1, true)`, [iz.approval_request_id], /berwenang|sendiri/);
+});
+await check('Cuti: disetujui lewat menu Persetujuan / HR / atasan langsung; ditolak wajib alasan', async () => {
+  await loginAs(U1);
+  // menu Persetujuan (sys_decide_approval) -> pengajuan cuti ikut disetujui
+  const ar = await val(`select approval_request_id from hr_leave_requests where id = $1`, [cutiReq]);
+  await db.query(`select sys_decide_approval($1, true, 'Selamat liburan')`, [ar]);
+  assert((await val(`select status from hr_leave_requests where id = $1`, [cutiReq])) === 'approved', 'sinkron approval');
+  const b = await val(`select hr_leave_balance($1, extract(year from $2::date)::int)`, [empAndi, await dOff(20)]);
+  assert(Number(b.used) === 2 && Number(b.remaining) === 1, JSON.stringify(b));
+  // tolak dari HR wajib alasan
+  const iz = await val(`select id from hr_leave_requests where employee_id = $1 and days = 2 and leave_type_id = $2`, [empAndi, await typeId('IZIN')]);
+  await expectError(`select hr_decide_leave($1, false)`, [iz], /Alasan penolakan/);
+  await db.query(`select hr_decide_leave($1, false, 'Sedang ramai, mohon geser tanggal')`, [iz]);
+  assert((await val(`select status from sys_approval_requests where document_type = 'leave' and document_id = $1`, [iz])) === 'rejected', 'approval ikut ditolak');
+  // atasan langsung (pelayan tanpa izin HR) bisa memutuskan bawahannya
+  supervisorEmp = await val(`insert into hr_employees (company_id, full_name, user_id, outlet_id) values ($1, 'Sari Supervisor', $2, $3) returning id`, [company1, U6, outletId]);
+  await db.query(`update hr_employees set manager_id = $2 where id = $1`, [empAndi, supervisorEmp]);
+  await loginAs(KASIR);
+  const nikah = await val(`select hr_request_leave($1::jsonb)`, [JSON.stringify({ leave_type_id: await typeId('MENIKAH'), start_date: await dOff(55), end_date: await dOff(57), reason: 'Menikah' })]);
+  await loginAs(U6);
+  assert((await val(`select hr_leave_pending_count()`)) >= 1, 'badge atasan');
+  const board = await val(`select hr_leave_board(current_date, current_date + 60, null)`);
+  assert(board.requests.some((r) => r.id === nikah.id && r.can_decide === true) && board.requests.every((r) => r.full_name === 'Andi Saputra'), JSON.stringify(board.requests.map((r) => [r.full_name, r.can_decide])));
+  await db.query(`select hr_decide_leave($1, true, 'Selamat!')`, [nikah.id]);
+  assert((await val(`select status from hr_leave_requests where id = $1`, [nikah.id])) === 'approved', 'atasan setujui');
+  // tampil di jadwal & rekap absensi
+  await loginAs(KASIR);
+  const sch = await val(`select hr_schedule_for($1, current_date + 56)`, [empAndi]);
+  assert(sch.leave?.leave_type === 'Cuti menikah', JSON.stringify(sch.leave));
+  await loginAs(U1);
+  const rec = await val(`select hr_attendance_recap(current_date + 55, current_date + 57, null)`);
+  assert(rec.filter((r) => r.full_name === 'Andi Saputra' && r.status === 'leave').length === 3, JSON.stringify(rec.map((r) => [r.full_name, r.status])));
+  // rekan satu outlet melihat siapa yang cuti (tanpa alasan)
+  await loginAs(U6);
+  const team = (await val(`select hr_my_leave()`)).team;
+  assert(Array.isArray(team) && team.every((t) => !('reason' in t)), JSON.stringify(team));
+});
+await check('Cuti: batal (menunggu / disetujui belum mulai) mengembalikan saldo; isolasi PT', async () => {
+  await loginAs(KASIR);
+  await db.query(`select hr_cancel_leave($1)`, [cutiReq]);
+  const my = await val(`select hr_my_leave()`);
+  assert(my.requests.find((r) => r.id === cutiReq).status === 'cancelled', 'batal');
+  const b = await val(`select hr_leave_balance($1, extract(year from $2::date)::int)`, [empAndi, await dOff(20)]);
+  assert(Number(b.used) === 0 && Number(b.remaining) >= 3, JSON.stringify(b));
+  const sick = my.requests.find((r) => r.leave_type === 'Sakit');
+  await db.query(`select hr_cancel_leave($1)`, [sick.id]);
+  assert((await val(`select status from sys_approval_requests where id = $1`, [sick.approval_request_id])).toString() === 'cancelled', 'approval batal');
+  await expectError(`select hr_cancel_leave($1)`, [sick.id], /tidak bisa dibatalkan/);
+  await loginAs(U4b);
+  assert((await val(`select hr_leave_board(current_date - 30, current_date + 90, null)`)).requests.length === 0, 'bocor ke PT lain');
+  assert((await val(`select count(*)::int from hr_leave_requests`)) === 0, 'tabel bocor');
+  // owner PT lain punya izin, tapi tidak melihat karyawan PT 1
+  assert((await val(`select hr_leave_balances(null, null)`)).every((x) => x.full_name !== 'Andi Saputra'), 'saldo bocor');
+  await loginAs(KASIR);
+  await expectError(`select hr_leave_balances(null, null)`, [], /izin/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–034)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–035)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -33,6 +33,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase22.sql`](supabase/update_fase22.sql) (032: Semar bisa forecasting kebutuhan beli & membuat PO; deploy ulang Edge Function `semar-agent`)
   - [`supabase/update_fase23.sql`](supabase/update_fase23.sql) (033: SDM / HR fase A: data karyawan, jabatan & departemen, pengumuman, Beranda Saya)
   - [`supabase/update_fase24.sql`](supabase/update_fase24.sql) (034: SDM / HR fase B: absensi foto + GPS, titik lokasi outlet, jadwal shift, koreksi absen)
+  - [`supabase/update_fase25.sql`](supabase/update_fase25.sql) (035: SDM / HR fase C: cuti & izin, saldo cuti, persetujuan cuti)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -327,7 +328,12 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
   review absen yang ditandai, **pengajuan koreksi** (lupa absen / HP mati) yang disetujui HR atau atasan langsung, export **Excel**
   (ringkasan per karyawan + detail), aturan (toleransi telat, wajib foto / GPS, batas akurasi). Badge menu untuk yang perlu direview.
 - Izin baru: `hr.attendance` (atur jadwal shift & review absensi), cocok untuk kepala outlet. Terbatas ke outlet yang boleh diaksesnya.
-- Rencana berikutnya: cuti & izin, task management (kanban + SOP harian), penilaian kinerja.
+- **Cuti & izin**: jenis cuti standar (tahunan, sakit, izin tidak dibayar, menikah, duka, melahirkan; bisa ditambah/diubah),
+  saldo cuti tahunan (default 12 hari; aturan *berhak setelah 12 bulan* / *prorata* / *langsung*), penyesuaian saldo (saldo awal, sisa tahun lalu).
+  Karyawan mengajukan dari Beranda Saya (bisa setengah hari, lampiran surat dokter wajib untuk sakit ≥ 2 hari, hari libur di jadwal tidak dihitung).
+  Persetujuan: menu **Persetujuan** (izin `approval.leave`), tab **Cuti & Izin** (HR), atau **atasan langsung** dari Beranda Saya (kartu *Persetujuan tim*).
+  Kalender cuti tim per bulan, saldo semua karyawan + export Excel. Cuti yang disetujui tampil di jadwal & rekap absensi (tidak dihitung alpa).
+- Rencana berikutnya: task management (kanban + SOP harian), penilaian kinerja.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).

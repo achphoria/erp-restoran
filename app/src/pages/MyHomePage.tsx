@@ -5,6 +5,7 @@ import { useFeedback } from '../components/Feedback';
 import Modal from '../components/Modal';
 import HrPhoto from '../components/hr/HrPhoto';
 import MyAttendance from '../components/hr/MyAttendance';
+import MyLeave, { TeamInbox } from '../components/hr/MyLeave';
 import { rpc } from '../lib/supabase';
 import { errorMessage, formatDateTime } from '../lib/format';
 import { EMPLOYMENT } from '../lib/hr';
@@ -59,6 +60,8 @@ export default function MyHomePage() {
 
       <div className="me-grid">
         {profile && <MyAttendance companyId={profile.company_id} />}
+        <TeamInbox />
+        {profile && <MyLeave companyId={profile.company_id} />}
 
         <div className="card">
           <div className="me-card-title"><Megaphone size={16} /> Pengumuman {unread > 0 && <span className="badge badge-danger">{unread} baru</span>}</div>
