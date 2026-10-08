@@ -4,8 +4,10 @@ import Modal from '../Modal';
 import { useFeedback } from '../Feedback';
 import { errorMessage } from '../../lib/format';
 import { generatePassword, invokeStaffUsers, USERNAME_RE } from '../../lib/staff';
+import { rpc } from '../../lib/supabase';
+import BranchAccessPicker, { type OutletScope } from './BranchAccessPicker';
 
-interface Role { id: string; name: string; code: string; permissions: string[] }
+interface Role { id: string; name: string; code: string; permissions: string[]; default_outlet_scope?: OutletScope }
 interface Outlet { id: string; name: string }
 
 const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined);
@@ -19,15 +21,18 @@ export function CreateStaffUserModal({ roles, outlets, onClose, onDone }: { role
   const [password, setPassword] = useState(generatePassword());
   const [roleId, setRoleId] = useState(staffRoles.find((r) => r.code === 'cashier')?.id ?? staffRoles[0]?.id ?? '');
   const [outletIds, setOutletIds] = useState<string[]>(outlets.length === 1 ? [outlets[0].id] : []);
+  const [scope, setScope] = useState<OutletScope>(staffRoles.find((r) => r.id === roleId)?.default_outlet_scope ?? 'selected');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ username: string; password: string } | null>(null);
   const uname = username.trim().toLowerCase();
-  const valid = fullName.trim() && USERNAME_RE.test(uname) && password.length >= 8 && roleId && outletIds.length;
+  const valid = fullName.trim() && USERNAME_RE.test(uname) && password.length >= 8 && roleId && (scope === 'all' || outletIds.length);
 
   const save = async () => {
     setBusy(true);
     try {
-      const r = await invokeStaffUsers<{ username: string }>({ action: 'create', username: uname, password, full_name: fullName.trim(), role_id: roleId, outlet_ids: outletIds });
+      const ids = scope === 'all' ? outlets.map((o) => o.id) : outletIds;
+      const r = await invokeStaffUsers<{ username: string; user_id: string }>({ action: 'create', username: uname, password, full_name: fullName.trim(), role_id: roleId, outlet_ids: ids });
+      await rpc('sys_set_user_access', { p_user_id: r.user_id, p_role_id: roleId, p_outlet_scope: scope, p_outlet_ids: ids, p_is_active: true });
       setCreated({ username: r.username, password });
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -68,18 +73,12 @@ export function CreateStaffUserModal({ roles, outlets, onClose, onDone }: { role
             <button type="button" className="btn-sm" title="Buat password acak" onClick={() => setPassword(generatePassword())}><RefreshCw size={14} /></button>
           </div></label>
         <label className="field"><span>Role *</span>
-          <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+          <select value={roleId} onChange={(e) => { setRoleId(e.target.value); setScope(staffRoles.find((r) => r.id === e.target.value)?.default_outlet_scope ?? 'selected'); }}>
             {staffRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select></label>
       </div>
       <div style={{ marginTop: 12 }}>
-        <div className="muted small" style={{ marginBottom: 6 }}>Akses outlet *</div>
-        <div className="choice-list">
-          {outlets.map((o) => (
-            <button key={o.id} type="button" className={outletIds.includes(o.id) ? 'active' : ''}
-              onClick={() => setOutletIds((ids) => (ids.includes(o.id) ? ids.filter((x) => x !== o.id) : [...ids, o.id]))}>{o.name}</button>
-          ))}
-        </div>
+        <BranchAccessPicker outlets={outlets} scope={scope} outletIds={outletIds} onChange={(s, ids) => { setScope(s); setOutletIds(ids); }} />
       </div>
       <p className="muted small">Tips: pakai pola <b>nama.outlet</b> supaya username unik, mis. <code>andi.pluit</code>. Role Owner tidak bisa diberikan ke staf.</p>
     </Modal>

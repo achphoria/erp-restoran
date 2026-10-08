@@ -6,7 +6,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–025)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–026)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -21,6 +21,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase13.sql`](supabase/update_fase13.sql) (023: user staf dibuat owner dengan username, lalu deploy Edge Function `staff-users`)
   - [`supabase/update_fase14.sql`](supabase/update_fase14.sql) (024: data contoh, reset, backup & restore)
   - [`supabase/update_fase15.sql`](supabase/update_fase15.sql) (025: Simple Manufacturing ala ESB)
+  - [`supabase/update_fase16.sql`](supabase/update_fase16.sql) (026: akses branch per user + role template)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -237,6 +238,15 @@ Alternatif lewat CLI: `supabase functions deploy staff-users`.
 - **Actual costing**: HPP hasil = nilai bahan yang benar-benar terpakai (harga batch FIFO) + biaya tambahan BOM.
 - Simpan draft lalu posting, atau langsung posting. Bisa wajib **approval** (matriks Approval Transaksi → Produksi).
 - View `rpt_production_variances`: selisih pemakaian vs BOM per bahan.
+
+## Fase 16: Akses branch per user & role template
+- Setiap user punya **akses branch**: *Semua branch* (termasuk branch baru, untuk Head Office) atau *Branch tertentu*
+  (1 branch = terkunci, beberapa branch = bisa pindah lewat pilihan outlet di sidebar). Owner selalu semua branch.
+- **Data dikunci per branch di database**: POS, shift, refund, settlement, stok, batch, kartu stok, dokumen stok, transfer,
+  produksi, PO, penerimaan, sales order, pengiriman, invoice, pembayaran & permintaan approval. User branch A tidak bisa melihat
+  maupun membuat dokumen untuk gudang branch B. Transfer & SO antar cabang terlihat oleh kedua branch.
+- **Pengaturan → Role → Buat role template**: GM, Finance & Accounting, Purchasing, Cost Control, Sales B2B, Marketing, Admin/HR-IT,
+  Head Chef CK, Staf Gudang, Store Manager, Supervisor (lengkap dengan hak akses, penyetuju & akses branch default).
 
 ## Roadmap berikutnya
 - **Deploy** ke internet (Vercel/Netlify) supaya QR bisa dipakai tamu & aplikasi bisa dibuka dari tablet kasir

@@ -12,10 +12,11 @@ import PaymentGatewayTab from '../components/settings/PaymentGatewayTab';
 import ActivityLogTab from '../components/settings/ActivityLogTab';
 import DataToolsTab from '../components/settings/DataToolsTab';
 import { CreateStaffUserModal, ResetPasswordModal } from '../components/settings/StaffUserModal';
+import BranchAccessPicker, { type OutletScope } from '../components/settings/BranchAccessPicker';
 
 type Tab = 'company' | 'users' | 'roles' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
 
-interface Role { id: string; code: string; name: string; permissions: string[] }
+interface Role { id: string; code: string; name: string; permissions: string[]; default_outlet_scope?: OutletScope }
 interface OutletRow {
   id: string; code: string; name: string; address: string | null; phone: string | null;
   tax_rate: number; service_charge_rate: number; rounding_unit: number; is_active: boolean;
@@ -23,7 +24,7 @@ interface OutletRow {
 }
 interface UserRow {
   id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
-  role_id: string; role_name: string; role_code: string; outlet_ids: string[]; created_at: string;
+  role_id: string; role_name: string; role_code: string; outlet_ids: string[]; outlet_scope: OutletScope; created_at: string;
 }
 interface Invitation { id: string; email: string; role_id: string; outlet_ids: string[]; status: string; created_at: string }
 
@@ -169,7 +170,7 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
           </div>
         </div>
         <table className="table">
-          <thead><tr><th>User</th><th>Kontak</th><th>Role</th><th>Outlet</th><th>Login terakhir</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>User</th><th>Kontak</th><th>Role</th><th>Branch</th><th>Login terakhir</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id}>
@@ -181,7 +182,8 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
                 </td>
                 <td className="small">{u.username ? <><code>{u.username}</code> <span className="muted">(username)</span></> : u.email}<div className="muted">{u.phone ?? '—'}</div></td>
                 <td><span className="badge badge-primary">{u.role_name}</span></td>
-                <td className="small">{u.role_code === 'owner' ? 'Semua outlet' : outletNames(u.outlet_ids) || '-'}</td>
+                <td className="small">{u.outlet_scope === 'all' ? <span className="badge badge-primary">Semua branch</span>
+                  : u.outlet_ids.length === 1 ? <span title="Terkunci di 1 branch">🔒 {outletNames(u.outlet_ids)}</span> : outletNames(u.outlet_ids) || '-'}</td>
                 <td className="small muted">{u.last_login_at ? formatDateTime(u.last_login_at) : 'Belum pernah'}</td>
                 <td>{u.is_active ? <span className="badge badge-success">Aktif</span> : <span className="badge">Nonaktif</span>}</td>
                 <td className="right">
@@ -250,12 +252,12 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
       )}
 
       {editing && (
-        <UserAccessModal title={`Edit ${editing.full_name}`} roles={roles} outlets={outlets} withActive
+        <UserAccessModal title={`Edit ${editing.full_name}`} roles={roles} outlets={outlets} withActive withScope
           initial={editing}
           onClose={() => setEditing(null)}
-          onSave={async ({ role_id, outlet_ids, is_active }) => {
+          onSave={async ({ role_id, outlet_ids, is_active, outlet_scope }) => {
             await act(async () => {
-              await rpc('sys_update_user', { p_user_id: editing.id, p_role_id: role_id, p_outlet_ids: outlet_ids, p_is_active: is_active });
+              await rpc('sys_set_user_access', { p_user_id: editing.id, p_role_id: role_id, p_outlet_scope: outlet_scope ?? 'selected', p_outlet_ids: outlet_ids, p_is_active: is_active });
               setEditing(null);
               return 'User diperbarui.';
             });
@@ -265,17 +267,18 @@ function UsersTab({ companyId, users, invitations, roles, outlets, currentUserId
   );
 }
 
-function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive, onClose, onSave }: {
+function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive, withScope, onClose, onSave }: {
   title: string; roles: Role[]; outlets: OutletRow[];
-  initial: { role_id?: string; outlet_ids: string[]; is_active: boolean };
-  withEmail?: boolean; withActive?: boolean;
+  initial: { role_id?: string; outlet_ids: string[]; is_active: boolean; outlet_scope?: OutletScope };
+  withEmail?: boolean; withActive?: boolean; withScope?: boolean;
   onClose: () => void;
-  onSave: (v: { email?: string; role_id: string; outlet_ids: string[]; is_active: boolean }) => Promise<void>;
+  onSave: (v: { email?: string; role_id: string; outlet_ids: string[]; is_active: boolean; outlet_scope?: OutletScope }) => Promise<void>;
 }) {
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState(initial.role_id ?? '');
   const [outletIds, setOutletIds] = useState<string[]>(initial.outlet_ids);
   const [isActive, setIsActive] = useState(initial.is_active);
+  const [scope, setScope] = useState<OutletScope>(initial.outlet_scope ?? 'selected');
   const [busy, setBusy] = useState(false);
   const isOwnerRole = roles.find((r) => r.id === roleId)?.permissions.includes('*');
 
@@ -283,10 +286,10 @@ function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive
     <Modal title={title} onClose={onClose}
       footer={<>
         <button onClick={onClose}>Batal</button>
-        <button className="btn-primary" disabled={busy || !roleId || (withEmail && !/^\S+@\S+\.\S+$/.test(email))}
+        <button className="btn-primary" disabled={busy || !roleId || (withEmail && !/^\S+@\S+\.\S+$/.test(email)) || (!isOwnerRole && scope === 'selected' && !outletIds.length)}
           onClick={async () => {
             setBusy(true);
-            await onSave({ email, role_id: roleId, outlet_ids: outletIds, is_active: isActive });
+            await onSave({ email, role_id: roleId, outlet_ids: outletIds, is_active: isActive, outlet_scope: withScope ? scope : 'selected' });
             setBusy(false);
           }}>Simpan</button>
       </>}>
@@ -300,17 +303,22 @@ function UserAccessModal({ title, roles, outlets, initial, withEmail, withActive
             {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
           </select>
         </label>
-        <div>
-          <div className="muted small" style={{ marginBottom: 6 }}>Akses outlet {isOwnerRole && '(owner otomatis bisa akses semua)'}</div>
-          <div className="choice-list">
-            {outlets.map((o) => (
-              <button key={o.id} className={outletIds.includes(o.id) ? 'active' : ''}
-                onClick={() => setOutletIds((ids) => ids.includes(o.id) ? ids.filter((x) => x !== o.id) : [...ids, o.id])}>
-                {o.name}
-              </button>
-            ))}
+        {withScope ? (
+          <BranchAccessPicker outlets={outlets} scope={scope} outletIds={outletIds} ownerRole={isOwnerRole}
+            onChange={(s, ids) => { setScope(s); setOutletIds(ids); }} />
+        ) : (
+          <div>
+            <div className="muted small" style={{ marginBottom: 6 }}>Akses outlet {isOwnerRole && '(owner otomatis bisa akses semua)'}</div>
+            <div className="choice-list">
+              {outlets.map((o) => (
+                <button key={o.id} className={outletIds.includes(o.id) ? 'active' : ''}
+                  onClick={() => setOutletIds((ids) => ids.includes(o.id) ? ids.filter((x) => x !== o.id) : [...ids, o.id])}>
+                  {o.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         {withActive && (
           <label className="row"><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Akun aktif (bisa login)</label>
         )}
@@ -334,6 +342,11 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
     <div className="card table-wrap">
       <div className="card-header">
         <h2>Hak Akses per Role</h2>
+        <div className="row">
+        <button title="GM, Finance, Purchasing, Cost Control, Sales B2B, Marketing, Admin, Head Chef, Gudang, Store Manager, Supervisor" onClick={() => act(async () => {
+          const n = await rpc<number>('sys_create_role_templates');
+          return n ? `${n} role template dibuat. Atur hak aksesnya di tabel ini atau di Approval Transaksi.` : 'Semua role template sudah ada.';
+        })}>Buat role template</button>
         <button onClick={async () => {
           const name = await prompt({ title: 'Role baru', label: 'Nama role', placeholder: 'contoh: Supervisor' });
           if (name?.trim()) {
@@ -346,6 +359,7 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
             });
           }
         }}>+ Role Baru</button>
+        </div>
       </div>
       <table className="table">
         <thead>
