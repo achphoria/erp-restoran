@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 
 // Perkecil foto di browser (maks 800px, WebP) supaya ringan dibuka dari HP tamu
-async function resizeImage(file: File, maxSize = 800): Promise<Blob> {
+export async function resizeImage(file: File, maxSize = 800): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');

@@ -14,14 +14,18 @@ interface Brand { id: string; name: string; is_active: boolean }
 const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined);
 
 // Owner/admin membuat user staf: nama, username, password, role, outlet (tanpa email & tanpa daftar)
-export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onDone }: { roles: Role[]; outlets: Outlet[]; brands?: Brand[]; onClose: () => void; onDone: (msg: string) => void }) {
+// defaultName/defaultRoleId/defaultOutletId: dipakai saat dibuat dari data karyawan (SDM); onCreated menerima id user baru
+export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onDone, defaultName, defaultRoleId, defaultOutletId, onCreated }: {
+  roles: Role[]; outlets: Outlet[]; brands?: Brand[]; onClose: () => void; onDone: (msg: string) => void;
+  defaultName?: string; defaultRoleId?: string | null; defaultOutletId?: string | null; onCreated?: (userId: string) => Promise<void> | void;
+}) {
   const { toast } = useFeedback();
   const staffRoles = roles.filter((r) => !r.permissions.includes('*'));
-  const [fullName, setFullName] = useState('');
+  const [fullName, setFullName] = useState(defaultName ?? '');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState(generatePassword());
-  const [roleId, setRoleId] = useState(staffRoles.find((r) => r.code === 'cashier')?.id ?? staffRoles[0]?.id ?? '');
-  const [outletIds, setOutletIds] = useState<string[]>(outlets.length === 1 ? [outlets[0].id] : []);
+  const [roleId, setRoleId] = useState((defaultRoleId && staffRoles.some((r) => r.id === defaultRoleId) ? defaultRoleId : null) ?? staffRoles.find((r) => r.code === 'cashier')?.id ?? staffRoles[0]?.id ?? '');
+  const [outletIds, setOutletIds] = useState<string[]>(defaultOutletId ? [defaultOutletId] : outlets.length === 1 ? [outlets[0].id] : []);
   const [scope, setScope] = useState<OutletScope>(staffRoles.find((r) => r.id === roleId)?.default_outlet_scope ?? 'selected');
   const [brandIds, setBrandIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -36,6 +40,7 @@ export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onD
         : scope === 'brands' ? outlets.filter((o) => o.brand_id && brandIds.includes(o.brand_id)).map((o) => o.id) : outletIds;
       const r = await invokeStaffUsers<{ username: string; user_id: string }>({ action: 'create', username: uname, password, full_name: fullName.trim(), role_id: roleId, outlet_ids: ids });
       await rpc('sys_set_user_access', { p_user_id: r.user_id, p_role_id: roleId, p_outlet_scope: scope, p_outlet_ids: ids, p_is_active: true, p_brand_ids: scope === 'brands' ? brandIds : null });
+      await onCreated?.(r.user_id);
       setCreated({ username: r.username, password });
     } catch (e) {
       toast(errorMessage(e), 'error');

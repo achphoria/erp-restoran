@@ -2317,5 +2317,61 @@ await check('PO dari Semar: pratinjau tidak menyimpan, draft & diajukan tersimpa
   await expectError(`select ai_create_purchase_order($1::jsonb, true)`, [JSON.stringify(payload)], /izin/);
 });
 
+console.log('\nSDM / HR (fase A):');
+const KASIR = '99999999-9999-9999-9999-999999999999';   // andi.pluit (kasir)
+let empAndi;
+await check('HR: struktur, karyawan dengan nomor otomatis, tautkan akun login', async () => {
+  await loginAs(U1);
+  const dep = await val(`insert into hr_departments (company_id, code, name) values ($1, 'OPS', 'Operasional') returning id`, [company1]);
+  const pos = await val(`insert into hr_positions (company_id, department_id, code, name) values ($1, $2, 'KSR', 'Kasir') returning id`, [company1, dep]);
+  const e1 = await one(`insert into hr_employees (company_id, full_name, nickname, gender, national_id, phone, department_id, position_id, outlet_id,
+      employment_status, join_date, contract_end_date, birth_date)
+    values ($1, 'Andi Saputra', 'Andi', 'L', '3171000000000001', '0811', $2, $3, $4, 'contract', current_date - 200, current_date + 10, make_date(1999, extract(month from current_date)::int, 1))
+    returning id, employee_number`, [company1, dep, pos, outletId]);
+  const e2 = await one(`insert into hr_employees (company_id, full_name) values ($1, 'Siti Aminah') returning employee_number`, [company1]);
+  assert(/^EMP-\d{4}$/.test(e1.employee_number) && e2.employee_number !== e1.employee_number, JSON.stringify([e1, e2]));
+  empAndi = e1.id;
+  await db.query(`select hr_link_user($1, $2)`, [empAndi, KASIR]);
+  await expectError(`select hr_link_user((select id from hr_employees where full_name = 'Siti Aminah'), $1)`, [KASIR], /sudah tertaut/);
+  const rem = await val(`select hr_reminders()`);
+  assert(rem.contracts.some((c) => c.full_name === 'Andi Saputra') && rem.birthdays.some((b) => b.full_name === 'Andi Saputra'), JSON.stringify(rem));
+  // log aktivitas tidak menyimpan No. KTP
+  assert(!(await val(`select count(*)::int from sys_activity_logs where entity_type = 'hr_employees' and coalesce(changes::text, '') like '%3171000000000001%'`)), 'KTP masuk log');
+});
+await check('HR: kasir hanya melihat datanya sendiri & hanya bisa ubah kontak; direktori tanpa data sensitif', async () => {
+  await loginAs(KASIR);
+  assert((await val(`select count(*)::int from hr_employees`)) === 1, 'kasir melihat karyawan lain');
+  const me = await val(`select hr_my_employee()`);
+  assert(me.full_name === 'Andi Saputra' && me.position === 'Kasir' && me.national_id === '3171000000000001', JSON.stringify(me).slice(0, 200));
+  const upd = await val(`select hr_update_my_profile($1::jsonb)`, [JSON.stringify({ phone: '0812999', national_id: 'PALSU', full_name: 'Ganti Nama' })]);
+  assert(upd.phone === '0812999' && upd.national_id === '3171000000000001' && upd.full_name === 'Andi Saputra', JSON.stringify(upd).slice(0, 200));
+  await db.query(`update hr_employees set national_id = 'X' where id = $1`, [empAndi]);
+  assert((await val(`select national_id from hr_employees where id = $1`, [empAndi])) === '3171000000000001', 'kasir bisa ubah KTP langsung');
+  await expectError(`insert into hr_employees (company_id, full_name) values ($1, 'Orang Asing')`, [company1], /row-level security/);
+  const dir = await val(`select hr_directory()`);
+  assert(dir.length >= 2 && dir.every((d) => !('national_id' in d) && !('address_ktp' in d)), JSON.stringify(dir[0]));
+  // perusahaan lain tidak melihat karyawan ini
+  await loginAs('44444444-4444-4444-4444-444444444444');
+  assert((await val(`select count(*)::int from hr_employees`)) === 0 && (await val(`select hr_directory()`)).length === 0, 'bocor ke PT lain');
+});
+await check('HR: pengumuman sesuai sasaran (semua / outlet / role) & tanda sudah dibaca', async () => {
+  await loginAs(U1);
+  const cashierRole = await val(`select role_id from sys_users where id = $1`, [KASIR]);
+  const otherOutlet = await val(`select id from sys_outlets where company_id = $1 and id <> $2 order by created_at desc limit 1`, [company1, outletId]);
+  const all = await val(`insert into hr_announcements (company_id, title, body) values ($1, 'Libur Lebaran', 'Toko tutup 2 hari') returning id`, [company1]);
+  await db.query(`insert into hr_announcements (company_id, title, audience, outlet_ids) values ($1, 'Khusus outlet lain', 'outlet', array[$2]::uuid[])`, [company1, otherOutlet]);
+  await db.query(`insert into hr_announcements (company_id, title, audience, role_ids) values ($1, 'Info kasir', 'role', array[$2]::uuid[])`, [company1, cashierRole]);
+  await db.query(`insert into hr_announcements (company_id, title, audience, outlet_ids) values ($1, 'Info outlet utama', 'outlet', array[$2]::uuid[])`, [company1, outletId]);
+  await loginAs(KASIR);
+  const list = await val(`select hr_my_announcements()`);
+  const titles = list.map((a) => a.title);
+  assert(titles.includes('Libur Lebaran') && titles.includes('Info kasir') && titles.includes('Info outlet utama') && !titles.includes('Khusus outlet lain'), JSON.stringify(titles));
+  await expectError(`insert into hr_announcements (company_id, title) values ($1, 'kasir bikin')`, [company1], /row-level security/);
+  await db.query(`select hr_mark_announcement_read($1)`, [all]);
+  assert((await val(`select hr_my_announcements()`)).find((a) => a.id === all).read === true, 'tanda baca');
+  await loginAs(U1);
+  assert(Number((await val(`select hr_announcement_stats()`))[all]) === 1, 'statistik baca');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
