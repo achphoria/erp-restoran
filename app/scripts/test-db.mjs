@@ -2772,5 +2772,65 @@ await check('Akun tanpa data karyawan bisa dibuatkan datanya; tanpa data pribadi
   await expectError(`select hr_create_employee_for_user($1)`, [U2], /tidak ditemukan/);
 });
 
+console.log('\nStruk & ulasan pelanggan:');
+const asAnon = () => db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role anon;`);
+let fbToken, fbOrder;
+await check('Struk: data lengkap dalam satu panggilan, token ulasan acak & tetap; PT lain ditolak', async () => {
+  await loginAs(U1);
+  const orders = (await db.query(`select id from pos_orders where company_id = $1 and status = 'paid' order by paid_at desc limit 2`, [company1])).rows;
+  fbOrder = orders[0].id;
+  const r = await val(`select pos_receipt_data($1)`, [fbOrder]);
+  assert(r.order.order_number && r.items.length > 0 && r.outlet.name && r.payments.length > 0 && /^[0-9a-f]{32}$/.test(r.feedback_token), JSON.stringify(r).slice(0, 300));
+  fbToken = r.feedback_token;
+  assert((await val(`select pos_receipt_data($1)`, [fbOrder])).feedback_token === fbToken, 'token berubah');
+  await expectError(`select pos_receipt_payload($1)`, [fbOrder], /permission denied/);
+  await loginAs(U4b);
+  await expectError(`select pos_receipt_data($1)`, [fbOrder], /tidak ditemukan/);
+  // struk kedua dibuat kedaluwarsa
+  await loginAs(U1);
+  const old = await val(`select pos_receipt_data($1)`, [orders[1].id]);
+  await db.exec('reset role');
+  await db.query(`update pos_orders set paid_at = now() - interval '30 days' where id = $1`, [orders[1].id]);
+  await asAnon();
+  assert((await val(`select public_feedback_form($1)`, [old.feedback_token])).state === 'expired', 'kedaluwarsa');
+});
+await check('Ulasan publik (tanpa login): form tanpa harga/isi pesanan, validasi jawaban, sekali per struk', async () => {
+  await asAnon();
+  assert((await val(`select public_feedback_form('abc')`)).state === 'invalid', 'token asal');
+  assert((await val(`select public_feedback_form($1)`, ['0'.repeat(32)])).state === 'invalid', 'token tebakan');
+  const f = await val(`select public_feedback_form($1)`, [fbToken]);
+  assert(f.state === 'open' && f.questions.length === 5 && f.outlet && !JSON.stringify(f).includes('grand_total') && !('items' in f), JSON.stringify(f).slice(0, 300));
+  const q = Object.fromEntries(f.questions.map((x) => [x.kind, x.id]));
+  const sub = (a, c = {}) => db.query(`select public_submit_feedback($1, $2::jsonb, $3::jsonb)`, [fbToken, JSON.stringify(a), JSON.stringify(c)]);
+  await expectError(`select public_submit_feedback($1, $2::jsonb)`, [fbToken, JSON.stringify({ [q.nps]: 9 })], /wajib/);
+  await expectError(`select public_submit_feedback($1, $2::jsonb)`, [fbToken, JSON.stringify({ [q.stars]: 7 })], /bintang/);
+  await expectError(`select public_submit_feedback($1, $2::jsonb)`, [fbToken, JSON.stringify({ [q.stars]: 4, [q.aspects]: { Hacker: 5 } })], /aspek/);
+  await expectError(`select public_submit_feedback($1, $2::jsonb)`, [fbToken, JSON.stringify({ [q.stars]: 4, [q.choice]: ['Gratis'] })], /Pilihan/);
+  const r = (await sub({ [q.stars]: 2, [q.aspects]: { 'Rasa makanan & minuman': 3, 'Kecepatan penyajian': 1 }, [q.nps]: 6, [q.choice]: ['Rasa'], [q.text]: 'Nasi kurang hangat', 'bukan-pertanyaan': 'x' },
+    { name: 'Budi', phone: '0812-333 444', ok: true })).rows[0].public_submit_feedback;
+  assert(r.ok && r.google_review_url == null, JSON.stringify(r));
+  await expectError(`select public_submit_feedback($1, $2::jsonb)`, [fbToken, JSON.stringify({ [q.stars]: 5 })], /sudah dikirim/);
+  assert((await val(`select count(*)::int from crm_feedback_responses`).catch(() => 0)) === 0, 'anon membaca ulasan');
+  await expectError(`select crm_feedback_summary(current_date - 7, current_date)`, [], /izin/);
+});
+await check('Ulasan: analisa (rata-rata, NPS, aspek, pilihan), tindak lanjut ulasan buruk, hanya untuk yang berizin', async () => {
+  await loginAs(U1);
+  const s = await val(`select crm_feedback_summary(current_date - 40, current_date + 1, null)`);
+  assert(s.responses === 1 && Number(s.avg_overall) === 2 && Number(s.nps) === -100 && s.negative_open === 1, JSON.stringify(s).slice(0, 300));
+  const choice = s.questions.find((x) => x.kind === 'choice');
+  const aspects = s.questions.find((x) => x.kind === 'aspects');
+  assert(choice.stats.Rasa === 1 && Number(aspects.stats['Kecepatan penyajian'].avg) === 1, JSON.stringify(s.questions));
+  const list = await val(`select crm_feedback_list(current_date - 40, current_date + 1, null, 'negative')`);
+  assert(list.length === 1 && list[0].comment === 'Nasi kurang hangat' && list[0].contact_phone === '0812333444' && list[0].contact_ok, JSON.stringify(list[0]));
+  await db.query(`select crm_feedback_update($1, 'followed_up', 'Sudah ditelepon, diberi voucher')`, [list[0].id]);
+  assert((await val(`select crm_feedback_open_count()`)) === 0, 'badge');
+  await loginAs(KASIR);
+  await expectError(`select crm_feedback_summary(current_date - 7, current_date)`, [], /izin/);
+  assert((await val(`select count(*)::int from crm_feedback_responses`)) === 0, 'kasir membaca ulasan');
+  await expectError(`insert into crm_feedback_questions (company_id, kind, label) values ($1, 'text', 'x')`, [company1], /row-level security/);
+  await loginAs(U4b);
+  assert((await val(`select crm_feedback_summary(current_date - 40, current_date + 1, null)`)).responses === 0, 'bocor ke PT lain');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

@@ -6,7 +6,7 @@ import CustomerPicker from './CustomerPicker';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { errorMessage, formatNumber, formatRupiah } from '../lib/format';
-import { printReceipt } from '../lib/receipt';
+import { getAutoPrint, printReceipt, setAutoPrint } from '../lib/receipt';
 import type { Order, PaymentMethod } from '../lib/types';
 
 interface Props {
@@ -41,6 +41,8 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<PayResult | null>(null);
+  // cetak otomatis disimpan per perangkat (hanya kasir yang punya printer)
+  const [autoPrint, setAuto] = useState(getAutoPrint);
   const [hasGateway, setHasGateway] = useState(false);
   const [online, setOnline] = useState<{ requestId: string; status: string } | null>(null);
 
@@ -158,6 +160,7 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
         p_payments: [{ payment_method_id: methodId, amount: paid, reference_number: reference }],
       });
       setResult(res);
+      if (getAutoPrint()) printReceipt(order.id).catch((e) => setError(errorMessage(e)));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -172,6 +175,7 @@ export default function PaymentModal({ order: initialOrder, onClose, onPaid }: P
         onClose={onPaid}
         footer={
           <>
+            <label className="row small" style={{ marginRight: 'auto' }}><input type="checkbox" checked={autoPrint} onChange={(e) => { setAuto(e.target.checked); setAutoPrint(e.target.checked); }} /> Cetak otomatis di perangkat ini</label>
             <button onClick={() => printReceipt(order.id).catch((e) => setError(errorMessage(e)))}><Printer size={16} /> Cetak Struk</button>
             <button className="btn-primary" onClick={onPaid}>Selesai</button>
           </>
