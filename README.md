@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–038)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–039)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -37,6 +37,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase26.sql`](supabase/update_fase26.sql) (036: Tugas kanban & SOP harian)
   - [`supabase/update_fase27.sql`](supabase/update_fase27.sql) (037: SDM / HR fase E: penilaian kinerja)
   - [`supabase/update_fase28.sql`](supabase/update_fase28.sql) (038: User Management ↔ data karyawan)
+  - [`supabase/update_fase29.sql`](supabase/update_fase29.sql) (039: struk 80mm, QR ulasan & analisa ulasan pelanggan)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -344,6 +345,18 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
   A (≥ 4,5) / B (≥ 3,75) / C (≥ 3) / D (≥ 2) / E. Nilai atasan tidak terlihat karyawan sebelum dikirim. Rekap per periode + Excel, bisa dicetak.
   Izin `hr.appraisal`; tindakan karyawan & atasan ada di Beranda Saya (badge di menu Beranda Saya).
 - Belum ada: payroll / gaji (sengaja ditunda).
+
+## Struk 80mm & ulasan pelanggan
+- **Struk thermal 80mm** (semua tempat cetak: setelah bayar, Daftar Order, kiosk): logo brand (dicetak hitam-putih), nama brand & outlet, alamat, telp, NPWP,
+  teks atas/bawah per outlet, banner tipe pesanan + meja, kasir, item + modifier + catatan, pajak/service/pembulatan, pembayaran & kembalian, poin member.
+  Dicetak lewat iframe (tanpa popup). **Cetak otomatis** bisa diaktifkan per perangkat kasir. Order yang belum dibayar dicetak sebagai **TAGIHAN**; cetak ulang ditandai *SALINAN*.
+  Atur di **Pengaturan → Outlet → Struk** (ada **Pratinjau struk** & uji cetak).
+- **QR ulasan di struk** (satu form ulasan + saran, tanpa login, sekali per struk, berlaku N hari): bintang keseluruhan (wajib, otomatis lanjut),
+  nilai aspek (rasa, kecepatan, keramahan, kebersihan, harga), rekomendasi 0–10 (NPS), yang paling disukai, saran teks, kontak opsional + izin dihubungi.
+  Satu pertanyaan per layar, < 1 menit (mengikuti praktik riset: maks ±5 layar, tombol besar). Pemberi 4–5 bintang ditawari ulasan Google Maps; hadiah opsional untuk semua pengisi.
+- **Ulasan Pelanggan** (menu Kasir & Outlet): rata-rata bintang, NPS, tingkat respons, sebaran bintang, tren mingguan, nilai per aspek, yang disukai, per outlet;
+  daftar ulasan + filter + **tindak lanjut** (WhatsApp pelanggan yang bersedia), export Excel; atur pertanyaan & teks form. Izin `feedback.view` / `feedback.manage`.
+  Form publik hanya menampilkan nama outlet/brand & tanggal (tanpa isi pesanan/harga).
 
 ## Tugas (kanban) & SOP harian
 Menu **Tugas** untuk semua user (badge = tugas baru untuk saya + yang menunggu review saya).

@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { LocateFixed, MapPin } from 'lucide-react';
+import { Eye, LocateFixed, MapPin, ReceiptText } from 'lucide-react';
+import ReceiptPreview from '../components/settings/ReceiptPreview';
 import { getGps } from '../lib/hr';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
@@ -26,6 +27,7 @@ interface OutletRow {
   tax_rate: number; service_charge_rate: number; rounding_unit: number; is_active: boolean;
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
   geo_lat: number | null; geo_lng: number | null; geo_radius_m: number;
+  receipt_header: string | null; receipt_footer: string | null; receipt_show_logo: boolean; receipt_show_feedback_qr: boolean; google_review_url: string | null;
 }
 interface UserRow {
   id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
@@ -45,6 +47,8 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'purchasing.manage', label: 'Pembelian & supplier', group: 'Operasional' },
   { key: 'sales.manage', label: 'Sales order, pengiriman, invoice & pelanggan B2B', group: 'Operasional' },
   { key: 'crm.manage', label: 'Pelanggan, promo & voucher', group: 'Operasional' },
+  { key: 'feedback.view', label: 'Lihat ulasan pelanggan & analisanya', group: 'Operasional' },
+  { key: 'feedback.manage', label: 'Atur form ulasan & tindak lanjut ulasan', group: 'Operasional' },
   { key: 'report.view', label: 'Dashboard & laporan penjualan', group: 'Laporan' },
   { key: 'finance.view', label: 'Lihat laporan keuangan', group: 'Keuangan' },
   { key: 'finance.manage', label: 'Input biaya, jurnal, bayar supplier, settlement POS', group: 'Keuangan' },
@@ -439,6 +443,10 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
 
 // ---------------------------------------------------------------- Outlet
 // kosong / 0 / bukan angka = belum diatur
+const receiptFields = (e: Partial<OutletRow>) => ({
+  receipt_header: e.receipt_header?.trim() || null, receipt_footer: e.receipt_footer ?? '', receipt_show_logo: e.receipt_show_logo !== false,
+  receipt_show_feedback_qr: e.receipt_show_feedback_qr !== false, google_review_url: e.google_review_url?.trim() || null,
+});
 const geoNum = (v: unknown) => (v === null || v === undefined || v === '' || !Number(v) ? null : Number(v));
 
 function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[]; brands: BrandRow[]; act: Act; onCreated: () => Promise<void> }) {
@@ -452,13 +460,13 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
         name: e.name, brand_id: e.brand_id, address: e.address, phone: e.phone, tax_rate: e.tax_rate,
         service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit, is_active: e.is_active,
         is_qr_order_enabled: e.is_qr_order_enabled, qr_requires_confirmation: e.qr_requires_confirmation,
-        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100, ...receiptFields(e),
       }).eq('id', e.id));
     } else {
       const o = await rpc<OutletRow>('sys_create_outlet', { p_code: e.code, p_name: e.name, p_address: e.address ?? null, p_brand_id: e.brand_id ?? null });
       await must(supabase.from('sys_outlets').update({
         phone: e.phone, tax_rate: e.tax_rate, service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit,
-        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100, ...receiptFields(e),
       }).eq('id', o.id));
     }
     await onCreated();
@@ -467,6 +475,7 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
   });
 
   const [locating, setLocating] = useState(false);
+  const [preview, setPreview] = useState(false);
   const useMyLocation = async () => {
     setLocating(true);
     try {
@@ -538,6 +547,24 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
             <small className="muted">Absen di luar radius tetap tercatat, tapi ditandai untuk direview.
               {editing.geo_lat != null && editing.geo_lng != null && <> <a href={`https://www.google.com/maps?q=${editing.geo_lat},${editing.geo_lng}`} target="_blank" rel="noreferrer">Cek di peta</a></>}</small>
           </fieldset>
+          <fieldset className="geo-box">
+            <legend><ReceiptText size={14} /> Struk (thermal 80mm)</legend>
+            <div className="form-grid">
+              <label className="field" style={{ gridColumn: '1 / -1' }}><span>Teks atas (opsional)</span>
+                <input value={editing.receipt_header ?? ''} placeholder="mis. Kopi lokal, rasa global" onChange={(ev) => setEditing({ ...editing, receipt_header: ev.target.value })} /></label>
+              <label className="field" style={{ gridColumn: '1 / -1' }}><span>Teks bawah</span>
+                <textarea rows={2} value={editing.receipt_footer ?? 'Terima kasih atas kunjungan Anda'} placeholder="mis. WiFi: kopi123 · IG @achphoria.coffee" onChange={(ev) => setEditing({ ...editing, receipt_footer: ev.target.value })} /></label>
+              <label className="field" style={{ gridColumn: '1 / -1' }}><span>Link ulasan Google Maps (opsional)</span>
+                <input value={editing.google_review_url ?? ''} placeholder="https://g.page/r/..." onChange={(ev) => setEditing({ ...editing, google_review_url: ev.target.value })} />
+                <small className="muted">Ditawarkan ke pelanggan yang memberi 4–5 bintang.</small></label>
+            </div>
+            <div className="grid" style={{ marginTop: 8 }}>
+              <label className="row"><input type="checkbox" checked={editing.receipt_show_logo !== false} onChange={(ev) => setEditing({ ...editing, receipt_show_logo: ev.target.checked })} /> Tampilkan logo brand</label>
+              <label className="row"><input type="checkbox" checked={editing.receipt_show_feedback_qr !== false} onChange={(ev) => setEditing({ ...editing, receipt_show_feedback_qr: ev.target.checked })} /> QR ulasan & saran di struk</label>
+            </div>
+            <button type="button" className="btn-sm" style={{ marginTop: 8 }} onClick={() => setPreview(true)}><Eye size={14} /> Pratinjau struk</button>
+          </fieldset>
+          {preview && <ReceiptPreview outlet={editing} brand={brands.find((b) => b.id === editing.brand_id) ?? null} onClose={() => setPreview(false)} />}
           {editing.id ? (
             <div className="grid" style={{ marginTop: 12 }}>
               <label className="row"><input type="checkbox" checked={!!editing.is_qr_order_enabled}

@@ -121,6 +121,7 @@ export default function OrdersPage() {
                           </button>
                         )}
                         <button className="btn-sm" onClick={() => navigate(`/pos?order=${o.id}`)}>+ Item</button>
+                        <button className="btn-sm" title="Cetak tagihan untuk tamu" onClick={() => printReceipt(o.id).catch((e) => setError(errorMessage(e)))}>🧾 Tagihan</button>
                         {can('pos.pay') && <button className="btn-sm btn-primary" onClick={() => setPayOrder(o)}>Bayar</button>}
                         <select className="btn-sm" value="" onChange={(e) => setAction({ action: e.target.value as OrderAction, order: o })}>
                           <option value="" disabled>⋯ Lainnya</option>
@@ -133,7 +134,7 @@ export default function OrdersPage() {
                     )}
                     {o.status === 'paid' && (
                       <>
-                        <button className="btn-sm" onClick={() => printReceipt(o.id).catch((e) => setError(errorMessage(e)))}>🖨️ Struk</button>
+                        <button className="btn-sm" onClick={() => printReceipt(o.id, { copy: true }).catch((e) => setError(errorMessage(e)))}>🖨️ Struk</button>
                         <button className="btn-sm btn-danger" onClick={() => setAction({ action: 'refund', order: o })}>{can(['pos.refund', 'approval.refund']) ? 'Refund' : 'Ajukan refund'}</button>
                       </>
                     )}

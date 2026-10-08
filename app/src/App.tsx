@@ -20,6 +20,8 @@ const SettingsPage = lazyRetry(() => import('./pages/SettingsPage'));
 const CustomersPage = lazyRetry(() => import('./pages/CustomersPage'));
 const ProductsPage = lazyRetry(() => import('./pages/ProductsPage'));
 const PublicOrderPage = lazyRetry(() => import('./pages/PublicOrderPage'));
+const FeedbackPage = lazyRetry(() => import('./pages/FeedbackPage'));
+const ReviewsPage = lazyRetry(() => import('./pages/ReviewsPage'));
 const ApprovalsPage = lazyRetry(() => import('./pages/ApprovalsPage'));
 const SalesPage = lazyRetry(() => import('./pages/SalesPage'));
 const SettlementPage = lazyRetry(() => import('./pages/SettlementPage'));
@@ -87,6 +89,7 @@ function AppRoutes() {
         <Route path="platform" element={<PlatformPage />} />
         <Route path="saya" element={<MyHomePage />} />
         <Route path="tugas" element={<TasksPage />} />
+        <Route path="ulasan" element={<Guard permission={['feedback.view', 'feedback.manage']}><ReviewsPage /></Guard>} />
         <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave', 'hr.appraisal']}><HrPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
@@ -104,6 +107,7 @@ export default function App() {
         <Routes>
           {/* publik, tanpa login: halaman pesan dari QR meja */}
           <Route path="/order/:token" element={<PublicOrderPage />} />
+          <Route path="/ulas/:token" element={<FeedbackPage />} />
           <Route path="/payment-return" element={<PaymentReturnPage />} />
           <Route path="*" element={<AppRoutes />} />
         </Routes>

@@ -4,7 +4,7 @@ import ErrorBoundary from './ErrorBoundary';
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, MessageSquareHeart, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -18,7 +18,7 @@ import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
 // permission 'platform' = khusus Platform Admin (developer); 'self' = semua user yang login
-interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' | 'attendance' | 'leave' | 'tasks' | 'me' }
+interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' | 'attendance' | 'leave' | 'tasks' | 'me' | 'feedback' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
 // "to" boleh membawa ?tab=... supaya menu langsung membuka tab di halaman modul
@@ -41,6 +41,7 @@ const NAV: NavGroup[] = [
       { to: '/shifts', label: 'Shift Kasir', icon: Timer, permission: 'pos.pay' },
       { to: '/settlement', label: 'Settlement POS', icon: Banknote, permission: ['finance.view', 'finance.manage'] },
       { to: '/customers', label: 'Member & Promo', icon: Gift, permission: 'crm.manage' },
+      { to: '/ulasan', label: 'Ulasan Pelanggan', icon: MessageSquareHeart, permission: ['feedback.view', 'feedback.manage'], badge: 'feedback' },
     ],
   },
   {
@@ -230,6 +231,20 @@ function useMyTodo(enabled: boolean) {
   return count;
 }
 
+// Ulasan buruk (<= 2 bintang) yang belum ditindaklanjuti (event 'feedback-changed')
+function useFeedbackBadge(enabled: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) { setCount(0); return; }
+    const refresh = () => rpc<number>('crm_feedback_open_count').then(setCount).catch(() => setCount(0));
+    refresh();
+    const timer = window.setInterval(refresh, 300_000);
+    window.addEventListener('feedback-changed', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('feedback-changed', refresh); };
+  }, [enabled]);
+  return count;
+}
+
 // Logo brand dari outlet aktif (fallback: logo perusahaan). Event 'brand-updated' = brand baru disimpan.
 function useBrandLogo(brandId?: string) {
   const [logo, setLogo] = useState<string | null>(null);
@@ -258,9 +273,10 @@ export default function Layout() {
   const attPending = useAttendancePending(!!profile && can(['hr.manage', 'hr.attendance']));
   const taskBadge = useTaskBadge(!!profile);
   const meTodo = useMyTodo(!!profile);
+  const fbOpen = useFeedbackBadge(!!profile && can(['feedback.view', 'feedback.manage']));
   const leavePending = useLeavePending(!!profile && can(['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave']));
   const logoSrc = useBrandLogo(outlet?.brand_id) ?? profile?.company_logo_url;
-  const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : b === 'attendance' ? attPending : b === 'leave' ? leavePending : b === 'tasks' ? taskBadge : b === 'me' ? meTodo : 0);
+  const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : b === 'attendance' ? attPending : b === 'leave' ? leavePending : b === 'tasks' ? taskBadge : b === 'me' ? meTodo : b === 'feedback' ? fbOpen : 0);
   const current = activeItem(location.pathname, location.search);
   const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
   // accordion: hanya 1 grup terbuka; default = grup halaman yang sedang dibuka
