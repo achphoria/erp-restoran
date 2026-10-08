@@ -1,4 +1,4 @@
-import { getAppName } from './brand';
+import { getAppName, getCompanyName } from './brand';
 import { formatNumber, formatRupiah } from './format';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -35,7 +35,7 @@ export function printDocument(d: PrintDoc) {
     .sign { display: flex; gap: 24px; margin-top: 48px; } .sign div { flex: 1; text-align: center; } .sign .line { margin-top: 64px; border-top: 1px solid #111; }
   </style></head><body>
   <div class="head">
-    <div><div class="brand">${esc(getAppName())}</div><h1>${esc(d.title)}</h1><div>${esc(d.number)}</div></div>
+    <div><div class="brand">${esc(getCompanyName() || getAppName())}</div><h1>${esc(d.title)}</h1><div>${esc(d.number)}</div></div>
     <table class="meta">${d.meta.map(([k, v]) => `<tr><td>${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')}</table>
   </div>
   <div class="party"><div>${esc(d.partyLabel)}:</div>${d.party.filter(Boolean).map((l, i) => i === 0 ? `<b>${esc(l)}</b>` : `<div>${esc(l)}</div>`).join('')}</div>

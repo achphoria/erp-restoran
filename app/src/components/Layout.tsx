@@ -165,7 +165,7 @@ export default function Layout() {
     setDrawerOpen(false);
     setDocumentTitle(current?.label);
     if (currentGroup) setOpen(currentGroup);
-  }, [current, currentGroup, profile?.company_app_name]);
+  }, [current, currentGroup]);
 
   const toggleGroup = (g: string) => setOpen((o) => (o === g ? null : g));
 
@@ -196,7 +196,7 @@ export default function Layout() {
       {/* Topbar khusus HP / tablet */}
       <header className="topbar">
         <button className="icon-btn" onClick={() => setDrawerOpen(true)} aria-label="Buka menu"><MenuIcon size={22} /></button>
-        <Logo src={profile?.company_logo_url} name={profile?.company_app_name} size={32} withName subtitle={outlet?.name} />
+        <Logo src={profile?.company_logo_url} size={32} withName subtitle={outlet?.name} />
         {pending > 0 && (
           <NavLink to="/approvals" className="icon-btn btn" aria-label="Persetujuan">
             <BadgeCheck size={20} /><span className="nav-badge">{pending}</span>
@@ -211,7 +211,7 @@ export default function Layout() {
 
       <aside className="sidebar" aria-label="Navigasi utama">
         <div className="sidebar-head">
-          <Logo src={profile?.company_logo_url} name={profile?.company_app_name} size={40} withName subtitle={profile?.company_name} textClassName="hide-collapsed" />
+          <Logo src={profile?.company_logo_url} size={40} withName subtitle={profile?.company_name} textClassName="hide-collapsed" />
           <button className="icon-btn pin-btn hide-collapsed" onClick={togglePin} title={pinned ? 'Lepas pin (auto-hide)' : 'Pin sidebar'}>
             {pinned ? <PinOff size={16} /> : <Pin size={16} />}
           </button>

@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- SEMAR: gunungan (kayon) wayang dengan cahaya blencong -->
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#4ABDAC"/>
@@ -6,11 +7,13 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#g)"/>
-  <g fill="none" stroke-linecap="round">
-    <path d="M42 8l13 18M47 6l11 16" stroke="#FC4A1A" stroke-width="3.2"/>
-    <path d="M23 25c-3-3 3-6 0-10M31 25c-3-3 3-6 0-10M39 25c-3-3 3-6 0-10" stroke="#F7B733" stroke-width="3"/>
+  <path d="M32 7C36 13 44 20 48 29C51 36 51 44 47 50H17C13 44 13 36 16 29C20 20 28 13 32 7Z" fill="#fff"/>
+  <g fill="none" stroke="#1F7F72" stroke-width="2.2" stroke-linecap="round">
+    <path d="M32 43V22"/>
+    <path d="M32 35C28 31.5 24.5 31.5 21.5 33.5M32 35C36 31.5 39.5 31.5 42.5 33.5"/>
+    <path d="M32 28C29 25 26.5 25 24.5 26M32 28C35 25 37.5 25 39.5 26"/>
   </g>
-  <rect x="9" y="29" width="46" height="4.5" rx="2.25" fill="#fff"/>
-  <path d="M13 33.5h38a19 15 0 0 1-38 0z" fill="#fff"/>
-  <rect x="25" y="49" width="14" height="4" rx="2" fill="#fff" opacity=".9"/>
+  <path d="M27 50V44.5a5 5 0 0 1 10 0V50Z" fill="#1F7F72"/>
+  <circle cx="32" cy="17" r="3.2" fill="#F7B733"/>
+  <rect x="19" y="50" width="26" height="4.5" rx="2.25" fill="#FC4A1A"/>
 </svg>

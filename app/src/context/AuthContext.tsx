@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { rpc, supabase } from '../lib/supabase';
-import { setAppName } from '../lib/brand';
+import { setCompanyName } from '../lib/brand';
 import type { Outlet, Profile } from '../lib/types';
 
 interface AuthState {
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async () => {
     const data = await rpc<Profile | null>('sys_get_my_profile');
     setProfile(data);
-    if (data) setAppName(data.company_app_name);
+    if (data) setCompanyName(data.company_name);
   }, []);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const data = await rpc<Profile | null>('sys_get_my_profile');
           if (!cancelled) setProfile(data);
-          if (data) setAppName(data.company_app_name);
+          if (data) setCompanyName(data.company_name);
           // catat login ke log aktivitas (server mengabaikan duplikat dalam 30 menit)
           if (data) rpc('sys_log_login').catch(() => undefined);
         } catch {

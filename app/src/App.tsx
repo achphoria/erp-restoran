@@ -23,6 +23,7 @@ const SalesPage = lazy(() => import('./pages/SalesPage'));
 const SettlementPage = lazy(() => import('./pages/SettlementPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
 
@@ -46,7 +47,15 @@ function Home() {
 function AppRoutes() {
   const { session, profile, loading } = useAuth();
 
-  if (!session) return <LoginPage />;
+  // belum login: beranda = landing page, alamat lain (mis. /login, /pos setelah keluar) = form masuk
+  if (!session) {
+    return (
+      <Routes>
+        <Route index element={<LandingPage />} />
+        <Route path="*" element={<LoginPage />} />
+      </Routes>
+    );
+  }
   if (loading) return <div className="auth-page"><div className="skeleton" style={{ width: 280, height: 160 }} /></div>;
   if (!profile) return <OnboardingPage />;
 

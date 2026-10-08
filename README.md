@@ -1,4 +1,7 @@
-# Santap ERP
+# SEMAR
+**S**istem **E**RP, **M**anajemen, **A**kuntansi & **R**estoran: abdi setia usaha kuliner.
+
+> Nama SEMAR diambil dari tokoh punakawan wayang: tampil sebagai abdi, padahal dewa yang paling bijak. Lambangnya gunungan (kayon) dengan cahaya blencong. Modul diibaratkan punakawan: Semar (pusat kendali), Gareng (kasir), Petruk (stok & gudang), Bagong (keuangan & laporan).
 
 ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) dengan **Supabase** + **React**.
 
@@ -125,7 +128,7 @@ Untuk produksi, nyalakan kembali **Confirm email** di Supabase supaya undangan h
   QR hanya bisa di-scan dari HP setelah aplikasi di-deploy ke internet (bukan `localhost`).
 
 ## Fase 6: logo, profil, log, approval, iPay88
-- **Logo & identitas**: Pengaturan → Perusahaan & Logo. Default: logo & nama *Santap ERP* (`app/public/favicon.svg`, `app/src/lib/brand.ts`).
+- **Logo & identitas**: Pengaturan → Perusahaan & Logo. Nama sistem **SEMAR** tetap (hardcode di `app/src/lib/brand.ts`); perusahaan hanya bisa mengganti logo yang tampil di sidebar & struk. Landing page di `/`, form masuk di `/login`.
 - **Profil user**: klik nama di sidebar → foto & nomor HP. Owner bisa mengubah profil staf di Pengaturan → User.
 - **Log aktivitas**: Pengaturan → Log Aktivitas. Mencatat login, perubahan data penting (nilai lama → baru), status order, dan keputusan approval.
 - **Approval**: Pengaturan → Approval untuk menyalakan aturan & batas nominal (PO, biaya, penyesuaian stok/waste, opname, refund).
