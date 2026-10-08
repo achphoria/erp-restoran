@@ -11,12 +11,13 @@ import AnnouncementsTab from '../components/hr/AnnouncementsTab';
 import RosterTab from '../components/hr/RosterTab';
 import AttendanceTab from '../components/hr/AttendanceTab';
 import LeaveTab from '../components/hr/LeaveTab';
+import AppraisalTab from '../components/hr/AppraisalTab';
 import type { Lookups } from '../components/hr/EmployeeForm';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Tab = 'employees' | 'roster' | 'attendance' | 'leave' | 'structure' | 'announcements';
+type Tab = 'employees' | 'roster' | 'attendance' | 'leave' | 'appraisal' | 'structure' | 'announcements';
 
-// Modul SDM / HR: data karyawan, jadwal shift, absensi, cuti & izin, struktur organisasi, pengumuman
+// Modul SDM / HR: data karyawan, jadwal shift, absensi, cuti & izin, penilaian kinerja, struktur organisasi, pengumuman
 export default function HrPage() {
   const { profile, can } = useAuth();
   const setNotice = useNotice();
@@ -25,6 +26,7 @@ export default function HrPage() {
     ['roster', 'Jadwal Shift', can(['hr.manage', 'hr.attendance'])],
     ['attendance', 'Absensi', can(['hr.view', 'hr.manage', 'hr.attendance'])],
     ['leave', 'Cuti & Izin', can(['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave'])],
+    ['appraisal', 'Penilaian', can('hr.appraisal')],
     ['structure', 'Jabatan & Departemen', can('hr.manage')],
     ['announcements', 'Pengumuman', can('hr.manage')],
   ];
@@ -78,6 +80,7 @@ export default function HrPage() {
       {tab === 'roster' && <RosterTab companyId={profile!.company_id} outlets={lookups.outlets} />}
       {tab === 'attendance' && <AttendanceTab companyId={profile!.company_id} outlets={lookups.outlets} />}
       {tab === 'leave' && <LeaveTab companyId={profile!.company_id} outlets={lookups.outlets} />}
+      {tab === 'appraisal' && <AppraisalTab companyId={profile!.company_id} roles={lookups.roles} positions={lookups.positions} />}
       {tab === 'structure' && <StructureTab companyId={profile!.company_id} departments={lookups.departments} positions={lookups.positions} roles={lookups.roles} employees={employees} onChanged={load} />}
       {tab === 'announcements' && <AnnouncementsTab companyId={profile!.company_id} items={ann} stats={stats} outlets={lookups.outlets} roles={lookups.roles} onChanged={load} />}
     </>

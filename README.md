@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–036)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–037)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -35,6 +35,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase24.sql`](supabase/update_fase24.sql) (034: SDM / HR fase B: absensi foto + GPS, titik lokasi outlet, jadwal shift, koreksi absen)
   - [`supabase/update_fase25.sql`](supabase/update_fase25.sql) (035: SDM / HR fase C: cuti & izin, saldo cuti, persetujuan cuti)
   - [`supabase/update_fase26.sql`](supabase/update_fase26.sql) (036: Tugas kanban & SOP harian)
+  - [`supabase/update_fase27.sql`](supabase/update_fase27.sql) (037: SDM / HR fase E: penilaian kinerja)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -334,7 +335,13 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
   Karyawan mengajukan dari Beranda Saya (bisa setengah hari, lampiran surat dokter wajib untuk sakit ≥ 2 hari, hari libur di jadwal tidak dihitung).
   Persetujuan: menu **Persetujuan** (izin `approval.leave`), tab **Cuti & Izin** (HR), atau **atasan langsung** dari Beranda Saya (kartu *Persetujuan tim*).
   Kalender cuti tim per bulan, saldo semua karyawan + export Excel. Cuti yang disetujui tampil di jadwal & rekap absensi (tidak dihitung alpa).
-- Rencana berikutnya: penilaian kinerja (form per role).
+- **Penilaian kinerja**: template per role / jabatan (kriteria berbobot, skala 1–5; tombol *Pakai contoh* berisi kriteria standar restoran).
+  Kriteria **otomatis** dihitung dari data periode: kehadiran (hadir / hari terjadwal, cuti tidak dihitung), ketepatan waktu, tugas selesai
+  tepat waktu, kepatuhan SOP. Periode (mis. per kuartal) → **Mulai penilaian** → karyawan **menilai diri** → **atasan langsung** / HR menilai
+  (nilai diri tampil berdampingan; kekuatan, yang perlu ditingkatkan, target) → karyawan **membaca & konfirmasi**. Nilai akhir + grade
+  A (≥ 4,5) / B (≥ 3,75) / C (≥ 3) / D (≥ 2) / E. Nilai atasan tidak terlihat karyawan sebelum dikirim. Rekap per periode + Excel, bisa dicetak.
+  Izin `hr.appraisal`; tindakan karyawan & atasan ada di Beranda Saya (badge di menu Beranda Saya).
+- Belum ada: payroll / gaji (sengaja ditunda).
 
 ## Tugas (kanban) & SOP harian
 Menu **Tugas** untuk semua user (badge = tugas baru untuk saya + yang menunggu review saya).
