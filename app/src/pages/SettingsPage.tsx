@@ -1,4 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { LocateFixed, MapPin } from 'lucide-react';
+import { getGps } from '../lib/hr';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { useFeedback, useNotice } from '../components/Feedback';
@@ -23,6 +25,7 @@ interface OutletRow {
   id: string; code: string; name: string; address: string | null; phone: string | null; brand_id: string;
   tax_rate: number; service_charge_rate: number; rounding_unit: number; is_active: boolean;
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
+  geo_lat: number | null; geo_lng: number | null; geo_radius_m: number;
 }
 interface UserRow {
   id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
@@ -50,6 +53,7 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'audit.view', label: 'Lihat log aktivitas', group: 'Admin' },
   { key: 'hr.view', label: 'Lihat data karyawan', group: 'SDM / HR' },
   { key: 'hr.manage', label: 'Kelola karyawan, jabatan & pengumuman', group: 'SDM / HR' },
+  { key: 'hr.attendance', label: 'Atur jadwal shift & review absensi', group: 'SDM / HR' },
   { key: 'approval.purchase_order', label: 'Menyetujui purchase order', group: 'Persetujuan' },
   { key: 'approval.expense', label: 'Menyetujui biaya operasional', group: 'Persetujuan' },
   { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
@@ -418,8 +422,12 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
 }
 
 // ---------------------------------------------------------------- Outlet
+// kosong / 0 / bukan angka = belum diatur
+const geoNum = (v: unknown) => (v === null || v === undefined || v === '' || !Number(v) ? null : Number(v));
+
 function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[]; brands: BrandRow[]; act: Act; onCreated: () => Promise<void> }) {
   const [editing, setEditing] = useState<Partial<OutletRow> | null>(null);
+  const { toast } = useFeedback();
 
   const save = () => act(async () => {
     const e = editing!;
@@ -428,17 +436,29 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
         name: e.name, brand_id: e.brand_id, address: e.address, phone: e.phone, tax_rate: e.tax_rate,
         service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit, is_active: e.is_active,
         is_qr_order_enabled: e.is_qr_order_enabled, qr_requires_confirmation: e.qr_requires_confirmation,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
       }).eq('id', e.id));
     } else {
       const o = await rpc<OutletRow>('sys_create_outlet', { p_code: e.code, p_name: e.name, p_address: e.address ?? null, p_brand_id: e.brand_id ?? null });
       await must(supabase.from('sys_outlets').update({
         phone: e.phone, tax_rate: e.tax_rate, service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
       }).eq('id', o.id));
     }
     await onCreated();
     setEditing(null);
     return 'Outlet disimpan.';
   });
+
+  const [locating, setLocating] = useState(false);
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      const g = await getGps();
+      setEditing((x) => ({ ...x, geo_lat: Number(g.lat.toFixed(6)), geo_lng: Number(g.lng.toFixed(6)) }));
+      if (g.accuracy > 50) toast(`Akurasi GPS ±${g.accuracy} m. Untuk hasil terbaik, ambil lokasi saat berada di dalam outlet.`, 'error');
+    } catch (err) { toast(errorMessage(err), 'error'); } finally { setLocating(false); }
+  };
 
   const field = (key: keyof OutletRow, label: string, type = 'text', disabled = false) => (
     <label className="field"><span>{label}</span>
@@ -489,6 +509,19 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
             {field('service_charge_rate', 'Service charge (%)', 'number')}
             {field('rounding_unit', 'Pembulatan (Rp)', 'number')}
           </div>
+          <fieldset className="geo-box">
+            <legend><MapPin size={14} /> Lokasi absen karyawan</legend>
+            <div className="form-grid">
+              {field('geo_lat', 'Latitude', 'number')}
+              {field('geo_lng', 'Longitude', 'number')}
+              {field('geo_radius_m', 'Radius absen (meter)', 'number')}
+              <div className="field"><span>&nbsp;</span>
+                <button type="button" onClick={useMyLocation} disabled={locating}><LocateFixed size={14} /> {locating ? 'Mencari…' : 'Pakai lokasi saya'}</button>
+              </div>
+            </div>
+            <small className="muted">Absen di luar radius tetap tercatat, tapi ditandai untuk direview.
+              {editing.geo_lat != null && editing.geo_lng != null && <> <a href={`https://www.google.com/maps?q=${editing.geo_lat},${editing.geo_lng}`} target="_blank" rel="noreferrer">Cek di peta</a></>}</small>
+          </fieldset>
           {editing.id ? (
             <div className="grid" style={{ marginTop: 12 }}>
               <label className="row"><input type="checkbox" checked={!!editing.is_qr_order_enabled}

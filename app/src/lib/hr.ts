@@ -44,3 +44,53 @@ export interface Employee {
   experience: { company?: string; position?: string; from?: string; to?: string }[];
   notes: string | null;
 }
+
+// ---------------------------------------------------------------- absensi
+export interface GpsFix { lat: number; lng: number; accuracy: number }
+// lokasi GPS akurasi tinggi (izin lokasi diminta browser)
+export function getGps(timeout = 15000): Promise<GpsFix> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('Perangkat ini tidak mendukung GPS')); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy) }),
+      (e) => reject(new Error(e.code === 1 ? 'Izin lokasi ditolak. Aktifkan izin lokasi untuk situs ini di pengaturan browser.'
+        : e.code === 3 ? 'GPS terlalu lama merespons. Coba di tempat terbuka.' : 'Lokasi tidak bisa didapat. Pastikan GPS aktif.')),
+      { enableHighAccuracy: true, timeout, maximumAge: 0 });
+  });
+}
+
+// jarak perkiraan di HP (yang menentukan tetap perhitungan server)
+export function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lng2 - lng1) / 2) ** 2;
+  return Math.round(2 * 6371000 * Math.asin(Math.sqrt(a)));
+}
+
+// selfie absen -> hr-files/<company>/<employee>/attendance/<tanggal>-<in|out>-<acak>.jpg
+export async function uploadAttendancePhoto(companyId: string, employeeId: string, workDate: string, kind: 'in' | 'out', blob: Blob): Promise<string> {
+  const path = `${companyId}/${employeeId}/attendance/${workDate}-${kind}-${crypto.randomUUID().slice(0, 8)}.${blob.type === 'image/jpeg' ? 'jpg' : 'webp'}`;
+  const { error } = await supabase.storage.from('hr-files').upload(path, blob, { contentType: blob.type || 'image/jpeg' });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+export const ATT_FLAGS: Record<string, string> = {
+  outside_radius: 'Di luar radius', low_accuracy: 'GPS kurang akurat', day_off: 'Masuk di hari libur',
+  no_geofence: 'Outlet belum punya titik lokasi', corrected: 'Hasil koreksi',
+};
+export const ATT_STATUS: Record<string, [string, string]> = {
+  present: ['Hadir', 'badge-success'], late: ['Telat', 'badge-warning'], absent: ['Alpa', 'badge-danger'],
+  off: ['Libur', ''], scheduled: ['Terjadwal', 'badge-info'],
+};
+export const fmtTime = (t: string | null | undefined) =>
+  t ? new Date(t).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—';
+export const hhmm = (t: string | null | undefined) => (t ? t.slice(0, 5) : '');
+// tanggal lokal (WIB) dalam format YYYY-MM-DD
+export const localDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d);
+export const addDays = (iso: string, n: number) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+// Senin dari minggu tanggal tsb
+export const mondayOf = (iso: string) => addDays(iso, -((new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7));
