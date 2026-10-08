@@ -1,31 +1,33 @@
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyRetry } from './lib/lazyRetry';
+import ErrorBoundary from './components/ErrorBoundary';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import OnboardingPage from './pages/OnboardingPage';
-const DashboardPage = lazy(() => import('./pages/DashboardPage'));
-const PosPage = lazy(() => import('./pages/PosPage'));
-const OrdersPage = lazy(() => import('./pages/OrdersPage'));
-const KitchenPage = lazy(() => import('./pages/KitchenPage'));
-const ShiftsPage = lazy(() => import('./pages/ShiftsPage'));
-const MenuPage = lazy(() => import('./pages/MenuPage'));
-const InventoryPage = lazy(() => import('./pages/InventoryPage'));
-const PurchasingPage = lazy(() => import('./pages/PurchasingPage'));
-const ReportsPage = lazy(() => import('./pages/ReportsPage'));
-const FinancePage = lazy(() => import('./pages/FinancePage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const CustomersPage = lazy(() => import('./pages/CustomersPage'));
-const ProductsPage = lazy(() => import('./pages/ProductsPage'));
-const PublicOrderPage = lazy(() => import('./pages/PublicOrderPage'));
-const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
-const SalesPage = lazy(() => import('./pages/SalesPage'));
-const SettlementPage = lazy(() => import('./pages/SettlementPage'));
-const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
-const PlatformPage = lazy(() => import('./pages/PlatformPage'));
-const HrPage = lazy(() => import('./pages/HrPage'));
-const MyHomePage = lazy(() => import('./pages/MyHomePage'));
-const LandingPage = lazy(() => import('./pages/LandingPage'));
+const DashboardPage = lazyRetry(() => import('./pages/DashboardPage'));
+const PosPage = lazyRetry(() => import('./pages/PosPage'));
+const OrdersPage = lazyRetry(() => import('./pages/OrdersPage'));
+const KitchenPage = lazyRetry(() => import('./pages/KitchenPage'));
+const ShiftsPage = lazyRetry(() => import('./pages/ShiftsPage'));
+const MenuPage = lazyRetry(() => import('./pages/MenuPage'));
+const InventoryPage = lazyRetry(() => import('./pages/InventoryPage'));
+const PurchasingPage = lazyRetry(() => import('./pages/PurchasingPage'));
+const ReportsPage = lazyRetry(() => import('./pages/ReportsPage'));
+const FinancePage = lazyRetry(() => import('./pages/FinancePage'));
+const SettingsPage = lazyRetry(() => import('./pages/SettingsPage'));
+const CustomersPage = lazyRetry(() => import('./pages/CustomersPage'));
+const ProductsPage = lazyRetry(() => import('./pages/ProductsPage'));
+const PublicOrderPage = lazyRetry(() => import('./pages/PublicOrderPage'));
+const ApprovalsPage = lazyRetry(() => import('./pages/ApprovalsPage'));
+const SalesPage = lazyRetry(() => import('./pages/SalesPage'));
+const SettlementPage = lazyRetry(() => import('./pages/SettlementPage'));
+const PaymentReturnPage = lazyRetry(() => import('./pages/PaymentReturnPage'));
+const PlatformPage = lazyRetry(() => import('./pages/PlatformPage'));
+const HrPage = lazyRetry(() => import('./pages/HrPage'));
+const MyHomePage = lazyRetry(() => import('./pages/MyHomePage'));
+const LandingPage = lazyRetry(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
 
@@ -92,6 +94,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <FeedbackProvider>
     <AuthProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
@@ -106,5 +109,6 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
     </FeedbackProvider>
+    </ErrorBoundary>
   );
 }

@@ -800,3 +800,13 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .leave-cell.pending { opacity: .55; background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.45) 0 3px, transparent 3px 7px) !important; }
 .leave-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
 .me-hist-row > span.row { flex-shrink: 0; flex-wrap: nowrap; }
+
+/* Penangkap error (pengganti layar putih) */
+.app-error { display: grid; place-items: center; text-align: center; }
+.app-error-full { min-height: 100vh; padding: 24px; }
+.app-error.card { padding: 40px 20px; }
+.app-error-box { display: grid; gap: 10px; max-width: 420px; }
+.app-error-box h2 { margin: 0; }
+.app-error-box p { margin: 0; }
+.app-error-icon { font-size: 40px; }
+.app-error-box code { display: block; margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
