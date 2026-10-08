@@ -3,7 +3,7 @@
 // Mengembalikan URL + field form yang sudah ditandatangani untuk dibuka di halaman iPay88.
 //
 // Secret yang dibutuhkan (Supabase > Edge Functions > Secrets):
-//   APP_URL  = https://achphoria.github.io/erp-restoran   (untuk ResponseURL)
+//   APP_URL  = https://achphoria.github.io/semar-erp   (untuk ResponseURL)
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY tersedia otomatis.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders, ENTRY_URL, formatAmount, requestSignatureString, sign } from '../_shared/ipay88.ts';

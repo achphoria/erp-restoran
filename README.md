@@ -44,7 +44,7 @@ Centang "Isi dengan data contoh" untuk langsung mendapat menu, meja, bahan baku,
 ### Deploy (GitHub Pages)
 Setiap `git push` ke branch `main` otomatis menjalankan tes database lalu men-deploy aplikasi
 (lihat [`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml)).
-Alamatnya: `https://<username>.github.io/erp-restoran/`.
+Alamatnya: `https://<username>.github.io/<nama-repo>/` (repo ini: `https://achphoria.github.io/semar-erp/`).
 Pengaturan Supabase untuk build ada di `app/.env.production` (URL + anon key, aman untuk publik;
 **jangan pernah** menaruh `service_role` key di repo ini).
 
@@ -58,7 +58,7 @@ Menjalankan semua migrasi di PostgreSQL lokal (PGlite) dan menguji alur bisnis +
 ## Struktur
 
 ```
-erp-restoran/
+semar-erp/
 ├── supabase/
 │   ├── migrations/
 │   │   ├── 001_phase1_master_pos.sql            tabel sistem, master, POS + RLS
@@ -278,7 +278,7 @@ Untuk mencabut: `delete from sys_platform_admins where user_id = (select id from
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).
 
-1. **Authentication → URL Configuration**: isi **Site URL** dengan `https://achphoria.github.io/erp-restoran/`
+1. **Authentication → URL Configuration**: isi **Site URL** dengan `https://achphoria.github.io/semar-erp/`
    dan tambahkan alamat yang sama di **Redirect URLs** (supaya link di email tidak mengarah ke localhost).
 2. **Authentication → Emails → Confirm signup**: isi Subject `Konfirmasi email Anda · SEMAR`, lalu tempel seluruh isi file template ke kolom body.
 3. **Disarankan: Custom SMTP** (Authentication → Emails → SMTP Settings), misalnya Resend atau Brevo.

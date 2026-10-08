@@ -52,7 +52,7 @@ export default function TableQrList({ companyId, outletId, outletName }: { compa
       {isLocal && (
         <div className="alert alert-info small no-print">
           QR ini masih mengarah ke <b>{window.location.origin}</b>, yang hanya bisa dibuka dari komputer ini.
-          Cetak QR dari alamat online (achphoria.github.io/erp-restoran) supaya bisa di-scan dari HP tamu.
+          Cetak QR dari alamat online (achphoria.github.io/semar-erp) supaya bisa di-scan dari HP tamu.
         </div>
       )}
 
