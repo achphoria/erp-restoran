@@ -640,3 +640,7 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .acting-banner span { flex: 1; min-width: 200px; }
 .acting-banner.support { background: var(--warning-soft); color: var(--warning); border: 1px solid #f5dc9c; }
 .acting-banner.group { background: var(--info-soft); color: var(--info); border: 1px solid #c9dcf2; }
+
+/* badge di tombol grup sidebar (mis. pendaftar baru di grup Platform) */
+.sidebar .nav-group-btn { position: relative; }
+.sidebar .nav-group-btn .nav-badge { left: 28px; top: 3px; }
