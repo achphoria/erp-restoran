@@ -254,3 +254,33 @@
 @media (prefers-reduced-motion: reduce) {
   .lp-float, .lp-blencong { animation: none; }
 }
+
+/* ---------------------------------------------------------------------
+   ONBOARDING (setelah daftar / konfirmasi email)
+   --------------------------------------------------------------------- */
+.onb-steps { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.onb-steps li { position: relative; padding-left: 38px; display: grid; gap: 1px; color: rgba(233, 245, 242, 0.7); }
+.onb-steps li::before {
+  content: ''; position: absolute; left: 0; top: 1px; width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+}
+.onb-steps li b { color: #fff; font-size: 14px; }
+.onb-steps li span { font-size: 12.5px; }
+.onb-steps li.done::before { content: '✓'; display: grid; place-items: center; background: var(--fresh); border-color: var(--fresh); color: #fff; font-size: 13px; font-weight: 800; }
+.onb-steps li.now::before { border-color: var(--sunshine); box-shadow: 0 0 0 4px rgba(247, 183, 51, 0.25); }
+.onb-steps li.now b { color: var(--sunshine); }
+.onb-confirmed {
+  display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px; padding: 12px 14px; border-radius: 14px;
+  background: var(--success-soft); border: 1px solid #bfe6df; color: var(--success);
+}
+.onb-confirmed > svg { flex-shrink: 0; margin-top: 1px; }
+.onb-confirmed span { display: grid; gap: 2px; }
+.onb-confirmed small { color: var(--text-muted); }
+.login-box h1 + p.muted { margin-top: 0; }
+.login-panel .login-box > h1:first-child, .login-box .onb-confirmed + h1 { margin-top: 4px; }
+.onb-demo { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
+.onb-demo input { margin-top: 3px; }
+.onb-demo span { display: grid; gap: 2px; }
+.onb-demo small { color: var(--text-muted); line-height: 1.45; }
+.onb-invite { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
+.onb-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
