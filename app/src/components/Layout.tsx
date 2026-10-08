@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronDown, ClipboardCheck, ClipboardList, FileText,
+  ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
   ScrollText, Settings, ShoppingCart, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
@@ -15,12 +15,12 @@ import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
 interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' }
-interface NavGroup { group: string; icon: LucideIcon; items: NavItem[] }
+interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
 // "to" boleh membawa ?tab=... supaya menu langsung membuka tab di halaman modul
 const NAV: NavGroup[] = [
   {
-    group: 'Ringkasan', icon: LayoutDashboard,
+    group: 'Ringkasan', icon: LayoutDashboard, flat: true,
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
       { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
@@ -177,27 +177,47 @@ export default function Layout() {
 
         <nav className="sidebar-nav">
           {groups.map((g) => {
+            // menu utama tanpa grup (Dashboard, Persetujuan)
+            if (g.flat) {
+              return (
+                <div key={g.group} className="nav-top">
+                  {g.items.map((item) => {
+                    const { to, label, icon: Icon, badge } = item;
+                    return (
+                      <Link key={to} to={to} className={`nav-link ${item === current ? 'active' : ''}`} title={label}
+                        aria-current={item === current ? 'page' : undefined}>
+                        <Icon size={20} />
+                        <span className="hide-collapsed">{label}</span>
+                        {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            }
             const isOpen = open === g.group;
             const hasActive = g.group === currentGroup;
             return (
-              <div key={g.group} className={`nav-section ${isOpen ? 'open' : ''}`}>
-                <button type="button" className={`nav-group-btn ${hasActive ? 'has-active' : ''}`} onClick={() => toggleGroup(g.group)}
-                  aria-expanded={isOpen} title={g.group}>
-                  <g.icon size={16} className="nav-group-icon" />
+              <div key={g.group} className={`nav-section ${isOpen ? 'open' : ''} ${hasActive ? 'has-active' : ''}`}>
+                <button type="button" className="nav-group-btn" onClick={() => toggleGroup(g.group)} aria-expanded={isOpen} title={g.group}>
+                  <g.icon size={20} className="nav-group-icon" />
                   <span className="hide-collapsed">{g.group}</span>
-                  <ChevronDown size={15} className="nav-chevron hide-collapsed" />
+                  <ChevronRight size={16} className="nav-chevron hide-collapsed" />
                 </button>
-                {isOpen && g.items.map((item) => {
-                  const { to, label, icon: Icon, badge } = item;
-                  return (
-                    <Link key={to} to={to} className={`nav-link ${item === current ? 'active' : ''}`} title={label}
-                      aria-current={item === current ? 'page' : undefined}>
-                      <Icon size={19} />
-                      <span className="hide-collapsed">{label}</span>
-                      {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
-                    </Link>
-                  );
-                })}
+                {isOpen && (
+                  <div className="nav-sub">
+                    {g.items.map((item) => {
+                      const { to, label, badge } = item;
+                      return (
+                        <Link key={to} to={to} className={`nav-sublink ${item === current ? 'active' : ''}`} title={label}
+                          aria-current={item === current ? 'page' : undefined}>
+                          <span>{label}</span>
+                          {badge === 'approvals' && pending > 0 && <span className="nav-badge">{pending}</span>}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
