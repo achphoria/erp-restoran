@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { useFeedback, useNotice } from '../components/Feedback';
 import { errorMessage, formatDateTime } from '../lib/format';
+import { useTabParam } from '../lib/useTabParam';
 import Modal from '../components/Modal';
 import Avatar from '../components/Avatar';
 import ProfileModal from '../components/ProfileModal';
@@ -55,10 +56,22 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'approval.pricelist', label: 'Menyetujui pricelist supplier', group: 'Persetujuan' },
 ];
 
-export default function SettingsPage() {
+// section 'users' = modul User Management, 'settings' = Pengaturan perusahaan
+export default function SettingsPage({ section = 'settings' }: { section?: 'settings' | 'users' }) {
   const { profile, can, refreshProfile } = useAuth();
   const companyId = profile!.company_id;
-  const [tab, setTab] = useState<Tab>(can('settings.manage') ? 'company' : can('user.manage') ? 'users' : 'logs');
+  const tabs: [Tab, string, boolean, 'settings' | 'users'][] = [
+    ['users', 'User', can('user.manage'), 'users'],
+    ['roles', 'Role & Hak Akses', can('user.manage'), 'users'],
+    ['approvals', 'Approval Transaksi', can('settings.manage'), 'users'],
+    ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage']), 'users'],
+    ['company', 'Perusahaan & Logo', can('settings.manage'), 'settings'],
+    ['outlets', 'Outlet', can('settings.manage'), 'settings'],
+    ['payment', 'Pembayaran Online', can('settings.manage'), 'settings'],
+    ['data', 'Data & Backup', !!profile?.permissions.includes('*'), 'settings'],
+  ];
+  const visible = tabs.filter(([, , ok, sec]) => ok && sec === section);
+  const [tab, setTab] = useTabParam<Tab>(visible[0]?.[0] ?? 'company', visible.map(([k]) => k));
   const [roles, setRoles] = useState<Role[]>([]);
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -74,7 +87,7 @@ export default function SettingsPage() {
       ]);
       setRoles(r as Role[]);
       setOutlets(o as OutletRow[]);
-      if (can('user.manage')) {
+      if (section === 'users' && can('user.manage')) {
         const [u, i] = await Promise.all([
           rpc<UserRow[]>('sys_list_users'),
           must(supabase.from('sys_user_invitations').select('*').eq('status', 'pending').order('created_at', { ascending: false })),
@@ -85,7 +98,7 @@ export default function SettingsPage() {
     } catch (e) {
       setError(errorMessage(e));
     }
-  }, [can]);
+  }, [can, section]);
 
   useEffect(() => {
     load();
@@ -103,27 +116,16 @@ export default function SettingsPage() {
     }
   };
 
-  const tabs: [Tab, string, boolean][] = [
-    ['company', 'Perusahaan & Logo', can('settings.manage')],
-    ['users', 'User', can('user.manage')],
-    ['roles', 'Role & Hak Akses', can('user.manage')],
-    ['outlets', 'Outlet', can('settings.manage')],
-    ['approvals', 'Approval Transaksi', can('settings.manage')],
-    ['payment', 'Pembayaran Online', can('settings.manage')],
-    ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage'])],
-    ['data', 'Data & Backup', can('*') && !!profile?.permissions.includes('*')],
-  ];
-
   return (
     <>
       <div className="page-header">
         <div>
-          <h1>Pengaturan</h1>
-          <p>{profile?.company_name}</p>
+          <h1>{section === 'users' ? 'User Management' : 'Pengaturan'}</h1>
+          <p>{section === 'users' ? 'User & akses branch, role & hak akses, approval transaksi, dan log aktivitas.' : `Perusahaan, outlet, pembayaran online & data · ${profile?.company_name}`}</p>
         </div>
       </div>
       <div className="tabs">
-        {tabs.filter(([, , ok]) => ok).map(([k, v]) => (
+        {visible.map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
