@@ -1,5 +1,6 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import ErrorBoundary from './ErrorBoundary';
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
@@ -379,7 +380,8 @@ export default function Layout() {
           </div>
         )}
         <Suspense fallback={<div className="grid">{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 90 }} />)}</div>}>
-          <Outlet />
+          {/* error di satu halaman tidak membuat seluruh layar putih; pindah menu = coba lagi */}
+          <ErrorBoundary inline key={location.pathname}><Outlet /></ErrorBoundary>
         </Suspense>
       </main>
 

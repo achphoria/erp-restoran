@@ -51,7 +51,8 @@ export default function OnboardingPage() {
   const [companyName, setCompanyName] = useState('');
   const [outletName, setOutletName] = useState('');
   const [fullName, setFullName] = useState('');
-  const [withDemo, setWithDemo] = useState(true);
+  // data contoh hanya bila diminta (default kosong, supaya master data owner baru bersih)
+  const [withDemo, setWithDemo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const email = session?.user.email;
@@ -154,7 +155,7 @@ export default function OnboardingPage() {
         </label>
         <label className="onb-demo">
           <input type="checkbox" checked={withDemo} onChange={(e) => setWithDemo(e.target.checked)} />
-          <span><b>Isi dengan data contoh</b><small>Menu, meja, bahan baku, resep & supplier contoh, supaya langsung bisa dicoba. Bisa dihapus nanti.</small></span>
+          <span><b>Isi dengan data contoh (untuk mencoba)</b><small>Menu, meja, bahan baku, resep & supplier contoh. Biarkan kosong bila ingin langsung memasukkan data usaha sendiri.</small></span>
         </label>
         <button className="btn-primary btn-lg" disabled={busy}>
           {busy ? 'Menyiapkan usaha Anda…' : 'Mulai pakai SEMAR'}
