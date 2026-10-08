@@ -87,7 +87,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [brands, setBrands] = useState<BrandRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [staff, setStaff] = useState<{ full_name: string; employee_number: string; user_id: string }[]>([]);
+  const [staff, setStaff] = useState<StaffLink[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [error, setError] = useState('');
   const setNotice = useNotice();
@@ -108,8 +108,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
           must(supabase.from('sys_user_invitations').select('*').eq('status', 'pending').order('created_at', { ascending: false })),
         ]);
         setUsers(u);
-        // karyawan yang tertaut ke akun (data orang dikelola di SDM / HR)
-        if (can(['hr.view', 'hr.manage'])) setStaff(await must(supabase.from('hr_employees').select('full_name, employee_number, user_id').not('user_id', 'is', null)));
+        // akun mana yang sudah punya data karyawan (hanya id & nomor karyawan; data orang dikelola di SDM / HR)
+        setStaff(await rpc<StaffLink[]>('hr_user_links'));
         setInvitations(i as Invitation[]);
       }
     } catch (e) {
@@ -165,10 +165,11 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
 }
 
 type Act = (fn: () => Promise<string | void>) => Promise<void>;
+interface StaffLink { user_id: string; employee_id: string; employee_number: string; is_active: boolean }
 
 // ---------------------------------------------------------------- User & undangan
 function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, brands, currentUserId, act }: {
-  staff?: { full_name: string; employee_number: string; user_id: string }[];
+  staff?: StaffLink[];
   companyId: string; users: UserRow[]; invitations: Invitation[]; roles: Role[]; outlets: OutletRow[]; brands: BrandRow[];
   currentUserId: string; act: Act;
 }) {
@@ -177,6 +178,12 @@ function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, b
   const [resetting, setResetting] = useState<UserRow | null>(null);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editingProfile, setEditingProfile] = useState<UserRow | null>(null);
+  const { can } = useAuth();
+  const canHr = can('hr.manage');
+  const makeEmployee = (u: UserRow) => act(async () => {
+    const e = await rpc<{ employee_number: string }>('hr_create_employee_for_user', { p_user_id: u.id });
+    return `Data karyawan ${e.employee_number} dibuat untuk ${u.full_name}. Lengkapi biodatanya di SDM / HR → Karyawan.`;
+  });
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? '-';
   const outletNames = (ids: string[]) => ids.map((id) => outlets.find((o) => o.id === id)?.name).filter(Boolean).join(', ');
 
@@ -200,7 +207,13 @@ function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, b
                     <Avatar name={u.full_name} src={u.avatar_url} size={36} />
                     <span>
                       <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
-                      {(() => { const st = staff.find((x) => x.user_id === u.id); return st ? <div className="muted small">👤 {st.employee_number} · data karyawan</div> : null; })()}
+                      {(() => {
+                        const st = staff.find((x) => x.user_id === u.id);
+                        if (st) return <div className="muted small">👤 {st.employee_number} · data karyawan{!st.is_active && ' (nonaktif)'}</div>;
+                        // owner sendiri / akun luar (mis. akuntan) boleh tanpa data karyawan
+                        return <div className="small user-no-emp">Belum ada data karyawan
+                          {canHr && <button className="btn-sm" onClick={() => makeEmployee(u)}>Buat data karyawan</button>}</div>;
+                      })()}
                     </span>
                   </div>
                 </td>
@@ -267,7 +280,7 @@ function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, b
           }} />
       )}
 
-      {creating && <CreateStaffUserModal roles={roles} outlets={outlets} brands={brands} onClose={() => setCreating(false)}
+      {creating && <CreateStaffUserModal roles={roles} outlets={outlets} brands={brands} offerEmployee={canHr} onClose={() => setCreating(false)}
         onDone={(msg) => { setCreating(false); act(async () => msg); }} />}
       {resetting && <ResetPasswordModal user={{ id: resetting.id, full_name: resetting.full_name, username: resetting.username! }}
         onClose={() => setResetting(null)} onDone={(msg) => { setResetting(null); act(async () => msg); }} />}
