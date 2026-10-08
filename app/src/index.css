@@ -621,3 +621,7 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
   .page-sheet-footer > .page-sheet-content > span { width: 100%; }
   .page-sheet .form-grid { grid-template-columns: 1fr; }
 }
+/* baris daftar: 1 baris rapi, klik untuk detail */
+.nowrap { white-space: nowrap; }
+.table tr.clickable-row { cursor: pointer; }
+.table tr.clickable-row:hover td { background: rgba(74, 189, 172, 0.06); }

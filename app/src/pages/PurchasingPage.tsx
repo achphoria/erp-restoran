@@ -28,6 +28,7 @@ interface PurchaseOrder {
   id: string; po_number: string | null; po_date: string; status: string; grand_total: number; note: string | null; sales_note: string | null;
   pur_suppliers: { name: string; supplier_type: string }; inv_warehouses: { name: string };
   pur_purchase_order_items: { id: string; quantity: number; received_qty: number; unit_price: number; inv_items: { name: string }; inv_units: { code: string } }[];
+  expected_date?: string | null; approved_at?: string | null;
 }
 interface GoodsReceipt {
   id: string; receipt_number: string | null; receipt_date: string; status: string; grand_total: number; posted_at: string | null;
@@ -55,6 +56,9 @@ export default function PurchasingPage() {
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [receipts, setReceipts] = useState<GoodsReceipt[]>([]);
   const [creatingPo, setCreatingPo] = useState(false);
+  const [poDetail, setPoDetail] = useState<string | null>(null);
+  const [poSearch, setPoSearch] = useState('');
+  const [poStatus, setPoStatus] = useState('');
   const [receivingId, setReceivingId] = useState<string | null>(null);
   const [editingSupplier, setEditingSupplier] = useState<Partial<Supplier> | null>(null);
   const [error, setError] = useState('');
@@ -102,6 +106,29 @@ export default function PurchasingPage() {
     }
   };
 
+  // tombol aksi sesuai status (dipakai di daftar & halaman detail)
+  const poActions = (po: PurchaseOrder, onDone?: () => void) => (
+    <>
+      {(po.status === 'draft' || (po.status === 'pending_approval' && can('approval.purchase_order'))) && (
+        <button className="btn-sm btn-primary" onClick={() => act(async () => {
+          const r = await rpc<{ po_number: string; pending_approval?: boolean }>('pur_approve_purchase_order', { p_id: po.id });
+          onDone?.();
+          return r.pending_approval ? 'PO dikirim ke atasan untuk disetujui.' : `PO ${r.po_number} disetujui.`;
+        })}>Setujui</button>
+      )}
+      {po.status === 'draft' && (
+        <button className="btn-sm btn-danger" onClick={async () => {
+          if (await confirm({ title: 'Hapus draft PO ini?', danger: true, confirmLabel: 'Hapus' })) {
+            act(() => must(supabase.from('pur_purchase_orders').delete().eq('id', po.id)).then(() => { onDone?.(); return 'Draft dihapus.'; }));
+          }
+        }}>Hapus</button>
+      )}
+      {['approved', 'partially_received'].includes(po.status) && po.pur_suppliers.supplier_type !== 'internal' && (
+        <button className="btn-sm btn-success" onClick={() => { onDone?.(); startReceiving(po.id); }}>Terima</button>
+      )}
+    </>
+  );
+
   const startReceiving = (poId: string) =>
     act(async () => {
       setReceivingId(await rpc<string>('pur_create_goods_receipt_from_po', { p_po_id: poId }));
@@ -124,55 +151,57 @@ export default function PurchasingPage() {
       </div>
       {error && <div className="alert alert-error">{error}</div>}
 
-      {tab === 'po' && (
-        <div className="card table-wrap">
-          <table className="table">
-            <thead><tr><th>No. PO</th><th>Tanggal</th><th>Supplier</th><th>Item</th><th>Status</th><th className="right">Total</th><th></th></tr></thead>
-            <tbody>
-              {orders.map((po) => {
-                const [label, badge] = PO_STATUS[po.status] ?? [po.status, 'badge'];
-                return (
-                  <tr key={po.id}>
-                    <td className="bold">{po.po_number ?? '(draft)'}</td>
-                    <td>{po.po_date}</td>
-                    <td>{po.pur_suppliers.name}{po.pur_suppliers.supplier_type === 'internal' && <div><span className="badge badge-primary">Cabang internal</span></div>}</td>
-                    <td className="small">
-                      {po.pur_purchase_order_items.map((i) => (
-                        <div key={i.id}>{i.inv_items.name}: {formatNumber(i.received_qty)}/{formatNumber(i.quantity)} {i.inv_units.code}</div>
-                      ))}
-                    </td>
-                    <td><span className={`badge ${badge}`}>{label}</span>{po.sales_note && <div className="muted small">{po.sales_note}</div>}</td>
-                    <td className="right">{formatRupiah(po.status === 'draft'
-                      ? po.pur_purchase_order_items.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-                      : po.grand_total)}</td>
-                    <td className="right">
-                      <div className="row" style={{ justifyContent: 'flex-end' }}>
-                        {(po.status === 'draft' || (po.status === 'pending_approval' && can('approval.purchase_order'))) && (
-                          <button className="btn-sm btn-primary" onClick={() => act(async () => {
-                            const r = await rpc<{ po_number: string; pending_approval?: boolean }>('pur_approve_purchase_order', { p_id: po.id });
-                            return r.pending_approval ? 'PO dikirim ke atasan untuk disetujui.' : `PO ${r.po_number} disetujui.`;
-                          })}>Setujui</button>
-                        )}
-                        {po.status === 'draft' && (
-                          <button className="btn-sm btn-danger" onClick={async () => {
-                            if (await confirm({ title: 'Hapus draft PO ini?', danger: true, confirmLabel: 'Hapus' })) {
-                              act(() => must(supabase.from('pur_purchase_orders').delete().eq('id', po.id)).then(() => 'Draft dihapus.'));
-                            }
-                          }}>Hapus</button>
-                        )}
-                        {['approved', 'partially_received'].includes(po.status) && (po.pur_suppliers.supplier_type === 'internal'
-                          ? <span className="muted small">Diterima dari kiriman cabang</span>
-                          : <button className="btn-sm btn-success" onClick={() => startReceiving(po.id)}>Terima Barang</button>)}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!orders.length && <tr><td colSpan={7} className="empty">Belum ada purchase order.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {tab === 'po' && (() => {
+        const q = poSearch.trim().toLowerCase();
+        const shown = orders.filter((po) => (!poStatus || po.status === poStatus)
+          && (!q || (po.po_number ?? '').toLowerCase().includes(q) || po.pur_suppliers.name.toLowerCase().includes(q)));
+        return (
+          <div className="card table-wrap">
+            <div className="filter-bar">
+              <input type="search" placeholder="Cari no. PO / supplier…" value={poSearch} onChange={(e) => setPoSearch(e.target.value)} style={{ flex: '1 1 220px', maxWidth: 320 }} />
+              <select value={poStatus} onChange={(e) => setPoStatus(e.target.value)}>
+                <option value="">Semua status</option>
+                {Object.entries(PO_STATUS).map(([k, [v]]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <table className="table">
+              <thead><tr><th>No. PO</th><th>Tanggal</th><th>Supplier</th><th>Gudang</th><th>Item</th><th>Diterima</th><th>Status</th><th className="right">Total</th><th></th></tr></thead>
+              <tbody>
+                {shown.map((po) => {
+                  const [label, badge] = PO_STATUS[po.status] ?? [po.status, 'badge'];
+                  const qty = po.pur_purchase_order_items.reduce((t, i) => t + Number(i.quantity), 0);
+                  const rec = po.pur_purchase_order_items.reduce((t, i) => t + Math.min(Number(i.received_qty), Number(i.quantity)), 0);
+                  const pct = qty ? Math.round((rec / qty) * 100) : 0;
+                  return (
+                    <tr key={po.id} className="clickable-row" onClick={() => setPoDetail(po.id)}>
+                      <td className="bold nowrap">{po.po_number ?? '(draft)'}</td>
+                      <td className="nowrap">{po.po_date}</td>
+                      <td>{po.pur_suppliers.name}{po.pur_suppliers.supplier_type === 'internal' && <span className="badge badge-primary" style={{ marginLeft: 6 }}>Cabang</span>}</td>
+                      <td className="small">{po.inv_warehouses.name}</td>
+                      <td className="nowrap">{po.pur_purchase_order_items.length} item</td>
+                      <td style={{ minWidth: 110 }}>
+                        <div className="progress" title={`${pct}% diterima`}><div style={{ width: `${pct}%` }} /></div>
+                        <span className="muted small">{pct}%</span>
+                      </td>
+                      <td><span className={`badge ${badge}`} title={po.sales_note ?? ''}>{label}</span></td>
+                      <td className="right nowrap">{formatRupiah(po.status === 'draft'
+                        ? po.pur_purchase_order_items.reduce((t, i) => t + i.quantity * i.unit_price, 0)
+                        : po.grand_total)}</td>
+                      <td className="right" onClick={(e) => e.stopPropagation()}>
+                        <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                          <button className="btn-sm" onClick={() => setPoDetail(po.id)}>Detail</button>
+                          {poActions(po)}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!shown.length && <tr><td colSpan={9} className="empty">Belum ada purchase order.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {tab === 'receipts' && (
         <div className="card table-wrap">
@@ -238,6 +267,11 @@ export default function PurchasingPage() {
             load();
           }} />
       )}
+
+      {poDetail && (() => {
+        const po = orders.find((x) => x.id === poDetail);
+        return po ? <PurchaseOrderDetail po={po} actions={poActions(po, () => setPoDetail(null))} onClose={() => setPoDetail(null)} /> : null;
+      })()}
 
       {receivingId && (
         <GoodsReceiptForm receiptId={receivingId}
@@ -538,6 +572,75 @@ function GoodsReceiptForm({ receiptId, onClose, onPosted }: { receiptId: string;
       {!internal && <p className="muted small">Isi 0 untuk barang yang tidak datang. Sisa PO bisa diterima di penerimaan berikutnya.
         Setiap baris menjadi 1 batch stok (dipakai FEFO: kedaluwarsa duluan keluar duluan).</p>}
       {labels && <LabelPrintModal title="Cetak Label Batch" labels={labels.labels} onClose={() => onPosted(labels.msg)} />}
+    </Modal>
+  );
+}
+
+interface PoLineDetail {
+  id: string; quantity: number; received_qty: number; unit_price: number; line_total: number; conversion_qty: number;
+  inv_items: { code: string; name: string }; inv_units: { code: string };
+}
+interface PoReceipt { id: string; receipt_number: string | null; receipt_date: string; status: string; grand_total: number }
+
+// Detail PO: info header, item (dipesan / diterima / sisa), penerimaan terkait
+function PurchaseOrderDetail({ po, actions, onClose }: { po: PurchaseOrder; actions: React.ReactNode; onClose: () => void }) {
+  const { toast } = useFeedback();
+  const [lines, setLines] = useState<PoLineDetail[]>([]);
+  const [receipts, setReceipts] = useState<PoReceipt[]>([]);
+  useEffect(() => {
+    Promise.all([
+      must(supabase.from('pur_purchase_order_items').select('id, quantity, received_qty, unit_price, line_total, conversion_qty, inv_items(code, name), inv_units(code)')
+        .eq('purchase_order_id', po.id).order('created_at')),
+      must(supabase.from('pur_goods_receipts').select('id, receipt_number, receipt_date, status, grand_total').eq('purchase_order_id', po.id).order('created_at')),
+    ]).then(([l, r]) => { setLines(l); setReceipts(r); }).catch((e) => toast(errorMessage(e), 'error'));
+  }, [po.id, toast]);
+
+  const [label, badge] = PO_STATUS[po.status] ?? [po.status, 'badge'];
+  const total = lines.reduce((t, l) => t + Number(l.quantity) * Number(l.unit_price), 0);
+  return (
+    <Modal title={`Purchase Order ${po.po_number ?? '(draft)'}`} onClose={onClose} large
+      footer={<><button onClick={onClose} style={{ marginRight: 'auto' }}>Tutup</button>{actions}</>}>
+      <div className="grid grid-4" style={{ marginBottom: 14 }}>
+        <div><div className="stat-label">Supplier</div><b>{po.pur_suppliers.name}</b>{po.pur_suppliers.supplier_type === 'internal' && <span className="badge badge-primary" style={{ marginLeft: 6 }}>Cabang</span>}</div>
+        <div><div className="stat-label">Kirim ke</div><b>{po.inv_warehouses.name}</b></div>
+        <div><div className="stat-label">Tanggal / diharapkan</div><b>{po.po_date}</b>{po.expected_date && <span className="muted"> → {po.expected_date}</span>}</div>
+        <div><div className="stat-label">Status</div><span className={`badge ${badge}`}>{label}</span></div>
+      </div>
+      {po.sales_note && <div className="alert alert-info small">{po.sales_note}</div>}
+      {po.note && <p className="muted small">Catatan: {po.note}</p>}
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr><th>Produk</th><th>Satuan</th><th className="right">Dipesan</th><th className="right">Diterima</th><th className="right">Sisa</th><th className="right">Harga</th><th className="right">Subtotal</th></tr></thead>
+          <tbody>
+            {lines.map((l) => {
+              const sisa = Math.max(0, Number(l.quantity) - Number(l.received_qty));
+              return (
+                <tr key={l.id}>
+                  <td><b>{l.inv_items.code}</b> · {l.inv_items.name}</td>
+                  <td>{l.inv_units.code}</td>
+                  <td className="right">{formatNumber(l.quantity)}</td>
+                  <td className="right" style={{ color: Number(l.received_qty) >= Number(l.quantity) ? 'var(--success)' : undefined }}>{formatNumber(l.received_qty)}</td>
+                  <td className="right">{sisa ? formatNumber(sisa) : '-'}</td>
+                  <td className="right">{formatRupiah(l.unit_price)}</td>
+                  <td className="right">{formatRupiah(Number(l.quantity) * Number(l.unit_price))}</td>
+                </tr>
+              );
+            })}
+            {!lines.length && <tr><td colSpan={7} className="empty">Memuat…</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><b>Total {formatRupiah(po.status === 'draft' ? total : po.grand_total)}</b></div>
+      {!!receipts.length && <>
+        <div className="section-title">Penerimaan barang</div>
+        {receipts.map((r) => (
+          <div key={r.id} className="row list-row" style={{ cursor: 'default' }}>
+            <b>{r.receipt_number ?? '(draft)'}</b><span className="muted small">{r.receipt_date}</span>
+            <span style={{ marginLeft: 'auto' }}>{formatRupiah(r.grand_total)}</span>
+            <span className={`badge ${r.status === 'posted' ? 'badge-success' : 'badge-warning'}`}>{r.status === 'posted' ? 'Diterima' : 'Draft'}</span>
+          </div>
+        ))}
+      </>}
     </Modal>
   );
 }

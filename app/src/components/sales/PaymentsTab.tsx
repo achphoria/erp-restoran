@@ -32,7 +32,10 @@ export default function PaymentsTab() {
               <td>{r.payment_date}</td>
               <td>{r.customer_type === 'internal' ? <><span className="badge badge-primary">Cabang</span> {r.buyer?.name}</> : r.sal_customers?.name}</td>
               <td>{r.seller?.name}</td>
-              <td className="small">{r.sal_payment_items.map((i) => <div key={i.sal_invoices.invoice_number}>{i.sal_invoices.invoice_number}: {formatRupiah(i.amount)}</div>)}</td>
+              <td className="small nowrap" title={r.sal_payment_items.map((i) => `${i.sal_invoices.invoice_number}: ${formatRupiah(i.amount)}`).join(', ')}>
+                {r.sal_payment_items[0]?.sal_invoices.invoice_number}
+                {r.sal_payment_items.length > 1 && <span className="badge" style={{ marginLeft: 6 }}>+{r.sal_payment_items.length - 1} invoice</span>}
+              </td>
               <td className="muted small">{r.reference_number}</td>
               <td className="right bold">{formatRupiah(r.amount)}</td>
             </tr>
