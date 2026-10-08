@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–035)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–036)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -34,6 +34,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase23.sql`](supabase/update_fase23.sql) (033: SDM / HR fase A: data karyawan, jabatan & departemen, pengumuman, Beranda Saya)
   - [`supabase/update_fase24.sql`](supabase/update_fase24.sql) (034: SDM / HR fase B: absensi foto + GPS, titik lokasi outlet, jadwal shift, koreksi absen)
   - [`supabase/update_fase25.sql`](supabase/update_fase25.sql) (035: SDM / HR fase C: cuti & izin, saldo cuti, persetujuan cuti)
+  - [`supabase/update_fase26.sql`](supabase/update_fase26.sql) (036: Tugas kanban & SOP harian)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -333,7 +334,19 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
   Karyawan mengajukan dari Beranda Saya (bisa setengah hari, lampiran surat dokter wajib untuk sakit ≥ 2 hari, hari libur di jadwal tidak dihitung).
   Persetujuan: menu **Persetujuan** (izin `approval.leave`), tab **Cuti & Izin** (HR), atau **atasan langsung** dari Beranda Saya (kartu *Persetujuan tim*).
   Kalender cuti tim per bulan, saldo semua karyawan + export Excel. Cuti yang disetujui tampil di jadwal & rekap absensi (tidak dihitung alpa).
-- Rencana berikutnya: task management (kanban + SOP harian), penilaian kinerja.
+- Rencana berikutnya: penilaian kinerja (form per role).
+
+## Tugas (kanban) & SOP harian
+Menu **Tugas** untuk semua user (badge = tugas baru untuk saya + yang menunggu review saya).
+- **Papan kanban**: Baru → Dikerjakan → Review → Selesai → Arsip. Geser kartu (desktop) atau pakai tombol di detail (HP).
+  Filter *Untuk saya / Saya buat / Semua*, outlet, cari, tampilkan arsip.
+- **Penerima**: satu orang, atau satu **tim (role)** (mis. "Tim Kasir"): anggota pertama yang mengerjakan otomatis jadi penerima.
+- **Isi tugas**: prioritas, tenggat (merah bila lewat), label, checklist, **wajib foto bukti** (kamera langsung), tautan dokumen, komentar & riwayat.
+- **Alur review**: tugas untuk orang lain diajukan ke *Review*; pembuat / manajer (`task.manage`) menyetujui *Selesai* atau mengembalikan
+  dengan catatan. Checklist harus lengkap & foto bukti ada sebelum review. Tugas pribadi bisa langsung selesai.
+- **SOP harian**: template per role / outlet (mis. *Buka toko*, *Tutup toko*, *Cek suhu chiller*), langkah bisa wajib foto.
+  Checklist hari ini dibuat otomatis per outlet saat dibuka; tercatat siapa & jam berapa. Rekap **kepatuhan SOP** 7 hari (%) untuk manajer.
+- Beranda Saya: kartu *Tugas saya* + pengingat SOP hari ini. Foto di bucket privat `task-files`.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).

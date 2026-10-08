@@ -6,6 +6,7 @@ import Modal from '../components/Modal';
 import HrPhoto from '../components/hr/HrPhoto';
 import MyAttendance from '../components/hr/MyAttendance';
 import MyLeave, { TeamInbox } from '../components/hr/MyLeave';
+import MyTasks from '../components/tasks/MyTasks';
 import { rpc } from '../lib/supabase';
 import { errorMessage, formatDateTime } from '../lib/format';
 import { EMPLOYMENT } from '../lib/hr';
@@ -61,6 +62,7 @@ export default function MyHomePage() {
       <div className="me-grid">
         {profile && <MyAttendance companyId={profile.company_id} />}
         <TeamInbox />
+        <MyTasks />
         {profile && <MyLeave companyId={profile.company_id} />}
 
         <div className="card">

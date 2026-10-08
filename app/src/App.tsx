@@ -27,6 +27,7 @@ const PaymentReturnPage = lazyRetry(() => import('./pages/PaymentReturnPage'));
 const PlatformPage = lazyRetry(() => import('./pages/PlatformPage'));
 const HrPage = lazyRetry(() => import('./pages/HrPage'));
 const MyHomePage = lazyRetry(() => import('./pages/MyHomePage'));
+const TasksPage = lazyRetry(() => import('./pages/TasksPage'));
 const LandingPage = lazyRetry(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
@@ -85,6 +86,7 @@ function AppRoutes() {
         <Route path="approvals" element={<ApprovalsPage />} />
         <Route path="platform" element={<PlatformPage />} />
         <Route path="saya" element={<MyHomePage />} />
+        <Route path="tugas" element={<TasksPage />} />
         <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave']}><HrPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

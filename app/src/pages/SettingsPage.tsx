@@ -55,6 +55,7 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'hr.manage', label: 'Kelola karyawan, jabatan & pengumuman', group: 'SDM / HR' },
   { key: 'hr.attendance', label: 'Atur jadwal shift & review absensi', group: 'SDM / HR' },
   { key: 'approval.leave', label: 'Setujui cuti & izin', group: 'SDM / HR' },
+  { key: 'task.manage', label: 'Kelola semua tugas & template SOP harian', group: 'SDM / HR' },
   { key: 'approval.purchase_order', label: 'Menyetujui purchase order', group: 'Persetujuan' },
   { key: 'approval.expense', label: 'Menyetujui biaya operasional', group: 'Persetujuan' },
   { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
