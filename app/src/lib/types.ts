@@ -125,6 +125,7 @@ export interface Order {
   points_amount: number;
   points_earned: number;
   order_source: string;
+  queue_number?: string | null;
   mst_tables?: { code: string } | null;
   pos_order_items?: OrderItem[];
 }

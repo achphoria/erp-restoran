@@ -4,7 +4,7 @@ import ErrorBoundary from './ErrorBoundary';
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, MessageSquareHeart, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, MessageSquareHeart, MonitorSmartphone, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -38,6 +38,7 @@ const NAV: NavGroup[] = [
       { to: '/pos', label: 'Kasir (POS)', icon: Receipt, permission: 'pos.order' },
       { to: '/orders', label: 'Daftar Order', icon: ClipboardList, permission: 'pos.order' },
       { to: '/kitchen', label: 'Layar Dapur', icon: ChefHat, permission: 'kds.update' },
+      { to: '/kiosks', label: 'Self Kiosk', icon: MonitorSmartphone, permission: 'kiosk.manage' },
       { to: '/shifts', label: 'Shift Kasir', icon: Timer, permission: 'pos.pay' },
       { to: '/settlement', label: 'Settlement POS', icon: Banknote, permission: ['finance.view', 'finance.manage'] },
       { to: '/customers', label: 'Member & Promo', icon: Gift, permission: 'crm.manage' },

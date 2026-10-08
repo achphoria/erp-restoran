@@ -115,7 +115,7 @@ export default function OrdersPage() {
                   <div className="row" style={{ justifyContent: 'flex-end' }}>
                     {o.status === 'open' && (
                       <>
-                        {o.pos_order_items?.some((i) => i.kitchen_status === 'waiting' && !i.is_void) && (
+                        {o.order_source !== 'kiosk' && o.pos_order_items?.some((i) => i.kitchen_status === 'waiting' && !i.is_void) && (
                           <button className="btn-sm btn-success" onClick={() => act(() => rpc('pos_confirm_qr_items', { p_order_id: o.id }))}>
                             ✅ Konfirmasi QR
                           </button>
@@ -194,6 +194,7 @@ function OrderRow({
           <button className="btn-sm" onClick={onToggle}>{expanded ? '▾' : '▸'}</button>{' '}
           <span className="bold">{o.order_number}</span>
           {o.order_source === 'qr' && <span className="badge badge-info" style={{ marginLeft: 6 }}>QR</span>}
+          {o.order_source === 'kiosk' && <span className="badge badge-warning" style={{ marginLeft: 6 }} title="Dari self kiosk; masuk dapur setelah dibayar">Kiosk {o.queue_number ?? ''}</span>}
           {o.pos_order_items?.some((i) => i.kitchen_status === 'waiting' && !i.is_void) && (
             <span className="badge badge-warning" style={{ marginLeft: 6 }}>Perlu konfirmasi</span>
           )}

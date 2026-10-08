@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–039)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–040)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -38,6 +38,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase27.sql`](supabase/update_fase27.sql) (037: SDM / HR fase E: penilaian kinerja)
   - [`supabase/update_fase28.sql`](supabase/update_fase28.sql) (038: User Management ↔ data karyawan)
   - [`supabase/update_fase29.sql`](supabase/update_fase29.sql) (039: struk 80mm, QR ulasan & analisa ulasan pelanggan)
+  - [`supabase/update_fase30.sql`](supabase/update_fase30.sql) (040: self-order kiosk)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -357,6 +358,20 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
 - **Ulasan Pelanggan** (menu Kasir & Outlet): rata-rata bintang, NPS, tingkat respons, sebaran bintang, tren mingguan, nilai per aspek, yang disukai, per outlet;
   daftar ulasan + filter + **tindak lanjut** (WhatsApp pelanggan yang bersedia), export Excel; atur pertanyaan & teks form. Izin `feedback.view` / `feedback.manage`.
   Form publik hanya menampilkan nama outlet/brand & tanggal (tanpa isi pesanan/harga).
+
+## Self-order kiosk
+Layar sentuh **berdiri (portrait, mis. TV 1080×1920)** untuk pelanggan memesan sendiri, dibuka di `/kiosk/<token>` tanpa login staf.
+Atur di menu **Kasir & Outlet → Self Kiosk** (izin `kiosk.manage`).
+- Alur singkat (mengikuti praktik kiosk QSR: sedikit langkah, satu keputusan per layar, keranjang selalu di tempat yang sama, upsell sekali saja):
+  **layar sambutan** (menu unggulan bergantian + tombol besar *Makan di sini / Bawa pulang*) → **menu** (kategori bergambar di kiri,
+  baris *Rekomendasi* di atas, kartu besar dengan label *Terlaris* otomatis, label sendiri seperti *Baru/Promo/Pedas*, *Habis*) →
+  **detail** (pilihan wajib/opsional, jumlah) → **Lengkapi pesananmu?** (1 layar) → **cek pesanan** (keyboard layar untuk nama) →
+  **nomor antrean besar** + struk otomatis.
+- Bayar di kasir: pesanan masuk **Daftar Order** berlabel *Kiosk K012*; **dapur baru menerima setelah dibayar** (otomatis saat kasir menerima pembayaran).
+- Harga mengikuti kanal (dine in / takeaway). Tidak disentuh N detik → "Masih di sana?" lalu kembali ke awal.
+- Pengaturan per kiosk: outlet, makan di sini / bawa pulang, teks sambutan, waktu idle, cetak struk; status online & jumlah pesanan hari ini; **ganti link** bila bocor.
+- Server memvalidasi setiap pesanan (brand outlet, stok habis, pilihan sesuai grup & batas min/maks, maks 30 item, maks 6 pesanan/menit per kiosk).
+- Pemasangan: Chrome `--kiosk --kiosk-printing "<link>"` + printer thermal 80mm sebagai default (struk tercetak tanpa dialog).
 
 ## Tugas (kanban) & SOP harian
 Menu **Tugas** untuk semua user (badge = tugas baru untuk saya + yang menunggu review saya).

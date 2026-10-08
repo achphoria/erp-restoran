@@ -982,3 +982,16 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .rv-qmove { display: grid; gap: 2px; }
 .rv-qmove .btn-sm { height: 20px; padding: 0 5px; }
 @media (max-width: 760px) { .rv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Self kiosk (pengaturan) */
+.kiosk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.kiosk-card { display: grid; gap: 8px; align-content: start; }
+.kiosk-card.off { opacity: .6; }
+.kiosk-card-head { display: flex; align-items: center; gap: 10px; }
+.kiosk-card-head > div { flex: 1; }
+.kiosk-card-head > svg { color: var(--primary); }
+.kiosk-link { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.kiosk-link code { flex: 1; word-break: break-all; font-size: 12px; }
+.kiosk-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex: none; }
+.kiosk-thumb.empty { display: inline-grid; place-items: center; background: var(--surface-2); font-size: 9px; color: var(--text-muted); text-align: center; }
+.kiosk-badge-input { height: 32px; width: 130px; }
