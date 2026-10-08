@@ -1,0 +1,106 @@
+/* =====================================================================
+   PENDOPO: kantor virtual agent SEMAR (bilik bambu, kayu jati, elektronik)
+   ===================================================================== */
+.pd { padding: 16px; margin-bottom: 16px; }
+.pd-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.pd-title { font-size: 18px; font-weight: 800; }
+.pd-sub { font-weight: 600; color: var(--text-muted); font-size: 14px; }
+.pd-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pd-clock { font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+.pd-clock small { font-size: 11px; color: var(--text-muted); }
+.pd-soon { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; background: var(--warning-soft); color: var(--warning); font-size: 12px; font-weight: 700; }
+
+.pd-scene { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; background: #3a2414; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08); user-select: none; }
+.pd-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pd-actor { cursor: pointer; }
+
+/* label di atas karakter */
+.pd-label {
+  position: absolute; transform: translate(-50%, -100%); display: grid; justify-items: center; gap: 2px;
+  pointer-events: auto; cursor: pointer; white-space: nowrap; transition: opacity 0.3s;
+}
+.pd-name {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px;
+  background: rgba(255,255,255,0.92); color: var(--text); font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.pd-act { padding: 1px 8px; border-radius: 999px; background: rgba(29,36,51,0.72); color: #fff; font-size: 10.5px; font-weight: 600; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.pd-label.on .pd-name { background: #F7B733; }
+.pd-bubble {
+  font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 12px 12px 12px 3px; background: #fff;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.2); animation: pd-pop 0.35s ease-out; margin-bottom: 2px;
+}
+.pd-dot { width: 7px; height: 7px; border-radius: 50%; background: #9aa0a6; display: inline-block; }
+.pd-dot.ok { background: #22c55e; } .pd-dot.meet { background: #2f6fb0; } .pd-dot.rest { background: #F7B733; }
+.pd-dot.sleep { background: #8b7cf6; } .pd-dot.off { background: #9aa0a6; }
+
+/* tooltip benda */
+.pd-tip {
+  position: absolute; transform: translate(12px, 12px); display: grid; gap: 1px; padding: 7px 10px; border-radius: 10px; pointer-events: none;
+  background: rgba(29,36,51,0.88); color: #fff; font-size: 12px; max-width: 220px; z-index: 3;
+}
+.pd-tip span { color: #d9dde6; font-size: 11px; }
+
+/* kartu profil agent */
+.pd-card {
+  position: absolute; left: 12px; bottom: 12px; z-index: 4; display: flex; gap: 12px; align-items: flex-start; max-width: min(360px, calc(100% - 24px));
+  padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,0.96); box-shadow: 0 12px 30px rgba(0,0,0,0.3); animation: pd-pop 0.25s ease-out;
+}
+.pd-card-name { font-size: 18px; font-weight: 800; }
+.pd-card-role { font-weight: 700; font-size: 13px; }
+.pd-card-now { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin: 6px 0 8px; }
+.pd-close { position: absolute; right: 6px; top: 6px; min-height: 28px; padding: 0 6px; border: 0; background: transparent; }
+.pd-avatar { border-radius: 12px; flex-shrink: 0; }
+
+/* daftar tim */
+.pd-team-head { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 2px 8px; }
+.pd-team { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.pd-member {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 8px 10px; height: auto; text-align: left; white-space: normal;
+  border-radius: 14px; border: 1px solid var(--border); background: var(--surface);
+}
+.pd-member.on { border-color: var(--sunshine); box-shadow: 0 0 0 2px rgba(247,183,51,0.3); }
+.pd-member-text { display: grid; gap: 1px; min-width: 0; }
+.pd-member-text b { font-size: 13.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pd-member-text small { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-chip { font-size: 10px; padding: 1px 7px; border-radius: 999px; font-weight: 700; background: #eceaf0; color: var(--text-muted); }
+.pd-chip.ok { background: var(--success-soft); color: var(--success); } .pd-chip.meet { background: var(--info-soft); color: var(--info); }
+.pd-chip.rest { background: var(--warning-soft); color: var(--warning); } .pd-chip.sleep { background: #efeafe; color: #6d5bd0; }
+
+/* animasi benda di kantor */
+.pd-fan { animation: pd-spin 0.8s linear infinite; transform-origin: 0 0; }
+.pd-pendulum { animation: pd-swing 2s ease-in-out infinite; transform-origin: 576px 134px; }
+.pd-led { animation: pd-blink 1.2s steps(2, jump-none) infinite; }
+.pd-steam { animation: pd-steam 2.7s ease-out infinite; transform-box: fill-box; transform-origin: center; opacity: 0; }
+.pd-flame { animation: pd-flame 0.45s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center bottom; }
+.pd-cloud { animation: pd-drift 40s linear infinite alternate; }
+.pd-twinkle { animation: pd-twinkle 2.4s ease-in-out infinite; }
+.pd-notes { animation: pd-notes 3s ease-in-out infinite; }
+.pd-screen { animation: pd-screen 4s steps(4) infinite; }
+.pd-glow { animation: pd-glow 3s ease-in-out infinite; }
+
+@keyframes pd-spin { to { transform: rotate(360deg); } }
+@keyframes pd-swing { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+@keyframes pd-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes pd-steam { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 0.6; } 100% { opacity: 0; transform: translateY(-46px) scale(1.8); } }
+@keyframes pd-flame { from { transform: scale(0.85, 0.9); opacity: 0.85; } to { transform: scale(1.1, 1.15); opacity: 1; } }
+@keyframes pd-drift { from { transform: translateX(-20px); } to { transform: translateX(60px); } }
+@keyframes pd-twinkle { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+@keyframes pd-notes { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-10px); opacity: 1; } }
+@keyframes pd-screen { 0% { opacity: 1; } 50% { opacity: 0.75; } 100% { opacity: 1; } }
+@keyframes pd-glow { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
+@keyframes pd-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+@media (max-width: 1000px) { .pd-team { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px) {
+  .pd { padding: 12px; }
+  .pd-team { grid-template-columns: 1fr; gap: 6px; }
+  .pd-member { padding: 6px 8px; }
+  .pd-act { display: none; }
+  .pd-name { font-size: 10px; padding: 1px 6px; }
+  .pd-bubble { font-size: 13px; padding: 2px 4px; }
+  .pd-card { left: 8px; right: 8px; bottom: 8px; max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-fan, .pd-pendulum, .pd-led, .pd-steam, .pd-flame, .pd-cloud, .pd-twinkle, .pd-notes, .pd-screen, .pd-glow { animation: none; }
+  .pd-steam { opacity: 0.4; }
+}

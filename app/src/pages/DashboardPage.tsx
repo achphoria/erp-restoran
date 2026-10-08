@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { must, supabase } from '../lib/supabase';
 import { errorMessage, formatNumber, formatRupiah, todayISO } from '../lib/format';
 import { expiryInfo, NEAR_EXPIRY_DAYS } from '../components/inventory/batchUtils';
+import PendopoOffice from '../components/pendopo/PendopoOffice';
 
 interface DailySales { business_date: string; order_count: number; guest_count: number; grand_total: number }
 interface MenuSales { menu_item_name: string; quantity: number; revenue: number }
@@ -64,6 +65,8 @@ export default function DashboardPage() {
         <Link to="/pos" className="btn btn-primary" style={{ textDecoration: 'none' }}>Buka Kasir →</Link>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
+
+      <PendopoOffice />
 
       <div className="grid grid-4">
         <div className="card"><div className="stat-label">Penjualan hari ini</div><div className="stat-value">{formatRupiah(sales)}</div></div>
