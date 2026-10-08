@@ -1,0 +1,211 @@
+/* =====================================================================
+   SEMAR — LANDING PAGE & HALAMAN LOGIN
+   Konsep: kelir (layar wayang) berwarna Fresh tua, cahaya blencong Sunshine,
+   gunungan sebagai lambang, aksen Vermillion. Memakai token warna dari index.css.
+   ===================================================================== */
+.landing { --kelir: #0f3d37; --kelir-2: #1f7f72; --lp-max: 1160px; overflow-x: clip; }
+.landing a.btn { text-decoration: none; }
+.lp-eyebrow { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--primary); }
+.lp-eyebrow.light { color: var(--sunshine); }
+
+/* nav */
+.lp-nav {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px;
+  max-width: var(--lp-max); margin: 0 auto; padding: 14px 16px;
+  background: rgba(244, 243, 246, 0.72); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.lp-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+.lp-brand img { border-radius: 10px; }
+.lp-brand span { font-size: 20px; font-weight: 800; letter-spacing: 0.12em; }
+.lp-links { display: flex; gap: 22px; margin-left: auto; }
+.lp-links a { color: var(--text-muted); font-weight: 600; text-decoration: none; }
+.lp-links a:hover { color: var(--primary); }
+
+/* hero */
+.lp-hero {
+  max-width: var(--lp-max); margin: 0 auto; padding: 48px 16px 64px;
+  display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center;
+}
+.lp-hero h1 { font-size: clamp(34px, 5vw, 56px); line-height: 1.08; letter-spacing: -0.03em; margin: 14px 0 18px; }
+.lp-hero h1 em { font-style: normal; background: linear-gradient(90deg, var(--primary), var(--fresh)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lp-hero p { font-size: 17px; line-height: 1.6; color: var(--text-muted); max-width: 540px; margin: 0; }
+.lp-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.lp-cta.center { justify-content: center; }
+.lp-ticks { display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none; padding: 0; margin: 26px 0 0; color: var(--text-muted); font-weight: 600; font-size: 13px; }
+.lp-ticks li::before { content: '✓'; color: var(--primary); font-weight: 800; margin-right: 6px; }
+
+/* kelir: layar wayang + blencong */
+.lp-kelir {
+  position: relative; aspect-ratio: 1 / 1.02; border-radius: 28px; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, var(--kelir-2), var(--kelir) 70%);
+  box-shadow: 0 30px 70px rgba(15, 61, 55, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.lp-kelir::after { /* motif kawung samar */
+  content: ''; position: absolute; inset: 0; opacity: 0.07;
+  background-image: radial-gradient(circle at 0 0, #fff 0 22%, transparent 23%), radial-gradient(circle at 100% 100%, #fff 0 22%, transparent 23%),
+    radial-gradient(circle at 100% 0, #fff 0 22%, transparent 23%), radial-gradient(circle at 0 100%, #fff 0 22%, transparent 23%);
+  background-size: 44px 44px;
+}
+.lp-blencong {
+  position: absolute; left: 50%; top: -12%; width: 90%; aspect-ratio: 1; transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(247, 183, 51, 0.55), rgba(247, 183, 51, 0.12) 45%, transparent 68%);
+  animation: lp-flicker 5s ease-in-out infinite;
+}
+.lp-gunungan { position: absolute; left: 50%; bottom: 7%; width: 54%; transform: translateX(-50%); filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35)); z-index: 1; }
+@keyframes lp-flicker { 0%, 100% { opacity: 0.85; } 45% { opacity: 1; } 60% { opacity: 0.75; } }
+
+.lp-float {
+  position: absolute; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22); color: var(--text); font-size: 13px; animation: lp-bob 6s ease-in-out infinite;
+}
+.lp-float span { display: grid; gap: 1px; }
+.lp-float small { color: var(--text-muted); font-size: 11.5px; }
+.lp-float > svg { flex-shrink: 0; color: var(--primary); }
+.lp-float-sales { left: 6%; top: 9%; flex-direction: column; align-items: flex-start; gap: 2px; width: 46%; animation-delay: -1s; }
+.lp-float-sales b { font-size: 20px; letter-spacing: -0.02em; }
+.lp-up { color: var(--primary); font-size: 11.5px; font-weight: 700; }
+.lp-bars { display: flex; align-items: flex-end; gap: 5px; height: 42px; width: 100%; margin-top: 8px; }
+.lp-bars i { flex: 1; border-radius: 4px 4px 2px 2px; background: linear-gradient(var(--fresh), var(--primary)); }
+.lp-bars i:last-child { background: linear-gradient(var(--sunshine), #e39a12); }
+.lp-float-stock { right: 5%; top: 30%; max-width: 54%; animation-delay: -3s; }
+.lp-float-stock > svg { color: var(--accent); }
+.lp-float-approve { left: 5%; bottom: 25%; max-width: 50%; animation-delay: -2s; }
+.lp-float-qr { right: 6%; bottom: 8%; max-width: 44%; animation-delay: -4s; }
+.lp-float-qr > svg { color: #b97a00; }
+@keyframes lp-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+
+/* section umum */
+.lp-section { max-width: var(--lp-max); margin: 0 auto; padding: 56px 16px; }
+.lp-head { text-align: center; max-width: 640px; margin: 0 auto 32px; }
+.lp-head h2 { font-size: clamp(26px, 3.4vw, 38px); letter-spacing: -0.02em; margin: 10px 0 10px; }
+.lp-head p { color: var(--text-muted); font-size: 16px; line-height: 1.6; margin: 0; }
+
+/* punakawan */
+.lp-puna { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.lp-puna-card {
+  --tone: var(--primary); --tone-soft: var(--primary-soft);
+  position: relative; padding: 22px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow); overflow: hidden; transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.lp-puna-card:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(29, 36, 51, 0.12); }
+.lp-puna-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 5px; background: var(--tone); }
+.lp-puna-card.sunshine { --tone: #e39a12; --tone-soft: var(--warning-soft); }
+.lp-puna-card.vermillion { --tone: var(--accent); --tone-soft: var(--accent-soft); }
+.lp-puna-card.ink { --tone: #1d2433; --tone-soft: #eceaf0; }
+.lp-puna-badge {
+  width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 22px; font-weight: 800;
+  background: var(--tone-soft); color: var(--tone);
+}
+.lp-puna-name { margin-top: 14px; font-size: 20px; font-weight: 800; }
+.lp-puna-watak { color: var(--text-muted); font-size: 13px; font-style: italic; margin-top: 2px; min-height: 36px; }
+.lp-puna-card h3 { margin-top: 12px; color: var(--tone); }
+.lp-puna-card p { color: var(--text-muted); line-height: 1.55; margin: 6px 0 0; }
+
+/* fitur */
+.lp-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.lp-feature { padding: 20px; border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-border); box-shadow: var(--shadow); }
+.lp-feature-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.lp-feature h3 { margin-top: 14px; }
+.lp-feature p { color: var(--text-muted); line-height: 1.55; margin: 6px 0 0; font-size: 13.5px; }
+
+/* perjalanan */
+.lp-journey { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; position: relative; }
+.lp-journey::before { content: ''; position: absolute; left: 12%; right: 12%; top: 26px; border-top: 2px dashed var(--border-strong); }
+.lp-journey li { position: relative; text-align: center; padding: 0 8px; }
+.lp-journey-step {
+  position: relative; width: 54px; height: 54px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); border: 2px solid var(--fresh); color: var(--primary); box-shadow: var(--shadow);
+}
+.lp-journey-step b {
+  position: absolute; right: -6px; top: -6px; width: 22px; height: 22px; border-radius: 50%; font-size: 12px;
+  display: grid; place-items: center; background: var(--accent); color: #fff;
+}
+.lp-journey h3 { margin-top: 14px; }
+.lp-journey p { color: var(--text-muted); margin: 6px 0 0; line-height: 1.5; }
+
+/* filosofi */
+.lp-philo {
+  position: relative; overflow: hidden; display: grid; grid-template-columns: 240px 1fr; gap: 36px; align-items: center;
+  padding: 44px; border-radius: 28px; color: #e9f5f2;
+  background: radial-gradient(90% 120% at 0% 50%, rgba(247, 183, 51, 0.28), transparent 55%), linear-gradient(135deg, #1f7f72, #0f3d37);
+}
+.lp-philo-art { width: 100%; }
+.lp-philo blockquote { margin: 10px 0 4px; font-size: clamp(30px, 4vw, 44px); font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+.lp-philo-trans { color: var(--sunshine); font-weight: 600; margin: 0 0 14px; }
+.lp-philo p { line-height: 1.7; margin: 0; max-width: 640px; }
+
+/* ajakan akhir */
+.lp-final { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; text-align: center; }
+.lp-final h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; }
+.lp-final p { color: var(--text-muted); font-size: 16px; }
+.lp-ghost { background: transparent; }
+.lp-footer {
+  max-width: var(--lp-max); margin: 0 auto; padding: 20px 16px 32px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  border-top: 1px solid var(--border); color: var(--text-muted); font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------
+   HALAMAN LOGIN: panel kelir di kiri, form di kanan
+   --------------------------------------------------------------------- */
+.login-split { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+.login-kelir {
+  position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: 40px;
+  color: #e9f5f2; background: radial-gradient(120% 80% at 50% 0%, #1f7f72, #0f3d37 70%);
+}
+.login-kelir .lp-blencong { top: -30%; width: 110%; opacity: 0.6; animation: none; }
+.login-kelir-brand { position: relative; z-index: 2; display: flex; align-items: center; gap: 12px; color: #fff; text-decoration: none; }
+.login-kelir-brand img { border-radius: 12px; }
+.login-kelir-brand b { display: block; font-size: 22px; letter-spacing: 0.14em; }
+.login-kelir-brand small { color: rgba(233, 245, 242, 0.75); font-size: 12px; }
+.login-gunungan { position: relative; z-index: 1; width: min(58%, 300px); margin: 0 auto; filter: drop-shadow(0 20px 34px rgba(0, 0, 0, 0.4)); }
+.login-quote { position: relative; z-index: 2; }
+.login-quote b { display: block; font-size: 26px; color: #fff; letter-spacing: -0.01em; }
+.login-quote span { color: var(--sunshine); font-weight: 600; }
+.login-panel { display: grid; place-items: center; padding: 32px 16px; }
+.login-box { width: 100%; max-width: 400px; }
+.login-back { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-weight: 600; font-size: 13px; }
+.login-back:hover { color: var(--primary); }
+.login-box h1 { font-size: 28px; letter-spacing: -0.02em; margin: 22px 0 6px; }
+.login-box form { display: grid; gap: 14px; margin-top: 24px; }
+.login-pass { position: relative; }
+.login-pass input { padding-right: 44px; width: 100%; }
+.login-pass button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); min-height: 34px; padding: 0 10px; border: 0; background: transparent; color: var(--text-muted); }
+.login-switch { text-align: center; color: var(--text-muted); font-size: 13.5px; }
+.login-switch button { border: 0; background: none; color: var(--primary); padding: 0 4px; min-height: 0; font-weight: 700; }
+.login-mobile-brand { display: none; }
+
+/* ---------------------------------------------------------------------
+   RESPONSIF
+   --------------------------------------------------------------------- */
+@media (max-width: 1000px) {
+  .lp-puna, .lp-features { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 860px) {
+  .lp-hero { grid-template-columns: 1fr; gap: 36px; padding-top: 24px; }
+  .lp-kelir { max-width: 480px; width: 100%; margin: 0 auto; }
+  .lp-links { display: none; }
+  .lp-nav-cta { margin-left: auto; }
+  .lp-journey { grid-template-columns: repeat(2, 1fr); row-gap: 28px; }
+  .lp-journey::before { display: none; }
+  .lp-philo { grid-template-columns: 1fr; padding: 28px 22px; gap: 8px; }
+  .lp-philo-art { width: 120px; }
+  .login-split { grid-template-columns: 1fr; }
+  .login-kelir { display: none; }
+  .login-mobile-brand { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+  .login-mobile-brand img { border-radius: 10px; }
+  .login-mobile-brand b { display: block; font-size: 18px; letter-spacing: 0.12em; }
+  .login-mobile-brand small { color: var(--text-muted); font-size: 11.5px; }
+}
+@media (max-width: 520px) {
+  .lp-puna, .lp-features { grid-template-columns: 1fr; }
+  .lp-hero p { font-size: 15.5px; }
+  .lp-cta .btn { flex: 1 1 100%; }
+  .lp-float { padding: 9px 11px; font-size: 12px; }
+  .lp-float-sales b { font-size: 16px; }
+  .lp-bars { height: 30px; }
+  .lp-float small { font-size: 10.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-float, .lp-blencong { animation: none; }
+}
