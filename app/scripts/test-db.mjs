@@ -2832,5 +2832,62 @@ await check('Ulasan: analisa (rata-rata, NPS, aspek, pilihan), tindak lanjut ula
   assert((await val(`select crm_feedback_summary(current_date - 40, current_date + 1, null)`)).responses === 0, 'bocor ke PT lain');
 });
 
+console.log('\nSelf-order kiosk:');
+let kioskToken, kioskId, kioskOrder;
+await check('Kiosk: dibuat & diatur oleh yang berizin; menu publik dengan harga per kanal, unggulan & stok habis', async () => {
+  await loginAs(U1);
+  const k = await one(`insert into pos_kiosks (company_id, outlet_id, name, allow_takeaway) values ($1, $2, 'Kiosk depan', false) returning id, token`, [company1, outletId]);
+  kioskId = k.id; kioskToken = k.token;
+  assert(/^[0-9a-f]{32}$/.test(kioskToken), kioskToken);
+  const item = await val(`select i.id from mst_menu_items i join sys_outlets o on o.brand_id = i.brand_id where o.id = $1 and i.is_active
+    and not exists (select 1 from mst_menu_item_modifier_groups l where l.menu_item_id = i.id) order by i.name limit 1`, [outletId]);
+  await db.query(`select pos_kiosk_set_highlight($1, true, 'Favorit')`, [item]);
+  await loginAs(KASIR);
+  assert((await val(`select count(*)::int from pos_kiosks`)) === 0, 'kasir melihat kiosk');
+  await expectError(`select pos_kiosk_set_highlight($1, true, 'x')`, [item], /izin/);
+  await asAnon();
+  await expectError(`select public_kiosk_menu('salah')`, [], /tidak dikenal/);
+  const m = await val(`select public_kiosk_menu($1)`, [kioskToken]);
+  assert(m.items.length > 0 && m.categories.length > 0 && m.kiosk.allow_takeaway === false && m.items.find((i) => i.id === item).featured === true
+    && m.items.find((i) => i.id === item).badge === 'Favorit' && m.items.every((i) => i.price_dine_in != null), JSON.stringify(m).slice(0, 300));
+  assert((await val(`select count(*)::int from pos_kiosks`).catch(() => 0)) === 0, 'anon membaca kiosk');
+});
+await check('Kiosk: pesanan divalidasi (kanal, habis, pilihan), nomor antrean, belum masuk dapur sebelum dibayar', async () => {
+  await db.exec('reset role');
+  const items = (await db.query(`select i.id from mst_menu_items i join sys_outlets o on o.brand_id = i.brand_id where o.id = $1 and i.is_active
+    and not exists (select 1 from mst_menu_item_modifier_groups l where l.menu_item_id = i.id) order by i.name limit 3`, [outletId])).rows.map((r) => r.id);
+  await db.query(`insert into mst_menu_sold_outs (company_id, outlet_id, menu_item_id, business_date) values ($1, $2, $3, sys_outlet_business_date($2))`, [company1, outletId, items[2]]);
+  const otherMod = await val(`select id from mst_modifiers limit 1`);
+  await asAnon();
+  const submit = (p) => db.query(`select public_kiosk_submit($1, $2::jsonb)`, [kioskToken, JSON.stringify(p)]);
+  await expectError(`select public_kiosk_submit($1, $2::jsonb)`, [kioskToken, JSON.stringify({ channel: 'dine_in', items: [] })], /kosong/);
+  await expectError(`select public_kiosk_submit($1, $2::jsonb)`, [kioskToken, JSON.stringify({ channel: 'takeaway', items: [{ menu_item_id: items[0], quantity: 1 }] })], /tidak tersedia/);
+  await expectError(`select public_kiosk_submit($1, $2::jsonb)`, [kioskToken, JSON.stringify({ channel: 'dine_in', items: [{ menu_item_id: items[2], quantity: 1 }] })], /habis/);
+  if (otherMod) await expectError(`select public_kiosk_submit($1, $2::jsonb)`, [kioskToken, JSON.stringify({ channel: 'dine_in', items: [{ menu_item_id: items[0], quantity: 1, modifier_ids: [otherMod] }] })], /tidak valid/);
+  const r = (await submit({ channel: 'dine_in', customer_name: 'Rara', items: [{ menu_item_id: items[0], quantity: 2 }, { menu_item_id: items[1], quantity: 1, note: 'tanpa es' }] })).rows[0].public_kiosk_submit;
+  assert(r.queue_number === 'K001' && r.receipt.order.queue_number === 'K001' && r.receipt.items.length === 2 && r.receipt.order.status === 'open', JSON.stringify(r).slice(0, 300));
+  kioskOrder = r.order_id;
+  const r2 = (await submit({ channel: 'dine_in', items: [{ menu_item_id: items[0], quantity: 1 }] })).rows[0].public_kiosk_submit;
+  assert(r2.queue_number === 'K002', r2.queue_number);
+  await db.exec('reset role');
+  const o = await one(`select order_source, kiosk_id, sales_channel, customer_name from pos_orders where id = $1`, [kioskOrder]);
+  assert(o.order_source === 'kiosk' && o.kiosk_id === kioskId && o.customer_name === 'Rara', JSON.stringify(o));
+  assert((await val(`select count(*)::int from pos_order_items where order_id = $1 and kitchen_status = 'waiting'`, [kioskOrder])) === 2, 'belum masuk dapur');
+});
+await check('Kiosk: dibayar di kasir -> otomatis masuk dapur; token diganti -> link lama mati', async () => {
+  await loginAs(U1);
+  const total = Number(await val(`select grand_total from pos_orders where id = $1`, [kioskOrder]));
+  const method = await val(`select id from mst_payment_methods where company_id = $1 order by created_at limit 1`, [company1]);
+  if (!(await val(`select count(*)::int from pos_shifts where outlet_id = $1 and user_id = $2 and status = 'open'`, [outletId, U1]))) await db.query(`select pos_open_shift($1, 0)`, [outletId]);
+  await db.query(`select pos_pay_order($1, $2::jsonb)`, [kioskOrder, JSON.stringify([{ payment_method_id: method, amount: total }])]);
+  assert((await val(`select count(*)::int from pos_order_items where order_id = $1 and kitchen_status = 'pending'`, [kioskOrder])) === 2, 'masuk dapur setelah bayar');
+  const list = await val(`select pos_kiosk_list()`);
+  assert(list[0].online === true && list[0].orders_today >= 2, JSON.stringify(list));
+  const newToken = await val(`select pos_kiosk_regenerate_token($1)`, [kioskId]);
+  await asAnon();
+  await expectError(`select public_kiosk_menu($1)`, [kioskToken], /tidak dikenal/);
+  assert((await val(`select public_kiosk_menu($1)`, [newToken])).items.length > 0, 'token baru');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

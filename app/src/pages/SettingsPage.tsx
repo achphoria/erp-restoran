@@ -49,6 +49,7 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'crm.manage', label: 'Pelanggan, promo & voucher', group: 'Operasional' },
   { key: 'feedback.view', label: 'Lihat ulasan pelanggan & analisanya', group: 'Operasional' },
   { key: 'feedback.manage', label: 'Atur form ulasan & tindak lanjut ulasan', group: 'Operasional' },
+  { key: 'kiosk.manage', label: 'Atur self-kiosk & menu unggulan', group: 'Operasional' },
   { key: 'report.view', label: 'Dashboard & laporan penjualan', group: 'Laporan' },
   { key: 'finance.view', label: 'Lihat laporan keuangan', group: 'Keuangan' },
   { key: 'finance.manage', label: 'Input biaya, jurnal, bayar supplier, settlement POS', group: 'Keuangan' },
