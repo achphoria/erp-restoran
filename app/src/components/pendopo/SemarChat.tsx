@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Check, FileSpreadsheet, Paperclip, Plus, Search, Send, X } from 'lucide-react';
-import Modal from '../Modal';
+import type { ChatEvent } from './useOfficeSim';
 import { useFeedback } from '../Feedback';
 import { useAuth } from '../../context/AuthContext';
 import { must, supabase } from '../../lib/supabase';
@@ -24,8 +24,9 @@ const TOOL_LABEL: Record<string, string> = { daftar_tabel: 'melihat daftar data'
 const OP_LABEL: Record<string, string> = { tambah: 'Tambah data', ubah: 'Ubah data', hapus: 'Hapus data' };
 const newId = () => crypto.randomUUID();
 
-// Jendela obrolan dengan Semar (khusus owner)
-export default function SemarChat({ onClose }: { onClose: () => void }) {
+// Panel obrolan dengan Semar di sebelah kanan Pendopo (khusus owner).
+// onEvent memberi tahu kantor supaya karakter Semar ikut bereaksi (berpikir, menjawab, ada usulan, disetujui).
+export default function SemarChat({ onClose, onEvent }: { onClose: () => void; onEvent?: (e: ChatEvent) => void }) {
   const { profile } = useAuth();
   const { toast } = useFeedback();
   const isOwner = !!profile?.permissions.includes('*');
@@ -38,21 +39,33 @@ export default function SemarChat({ onClose }: { onClose: () => void }) {
   const [draft, setDraft] = useState<string | null>(null);     // pesan yang sedang dikirim (tampil langsung)
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const eventRef = useRef(onEvent);
+  useEffect(() => { eventRef.current = onEvent; });
 
   const load = useCallback(async (id: string) => {
     setRows(await must(supabase.from('ai_chat_messages').select('id, role, content, meta, created_at').eq('conversation_id', id).order('id').limit(400)));
   }, []);
 
-  // buka obrolan terakhir (atau mulai baru)
+  // buka obrolan terakhir (atau mulai baru); Semar menyambut
   useEffect(() => {
-    if (!isOwner) return;
-    supabase.from('ai_chat_messages').select('conversation_id').order('id', { ascending: false }).limit(1)
-      .then(({ data }) => {
-        const id = data?.[0]?.conversation_id ?? newId();
-        setConv(id);
-        if (data?.length) load(id).catch((e) => toast(errorMessage(e), 'error'));
-      });
+    eventRef.current?.('open');
+    if (isOwner) {
+      supabase.from('ai_chat_messages').select('conversation_id').order('id', { ascending: false }).limit(1)
+        .then(({ data }) => {
+          const id = data?.[0]?.conversation_id ?? newId();
+          setConv(id);
+          if (data?.length) load(id).catch((e) => toast(errorMessage(e), 'error'));
+        });
+    }
+    return () => eventRef.current?.('close');
   }, [isOwner, load, toast]);
+
+  // tutup dengan Esc
+  useEffect(() => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.modal')) onClose(); };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }); }, [rows, draft, busy]);
 
@@ -63,13 +76,16 @@ export default function SemarChat({ onClose }: { onClose: () => void }) {
     setText('');
     const atts = files;
     setFiles([]);
+    eventRef.current?.('thinking');
     try {
-      await invokeSemar({ action: 'chat', conversation_id: conv, text: msg.trim(), attachments: atts.map(({ info: _i, ...a }) => a) });
+      const r = await invokeSemar<{ pending: unknown[] }>({ action: 'chat', conversation_id: conv, text: msg.trim(), attachments: atts.map(({ info: _i, ...a }) => a) });
       await load(conv);
+      eventRef.current?.(r.pending?.length ? 'pending' : 'answered');
     } catch (e) {
       toast(errorMessage(e), 'error');
       setText(msg);
       setFiles(atts);
+      eventRef.current?.('answered');
     } finally {
       setBusy(false);
       setDraft(null);
@@ -82,6 +98,7 @@ export default function SemarChat({ onClose }: { onClose: () => void }) {
     try {
       const r = await invokeSemar<{ status: string; result: { message: string } }>({ action, conversation_id: conv, action_id: actionId });
       toast(r.status === 'executed' ? `Berhasil: ${r.result.message}` : r.status === 'rejected' ? 'Usulan ditolak' : `Gagal: ${r.result.message}`, r.status === 'failed' ? 'error' : 'success');
+      eventRef.current?.(r.status === 'executed' ? 'executed' : 'rejected');
       await load(conv);
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -106,55 +123,59 @@ export default function SemarChat({ onClose }: { onClose: () => void }) {
   const decisions = new Map<string, Record<string, any>>();
   rows.forEach((r) => { if (r.meta?.action_id) decisions.set(r.meta.action_id, r.meta); });
 
-  if (!isOwner) {
-    return (
-      <Modal title="Semar · Kepala Konsultan" onClose={onClose}>
-        <div className="semar-locked">
-          <MiniAvatar id="semar" size={72} />
-          <p><b>Semar hanya melayani owner.</b> Akun Anda bukan owner perusahaan ini, jadi belum bisa mengobrol dengan Semar.</p>
-        </div>
-      </Modal>
-    );
-  }
-
   return (
-    <Modal title="Semar · Kepala Konsultan" onClose={onClose} wide
-      footer={
-        <div className="semar-composer">
-          {files.length > 0 && (
-            <div className="semar-files">
-              {files.map((f, i) => (
-                <span key={i} className="semar-file"><FileSpreadsheet size={14} /> {f.name} <small>{f.info}</small>
-                  <button type="button" aria-label="Hapus lampiran" onClick={() => setFiles((x) => x.filter((_, j) => j !== i))}><X size={12} /></button></span>
-              ))}
-            </div>
-          )}
-          <div className="semar-input">
-            <button type="button" className="icon-btn" title="Lampirkan file (Excel, CSV, PDF, gambar)" onClick={() => fileRef.current?.click()} disabled={busy}><Paperclip size={18} /></button>
-            <input ref={fileRef} type="file" hidden multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt,.json,.pdf,image/png,image/jpeg,image/webp,image/gif" onChange={(e) => attach(e.target.files)} />
-            <textarea rows={1} value={text} placeholder="Tanya Semar… (Enter kirim, Shift+Enter baris baru)" onChange={(e) => setText(e.target.value)} onKeyDown={onKey} disabled={busy} />
-            <button type="button" className="btn-primary" onClick={() => send()} disabled={busy || (!text.trim() && !files.length)} aria-label="Kirim"><Send size={16} /></button>
+    <aside className="semar-panel" aria-label="Obrolan dengan Semar">
+      <div className="semar-panel-in">
+        <div className="semar-top">
+          <MiniAvatar id="semar" size={42} />
+          <div>
+            <b>Semar <span className="semar-online">● online</span></b>
+            <div className="muted small">Kepala konsultan · data {profile?.company_name}</div>
           </div>
+          {isOwner && <button type="button" className="icon-btn" title="Obrolan baru" onClick={() => { setConv(newId()); setRows([]); }} disabled={busy}><Plus size={18} /></button>}
+          <button type="button" className="icon-btn" title="Tutup (Esc)" onClick={onClose}><X size={18} /></button>
         </div>
-      }>
-      <div className="semar-top">
-        <MiniAvatar id="semar" size={44} />
-        <div><b>Semar</b><div className="muted small">Kepala konsultan · bisa baca data {profile?.company_name}, perubahan selalu minta persetujuan Juragan</div></div>
-        <button type="button" className="btn-sm" onClick={() => { setConv(newId()); setRows([]); }} disabled={busy}><Plus size={14} /> Obrolan baru</button>
-      </div>
 
-      <div ref={listRef} className="semar-list">
-        {!rows.length && !draft && (
-          <div className="semar-empty">
-            <p>Sugeng rawuh, Juragan {profile?.full_name}. Saya Semar. Mau dibantu apa hari ini?</p>
-            <div className="semar-suggest">{SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)}>{s}</button>)}</div>
+        {!isOwner ? (
+          <div className="semar-locked">
+            <MiniAvatar id="semar" size={72} />
+            <p><b>Semar hanya melayani owner.</b> Akun Anda bukan owner perusahaan ini, jadi belum bisa mengobrol dengan Semar.</p>
           </div>
+        ) : (
+          <>
+            <div ref={listRef} className="semar-list">
+              {!rows.length && !draft && (
+                <div className="semar-empty">
+                  <p>Sugeng rawuh, Juragan {profile?.full_name}. Saya Semar. Mau dibantu apa hari ini?</p>
+                  <div className="semar-suggest">{SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)}>{s}</button>)}</div>
+                </div>
+              )}
+              {rows.map((r) => <Message key={r.id} row={r} decisions={decisions} acting={acting} onDecide={decide} />)}
+              {draft && <div className="semar-msg me"><div className="semar-bubble">{draft}</div></div>}
+              {busy && <div className="semar-msg ai"><div className="semar-bubble thinking"><span /><span /><span /> Semar sedang menimbang…</div></div>}
+            </div>
+
+            <div className="semar-composer">
+              {files.length > 0 && (
+                <div className="semar-files">
+                  {files.map((f, i) => (
+                    <span key={i} className="semar-file"><FileSpreadsheet size={14} /> {f.name} <small>{f.info}</small>
+                      <button type="button" aria-label="Hapus lampiran" onClick={() => setFiles((x) => x.filter((_, j) => j !== i))}><X size={12} /></button></span>
+                  ))}
+                </div>
+              )}
+              <div className="semar-input">
+                <button type="button" className="icon-btn" title="Lampirkan file (Excel, CSV, PDF, gambar)" onClick={() => fileRef.current?.click()} disabled={busy}><Paperclip size={18} /></button>
+                <input ref={fileRef} type="file" hidden multiple accept=".xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt,.json,.pdf,image/png,image/jpeg,image/webp,image/gif" onChange={(e) => attach(e.target.files)} />
+                <textarea rows={1} value={text} placeholder="Tanya Semar…" onChange={(e) => setText(e.target.value)} onKeyDown={onKey} disabled={busy} />
+                <button type="button" className="btn-primary" onClick={() => send()} disabled={busy || (!text.trim() && !files.length)} aria-label="Kirim"><Send size={16} /></button>
+              </div>
+              <div className="semar-hint">Enter kirim · Shift+Enter baris baru · perubahan data selalu minta persetujuan</div>
+            </div>
+          </>
         )}
-        {rows.map((r) => <Message key={r.id} row={r} decisions={decisions} acting={acting} onDecide={decide} />)}
-        {draft && <div className="semar-msg me"><div className="semar-bubble">{draft}</div></div>}
-        {busy && <div className="semar-msg ai"><div className="semar-bubble thinking"><span /><span /><span /> Semar sedang menimbang…</div></div>}
       </div>
-    </Modal>
+    </aside>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { MessageCircle, Sparkles, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import SemarChat from './SemarChat';
@@ -22,12 +22,23 @@ export default function PendopoOffice() {
   const wrap = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(true);
   const [tabHidden, setTabHidden] = useState(document.hidden);
-  const { actors, t, clock } = useOfficeSim(!visible || tabHidden);
+  const { sim, actors, t, clock } = useOfficeSim(!visible || tabHidden);
   const [selected, setSelected] = useState<AgentId | null>(null);
   const [chat, setChat] = useState(false);
   const { profile } = useAuth();
   const isOwner = !!profile?.permissions.includes('*');
   const [area, setArea] = useState<{ label: string; desc: string; x: number; y: number } | null>(null);
+
+  // semua menyapa saat Dashboard dibuka
+  useEffect(() => {
+    const id = window.setTimeout(() => sim.greet(), 900);
+    // khusus mode pengembangan: window.__pendopo.chat('executed') untuk uji reaksi
+    if (import.meta.env.DEV) (window as unknown as { __pendopo: unknown }).__pendopo = sim;
+    return () => window.clearTimeout(id);
+  }, [sim]);
+
+  // klik karakter: pilih + "colek"
+  const pick = (id: AgentId) => { sim.poke(id); setSelected(id); };
 
   // jeda animasi saat tidak terlihat (hemat baterai)
   useEffect(() => {
@@ -52,7 +63,7 @@ export default function PendopoOffice() {
   };
 
   const layer = (from: number, to: number) => shown.filter((a) => a.y > from && a.y <= to)
-    .map((a) => <ActorSprite key={a.id} a={a} t={t} selected={a.id === selected} onPick={() => setSelected(a.id === selected ? null : a.id)} />);
+    .map((a) => <ActorSprite key={a.id} a={a} t={t} selected={a.id === selected} onPick={() => pick(a.id)} />);
 
   const working = actors.filter((a) => ['kerja', 'rapat', 'lembur', 'ronda'].includes(a.status)).length;
   const present = actors.filter((a) => !a.gone).length;
@@ -67,11 +78,13 @@ export default function PendopoOffice() {
         <div className="pd-meta">
           <span className="pd-clock">{String(clock.hour).padStart(2, '0')}.{String(clock.minute).padStart(2, '0')} <small>WIB</small></span>
           {isOwner
-            ? <button type="button" className="btn-sm btn-primary" onClick={() => setChat(true)}><MessageCircle size={14} /> Tanya Semar</button>
+            ? <button type="button" className={`btn-sm ${chat ? '' : 'btn-primary'}`} onClick={() => setChat((c) => !c)}><MessageCircle size={14} /> {chat ? 'Tutup obrolan' : 'Tanya Semar'}</button>
             : <span className="pd-soon"><Sparkles size={13} /> Semar khusus owner</span>}
         </div>
       </div>
 
+      <div className={`pd-body ${chat ? 'with-chat' : ''}`}>
+      <div className="pd-main">
       <div ref={wrap} className={`pd-scene ${sky.night ? 'night' : ''}`} onMouseMove={onMove} onMouseLeave={() => setArea(null)}>
         <svg viewBox={`0 0 ${W} ${H}`} className="pd-svg" role="img" aria-label="Ilustrasi kantor Pendopo dengan lima agent">
           <OfficeBack hour={clock.hour} minute={clock.minute} />
@@ -101,19 +114,36 @@ export default function PendopoOffice() {
           const head = (lie ? 50 : LOOKS[a.id].h + 18) * s;
           // berbaring: kepala ada di sisi berlawanan arah hadap
           const lx = lie ? a.x - a.face * LOOKS[a.id].h * 0.75 * s : a.x;
-          const showEmoji = a.emoji && t < a.emojiUntil;
+          const speaking = !!a.speech && t < a.speechUntil;
+          const showEmoji = !speaking && a.emoji && t < a.emojiUntil;
           return (
             <div key={a.id} className={`pd-label ${a.id === selected ? 'on' : ''}`} style={{ left: pct(lx, W), top: pct(a.y - head, H), opacity: a.opacity }}
-              onClick={() => setSelected(a.id === selected ? null : a.id)}>
+              onClick={() => pick(a.id)}>
+              {speaking && <span key={a.speech} className="pd-say">{a.speech}</span>}
               {showEmoji && <span className="pd-bubble">{a.emoji}</span>}
               <span className="pd-name"><i className={`pd-dot ${STATUS[a.status][1]}`} />{DEF[a.id].name}</span>
               <span className="pd-act">{a.label}</span>
-              {a.id === 'semar' && isOwner && (
+              {a.id === 'semar' && isOwner && !chat && (
                 <button type="button" className="pd-chat-btn" onClick={(e) => { e.stopPropagation(); setChat(true); }}><MessageCircle size={12} /> Tanya</button>
               )}
             </div>
           );
         })}
+
+        {/* confetti saat usulan disetujui */}
+        {t - sim.confettiAt < 2.2 && (() => {
+          const semar = actors.find((a) => a.id === 'semar')!;
+          return (
+            <div className="pd-confetti" style={{ left: pct(semar.x, W), top: pct(semar.y - 175, H) }}>
+              {Array.from({ length: 44 }, (_, i) => (
+                <i key={`${sim.confettiAt}-${i}`} style={{
+                  '--dx': `${Math.cos(i * 2.4) * (70 + (i % 6) * 34)}px`, '--dy': `${-90 - (i % 7) * 24}px`, '--rot': `${i * 47}deg`,
+                  background: ['#F7B733', '#FC4A1A', '#4ABDAC', '#1F7F72', '#fff'][i % 5], animationDelay: `${(i % 4) * 0.04}s`,
+                } as CSSProperties} />
+              ))}
+            </div>
+          );
+        })()}
 
         {area && !sel && <div className="pd-tip" style={{ left: area.x, top: area.y }}><b>{area.label}</b><span>{area.desc}</span></div>}
 
@@ -127,7 +157,7 @@ export default function PendopoOffice() {
               <div className="muted small">“{DEF[sel.id].watak}”</div>
               <div className="pd-card-now"><i className={`pd-dot ${STATUS[sel.status][1]}`} /> {STATUS[sel.status][0]} · {sel.label}</div>
               {sel.id === 'semar'
-                ? <button className="btn-sm btn-primary" disabled={!isOwner} title={isOwner ? undefined : 'Khusus owner'} onClick={() => setChat(true)}><MessageCircle size={14} /> {isOwner ? 'Ajak ngobrol' : 'Khusus owner'}</button>
+                ? <button className="btn-sm btn-primary" disabled={!isOwner || chat} title={isOwner ? undefined : 'Khusus owner'} onClick={() => { setChat(true); setSelected(null); }}><MessageCircle size={14} /> {isOwner ? 'Ajak ngobrol' : 'Khusus owner'}</button>
                 : <button className="btn-sm" disabled title="Agent ini belum aktif"><MessageCircle size={14} /> Ajak ngobrol (segera hadir)</button>}
             </div>
           </div>
@@ -140,7 +170,7 @@ export default function PendopoOffice() {
       </div>
       <div className="pd-team">
         {actors.map((a) => (
-          <button key={a.id} type="button" className={`pd-member ${a.id === selected ? 'on' : ''}`} onClick={() => setSelected(a.id === selected ? null : a.id)}>
+          <button key={a.id} type="button" className={`pd-member ${a.id === selected ? 'on' : ''}`} onClick={() => pick(a.id)}>
             <MiniAvatar id={a.id} size={44} />
             <span className="pd-member-text">
               <b>{DEF[a.id].name} <span className={`pd-chip ${STATUS[a.status][1]}`}>{STATUS[a.status][0]}</span></b>
@@ -150,7 +180,9 @@ export default function PendopoOffice() {
           </button>
         ))}
       </div>
-      {chat && <SemarChat onClose={() => setChat(false)} />}
+      </div>
+      {chat && <SemarChat onClose={() => setChat(false)} onEvent={(e) => sim.chat(e)} />}
+      </div>
     </section>
   );
 }
@@ -158,13 +190,38 @@ export default function PendopoOffice() {
 function ActorSprite({ a, t, selected, onPick }: { a: Actor; t: number; selected: boolean; onPick: () => void }) {
   const s = depth(a.y);
   const waving = t < a.wave;
+  const h = LOOKS[a.id].h;
+  // gerakan sesaat
+  const an = a.anim && t >= a.anim.start ? a.anim : null;
+  const p = an ? Math.min(1, (t - an.start) / an.dur) : 0;
+  let dy = 0, rot = 0, sx = 1, sy = 1;
+  let arms: 'up' | 'chin' | null = null;
+  switch (an?.type) {
+    case 'jump': dy = -Math.sin(Math.PI * p) * 34; sy = 1 + 0.08 * Math.sin(Math.PI * p); break;
+    case 'cheer': dy = -Math.abs(Math.sin(p * Math.PI * 3)) * 28; arms = 'up'; break;
+    case 'spin': rot = 360 * p; dy = -Math.sin(Math.PI * p) * 18; break;
+    case 'stretch': arms = 'up'; sy = 1 + 0.07 * Math.sin(Math.PI * p); break;
+    case 'dance': rot = Math.sin(t * 9) * 10; dy = -Math.abs(Math.sin(t * 9)) * 8; break;
+    case 'look': rot = Math.sin(p * Math.PI * 2) * 6; break;
+    case 'nod': rot = Math.sin(p * Math.PI * 4) * 5; dy = Math.abs(Math.sin(p * Math.PI * 4)) * 2; break;
+    case 'think': arms = 'chin'; rot = 4 + Math.sin(t * 2) * 2; break;
+    case 'flex': arms = 'up'; sx = 1 + 0.06 * Math.abs(Math.sin(t * 10)); break;
+    case 'yawn': sy = 1 + 0.06 * Math.sin(Math.PI * p); arms = p > 0.2 && p < 0.8 ? 'up' : null; break;
+    case 'eat': dy = Math.abs(Math.sin(t * 14)) * 2; break;
+  }
+  const talking = !!a.speech && t < a.speechUntil;
   return (
     <g transform={`translate(${a.x} ${a.y}) scale(${s * a.face} ${s})`} opacity={a.opacity} onClick={onPick} className="pd-actor">
       <ellipse cx="0" cy="2" rx={LOOKS[a.id].w * (a.pose === 'lie' ? 0.9 : 0.42)} ry="7" fill="rgba(40,20,5,0.25)" />
       {selected && <ellipse cx="0" cy="2" rx={LOOKS[a.id].w * 0.55} ry="10" fill="none" stroke="#F7B733" strokeWidth="4" />}
       {/* wajah tetap menghadap kanan di dalam sprite; arah diatur oleh scale(face) */}
-      <Mascot id={a.id} pose={a.pose} face={1} t={t + a.x * 0.01} walk={a.path.length ? a.walk || 0.01 : 0}
-        typing={a.typing} blink={t < a.blinkUntil || a.status === 'tidur'} wave={waving} holding={a.holding} />
+      <g transform={`translate(0 ${dy}) rotate(${rot} 0 ${-h * 0.45}) scale(${sx} ${sy})`}>
+        <Mascot id={a.id} pose={a.pose} face={1} t={t + a.x * 0.01} walk={a.path.length ? a.walk || 0.01 : 0}
+          typing={a.typing && !an} blink={t < a.blinkUntil || a.status === 'tidur'} wave={waving} holding={a.holding}
+          arms={arms} talking={talking} />
+        {an?.type === 'eat' && <text x={LOOKS[a.id].w * 0.32} y={-h * 0.5} fontSize="20">🍌</text>}
+        {an?.type === 'spin' && <text x={-14} y={-h - 18} fontSize="20">😵</text>}
+      </g>
     </g>
   );
 }

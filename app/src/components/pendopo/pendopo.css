@@ -154,3 +154,45 @@
 .md code { background: rgba(29,36,51,0.07); padding: 1px 5px; border-radius: 5px; font-size: 0.92em; }
 .md pre code { background: none; padding: 0; }
 .md-table { overflow-x: auto; margin: 6px 0; } .md-table .table { font-size: 12.5px; } .md-table th, .md-table td { padding: 6px 8px; white-space: nowrap; }
+
+/* ---------------------------------------------------------------- tata letak: kantor + panel obrolan di kanan */
+.pd-body.with-chat { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: stretch; }
+.pd-main { min-width: 0; }
+.semar-panel { position: relative; min-height: 560px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); animation: semar-slide 0.28s ease-out; }
+.semar-panel-in { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 12px; }
+.semar-panel .semar-top { flex-shrink: 0; }
+.semar-panel .semar-list { flex: 1; min-height: 0; max-height: none; }
+.semar-panel .semar-composer { flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--border); }
+.semar-panel .semar-bubble { max-width: 92%; font-size: 13.5px; }
+.semar-panel .semar-prop { margin-left: 0; max-width: 100%; }
+.semar-panel .semar-tool, .semar-panel .semar-time { margin-left: 4px; }
+.semar-panel .semar-suggest button { max-width: 100%; }
+.semar-online { color: #16a34a; font-size: 11px; font-weight: 700; margin-left: 4px; }
+.semar-hint { font-size: 10.5px; color: var(--text-muted); text-align: center; margin-top: 4px; }
+@keyframes semar-slide { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+
+/* gelembung ucapan karakter */
+.pd-say {
+  position: relative; max-width: 190px; white-space: normal; text-align: center; padding: 6px 10px; margin-bottom: 4px;
+  border-radius: 14px; background: #fff; color: var(--text); font-size: 12px; font-weight: 700; line-height: 1.3;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25); animation: pd-pop 0.3s cubic-bezier(.3,1.6,.6,1);
+}
+.pd-say::after { content: ''; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; border-bottom: 0; }
+
+/* confetti */
+.pd-confetti { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 5; }
+.pd-confetti i { position: absolute; width: 11px; height: 16px; border-radius: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); animation: pd-confetti 2s cubic-bezier(.2,.7,.4,1) forwards; }
+@keyframes pd-confetti {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  45% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 1; }
+  100% { transform: translate(calc(var(--dx) * 1.3), calc(var(--dy) + 180px)) rotate(calc(var(--rot) * 3)); opacity: 0; }
+}
+
+@media (max-width: 1180px) { .pd-body.with-chat { grid-template-columns: minmax(0, 1fr) 340px; } }
+/* layar kecil: panel muncul dari bawah, kantor tetap terlihat di atasnya */
+@media (max-width: 900px) {
+  .pd-body.with-chat { display: block; }
+  .semar-panel { position: fixed; left: 0; right: 0; bottom: 0; height: 64vh; min-height: 0; z-index: 60; border-radius: 20px 20px 0 0; animation: semar-up 0.28s ease-out; box-shadow: 0 -10px 40px rgba(0,0,0,0.25); }
+  @keyframes semar-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+@media (prefers-reduced-motion: reduce) { .pd-confetti { display: none; } .semar-panel { animation: none; } }
