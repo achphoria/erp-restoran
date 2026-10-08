@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–029)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–030)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -28,6 +28,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase17.sql`](supabase/update_fase17.sql) (027: platform admin, grup usaha multi PT, master brand & akses per brand)
   - [`supabase/update_fase18.sql`](supabase/update_fase18.sql) (028: daftar pendaftar baru & badge di Console Platform)
   - [`supabase/update_fase19.sql`](supabase/update_fase19.sql) (029: perbaikan error saat pendaftar baru membuat usaha)
+  - [`supabase/update_fase20.sql`](supabase/update_fase20.sql) (030: agent AI Semar, lalu deploy Edge Function `semar-agent`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -275,6 +276,28 @@ select id, 'developer' from auth.users where email = 'EMAIL_ANDA@contoh.com';
 **Pendaftar baru** (Platform → Pendaftar): semua akun yang daftar sendiri, termasuk yang belum setup usaha, dengan status *Belum setup* / *Owner PT* / *Staf*. Menu Platform menampilkan badge jumlah pendaftar baru sejak tab ini terakhir dibuka.
 
 Untuk mencabut: `delete from sys_platform_admins where user_id = (select id from auth.users where email = 'EMAIL_ANDA@contoh.com');`
+
+## Agent Semar (AI kepala konsultan, khusus owner)
+Semar ada di **Dashboard → Pendopo**: tombol **Tanya Semar** / tombol **Tanya** di atas karakter Semar.
+Owner bisa bertanya tutorial, minta analisa data, dan melampirkan file (Excel, CSV, PDF, gambar) untuk dimigrasi ke master data
+(supplier, produk, kategori, satuan, menu, resep, pelanggan, pricelist).
+- **Khusus owner** (role dengan hak `*`). Staf melihat pesan "Semar hanya melayani owner".
+- Semar membaca & menulis memakai **akun owner sendiri**, jadi hanya data perusahaan owner itu yang tersentuh (dijamin RLS database).
+- Setiap perubahan data muncul sebagai **kartu usulan**; data baru berubah setelah owner menekan **Setujui & jalankan**.
+- Yang bisa diubah hanya **master data**; transaksi (penjualan, PO, stok, jurnal) hanya dibaca.
+- Batas 40 pesan per jam per owner; token yang terpakai tercatat di tabel `ai_chat_messages`.
+
+### Setup (sekali saja)
+1. Jalankan `supabase/update_fase20.sql` di SQL Editor.
+2. **Deploy Edge Function**: Supabase Dashboard → **Edge Functions** → **Deploy a new function** → *Via Editor*,
+   beri nama **`semar-agent`**, hapus isi contoh lalu tempel seluruh isi
+   [`supabase/functions/semar-agent/index.ts`](supabase/functions/semar-agent/index.ts), klik **Deploy**.
+   Di pengaturan fungsi, matikan **Verify JWT with legacy secret** (fungsi mengecek login & owner sendiri).
+3. **Isi kunci API Claude** sebagai secret: Edge Functions → **Secrets** → **Add new secret**:
+   - `ANTHROPIC_API_KEY` = kunci dari [console.anthropic.com](https://console.anthropic.com) → API keys → Create key.
+   - (opsional) `SEMAR_MODEL` = model Claude, default `claude-sonnet-5-5`.
+   Kunci hanya disimpan di server Supabase, tidak pernah dikirim ke browser. **Jangan menempelkan kunci API di chat, kode, atau repo.**
+4. Atur batas belanja di Claude Console (Settings → Limits) supaya biaya terkendali.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).

@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:db": "node scripts/test-db.mjs",
+    "test:agent": "node --experimental-strip-types scripts/test-semar-agent.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

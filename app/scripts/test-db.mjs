@@ -2234,5 +2234,29 @@ await check('PT baru tidak melihat satu baris pun data PT lain (semua tabel, tab
   console.log(`      (${withCompany.length} tabel/view ber-company_id & ${children.length} relasi tabel anak diperiksa)`);
 });
 
+console.log('\nAgent Semar (database):');
+await check('obrolan Semar khusus owner & pribadi; struktur tabel menyembunyikan tabel rahasia', async () => {
+  const conv = '99999999-0000-0000-0000-000000000001';
+  await loginAs(U1);
+  await db.query(`insert into ai_chat_messages (company_id, user_id, conversation_id, role, content) values ($1, $2, $3, 'user', '[{"type":"text","text":"halo"}]')`, [company1, U1, conv]);
+  assert((await val(`select count(*)::int from ai_chat_messages`)) === 1, 'owner tidak melihat obrolannya');
+  const info = await val(`select ai_table_info()`);
+  const names = info.map((t) => t.table);
+  assert(names.includes('pur_suppliers') && names.includes('rpt_daily_sales'), 'tabel/laporan utama tidak ada');
+  assert(!names.some((n) => ['sys_payment_gateway_secrets', 'sys_platform_admins', 'ai_chat_messages'].includes(n)), 'tabel rahasia terlihat');
+  assert(info.find((t) => t.table === 'pur_suppliers').writable && !info.find((t) => t.table === 'pos_orders').writable, 'flag writable');
+  const sup = (await val(`select ai_table_info(array['pur_suppliers'])`))[0];
+  assert(sup.columns.some((c) => c.name === 'name' && c.required) && sup.has_company_id, JSON.stringify(sup.columns?.slice(0, 3)));
+  assert((await val(`select ai_recent_usage()`)).messages_last_hour === 1, 'pemakaian');
+  // staf (bukan owner): tidak bisa membaca struktur & tidak bisa menulis/membaca obrolan
+  await loginAs(U7);
+  await expectError(`select ai_table_info()`, [], /Khusus owner/);
+  await expectError(`insert into ai_chat_messages (company_id, user_id, conversation_id, role, content) values ($1, $2, $3, 'user', '[]')`, [company1, U7, conv], /row-level security/);
+  assert((await val(`select count(*)::int from ai_chat_messages`)) === 0, 'staf melihat obrolan owner');
+  // owner PT lain tidak melihat obrolan owner ini
+  await loginAs('12121212-1212-1212-1212-121212121212');
+  assert((await val(`select count(*)::int from ai_chat_messages`)) === 0, 'owner lain melihat obrolan');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

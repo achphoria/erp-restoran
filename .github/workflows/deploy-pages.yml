@@ -33,7 +33,7 @@ jobs:
 
       # Semua migrasi SQL diuji dulu; deploy batal kalau ada yang gagal
       - name: Tes database
-        run: npm run test:db
+        run: npm run test:db && npm run test:agent
 
       - name: Build
         run: npm run build
