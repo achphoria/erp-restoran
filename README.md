@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–028)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–029)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -27,6 +27,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase16.sql`](supabase/update_fase16.sql) (026: akses branch per user + role template)
   - [`supabase/update_fase17.sql`](supabase/update_fase17.sql) (027: platform admin, grup usaha multi PT, master brand & akses per brand)
   - [`supabase/update_fase18.sql`](supabase/update_fase18.sql) (028: daftar pendaftar baru & badge di Console Platform)
+  - [`supabase/update_fase19.sql`](supabase/update_fase19.sql) (029: perbaikan error saat pendaftar baru membuat usaha)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
