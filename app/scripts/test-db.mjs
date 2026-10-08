@@ -2197,5 +2197,42 @@ await check('pendaftar baru bisa membuat usaha + data contoh (log aktivitas tida
   assert(logs.rows.some((l) => l.user_id === U12 && l.user_name === 'Ali'), 'log setelah terdaftar tidak memakai user');
 });
 
+await check('PT baru tidak melihat satu baris pun data PT lain (semua tabel, tabel anak & laporan)', async () => {
+  const U12 = '12121212-1212-1212-1212-121212121212';
+  await db.exec('reset role');
+  const mine = await val(`select company_id from sys_users where id = $1`, [U12]);
+  // daftar tabel ber-company_id, view ber-company_id, dan tabel anak (FK ke tabel ber-company_id)
+  const withCompany = (await db.query(`select c.table_name, t.table_type from information_schema.columns c
+    join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
+    where c.table_schema = 'public' and c.column_name = 'company_id' order by 1`)).rows;
+  const children = (await db.query(`select distinct cl.relname as child, a.attname as col, pl.relname as parent
+    from pg_constraint k join pg_class cl on cl.oid = k.conrelid join pg_class pl on pl.oid = k.confrelid
+    join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+    join pg_namespace n on n.oid = cl.relnamespace
+    where k.contype = 'f' and n.nspname = 'public' and array_length(k.conkey, 1) = 1
+      and not exists (select 1 from information_schema.columns x where x.table_schema = 'public' and x.table_name = cl.relname and x.column_name = 'company_id')
+      and exists (select 1 from information_schema.columns x where x.table_schema = 'public' and x.table_name = pl.relname and x.column_name = 'company_id')`)).rows;
+  // pastikan PT lain memang punya data (supaya tes ini bermakna)
+  const others = await val(`select count(*)::int from inv_items where company_id <> $1`, [mine]);
+  assert(others > 0, 'tidak ada data PT lain untuk diuji');
+
+  await loginAs(U12);
+  const leaks = [];
+  for (const { table_name, table_type } of withCompany) {
+    const n = await val(`select count(*)::int from "${table_name}" where company_id is distinct from $1`, [mine]);
+    if (n > 0) leaks.push(`${table_type === 'VIEW' ? 'view' : 'tabel'} ${table_name}: ${n}`);
+  }
+  for (const { child, col, parent } of children) {
+    const n = await val(`select count(*)::int from "${child}" c left join "${parent}" p on p.id = c."${col}"
+      where c."${col}" is not null and (p.id is null or p.company_id <> $1)`, [mine]);
+    if (n > 0) leaks.push(`anak ${child}.${col} -> ${parent}: ${n}`);
+  }
+  assert(!leaks.length, 'BOCOR: ' + leaks.join(' | '));
+  // master produk PT baru hanya miliknya sendiri (data contoh = salinan, bukan data PT lain)
+  const items = await val(`select count(*)::int from inv_items`);
+  assert(items > 0 && items === await val(`select count(*)::int from inv_items where company_id = $1`, [mine]), 'master produk tercampur');
+  console.log(`      (${withCompany.length} tabel/view ber-company_id & ${children.length} relasi tabel anak diperiksa)`);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
