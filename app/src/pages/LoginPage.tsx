@@ -29,7 +29,10 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email: toLoginEmail(email), password });
         if (error) throw error;
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        // link konfirmasi di email kembali ke alamat aplikasi ini (bukan localhost)
+        const { data, error } = await supabase.auth.signUp({
+          email, password, options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+        });
         if (error) throw error;
         if (!data.session) {
           setInfo('Pendaftaran berhasil. Cek email Anda untuk konfirmasi, lalu masuk.');
