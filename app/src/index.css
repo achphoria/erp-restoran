@@ -946,3 +946,4 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 @media print {
   .appr-scale button:not(.active) { display: none; }
 }
+.user-no-emp { display: flex; align-items: center; gap: 6px; color: var(--warning); margin-top: 2px; }

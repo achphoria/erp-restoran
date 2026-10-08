@@ -2751,5 +2751,26 @@ await check('Penilaian: karyawan tidak melihat nilai atasan sebelum dikirim', as
   assert(d.status === 'manager' && !('manager_scores' in d) && !('grade' in d) && !('live_metrics' in d && d.live_metrics), JSON.stringify(Object.keys(d)));
 });
 
+console.log('\nUser Management <-> data karyawan:');
+await check('Akun tanpa data karyawan bisa dibuatkan datanya; tanpa data pribadi; tidak lintas PT; email sintetis tidak disalin', async () => {
+  await db.exec('reset role');
+  const orphan = await val(`select u.id from sys_users u where u.company_id = $1 and u.id <> $2
+    and not exists (select 1 from hr_employees e where e.user_id = u.id) order by u.created_at limit 1`, [company1, U1]);
+  assert(orphan, 'tidak ada user tanpa data karyawan');
+  await db.query(`update auth.users set email = 'kasir2@staff.santap.local' where id = $1`, [orphan]);
+  await loginAs(KASIR);
+  await expectError(`select hr_create_employee_for_user($1)`, [orphan], /izin/);
+  assert((await val(`select hr_user_links()`)).length === 0, 'kasir melihat tautan akun');
+  await loginAs(U1);
+  const links = await val(`select hr_user_links()`);
+  assert(links.some((l) => l.user_id === KASIR) && !links.some((l) => l.user_id === orphan) && links.every((l) => Object.keys(l).sort().join() === 'employee_id,employee_number,is_active,user_id'), JSON.stringify(links));
+  const e = await val(`select hr_create_employee_for_user($1)`, [orphan]);
+  assert(/^EMP-/.test(e.employee_number), JSON.stringify(e));
+  const row = await one(`select full_name, email, user_id from hr_employees where id = $1`, [e.id]);
+  assert(row.user_id === orphan && row.email === null && row.full_name, JSON.stringify(row));
+  await expectError(`select hr_create_employee_for_user($1)`, [orphan], /sudah punya/);
+  await expectError(`select hr_create_employee_for_user($1)`, [U2], /tidak ditemukan/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

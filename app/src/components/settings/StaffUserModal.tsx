@@ -15,9 +15,11 @@ const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => 
 
 // Owner/admin membuat user staf: nama, username, password, role, outlet (tanpa email & tanpa daftar)
 // defaultName/defaultRoleId/defaultOutletId: dipakai saat dibuat dari data karyawan (SDM); onCreated menerima id user baru
-export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onDone, defaultName, defaultRoleId, defaultOutletId, onCreated }: {
+// offerEmployee: dari User Management, tawarkan sekaligus membuat data karyawan (supaya akun bisa absen, cuti, dsb.)
+export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onDone, defaultName, defaultRoleId, defaultOutletId, onCreated, offerEmployee }: {
   roles: Role[]; outlets: Outlet[]; brands?: Brand[]; onClose: () => void; onDone: (msg: string) => void;
   defaultName?: string; defaultRoleId?: string | null; defaultOutletId?: string | null; onCreated?: (userId: string) => Promise<void> | void;
+  offerEmployee?: boolean;
 }) {
   const { toast } = useFeedback();
   const staffRoles = roles.filter((r) => !r.permissions.includes('*'));
@@ -29,6 +31,8 @@ export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onD
   const [scope, setScope] = useState<OutletScope>(staffRoles.find((r) => r.id === roleId)?.default_outlet_scope ?? 'selected');
   const [brandIds, setBrandIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [withEmployee, setWithEmployee] = useState(true);
+  const [employeeNo, setEmployeeNo] = useState<string | null>(null);
   const [created, setCreated] = useState<{ username: string; password: string } | null>(null);
   const uname = username.trim().toLowerCase();
   const valid = fullName.trim() && USERNAME_RE.test(uname) && password.length >= 8 && roleId && accessValid(scope, outletIds, brandIds);
@@ -41,6 +45,10 @@ export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onD
       const r = await invokeStaffUsers<{ username: string; user_id: string }>({ action: 'create', username: uname, password, full_name: fullName.trim(), role_id: roleId, outlet_ids: ids });
       await rpc('sys_set_user_access', { p_user_id: r.user_id, p_role_id: roleId, p_outlet_scope: scope, p_outlet_ids: ids, p_is_active: true, p_brand_ids: scope === 'brands' ? brandIds : null });
       await onCreated?.(r.user_id);
+      if (offerEmployee && withEmployee && !onCreated) {
+        const e = await rpc<{ employee_number: string }>('hr_create_employee_for_user', { p_user_id: r.user_id }).catch(() => null);
+        setEmployeeNo(e?.employee_number ?? null);
+      }
       setCreated({ username: r.username, password });
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -61,6 +69,7 @@ export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onD
         <button className="btn-sm" style={{ marginTop: 10 }} onClick={() => { copy(`Username: ${created.username}\nPassword: ${created.password}`); toast('Disalin', 'info'); }}>
           <Copy size={14} /> Salin username & password</button>
         <p className="muted small">Staf login di halaman masuk dengan mengetik <b>username</b> (tanpa email). Password bisa diganti staf sendiri lewat menu Profil.</p>
+        {employeeNo && <p className="small">👤 Data karyawan <b>{employeeNo}</b> juga dibuat. Lengkapi biodatanya di <b>SDM / HR → Karyawan</b>.</p>}
       </Modal>
     );
   }
@@ -89,6 +98,10 @@ export function CreateStaffUserModal({ roles, outlets, brands = [], onClose, onD
         <BranchAccessPicker outlets={outlets} brands={brands.filter((b) => b.is_active)} scope={scope} outletIds={outletIds} brandIds={brandIds}
           onChange={(s, ids, bids) => { setScope(s); setOutletIds(ids); setBrandIds(bids); }} />
       </div>
+      {offerEmployee && !onCreated && (
+        <label className="row" style={{ marginTop: 10 }}><input type="checkbox" checked={withEmployee} onChange={(e) => setWithEmployee(e.target.checked)} />
+          Buat juga data karyawan (supaya bisa absen, ajukan cuti & dapat tugas)</label>
+      )}
       <p className="muted small">Tips: pakai pola <b>nama.outlet</b> supaya username unik, mis. <code>andi.pluit</code>. Role Owner tidak bisa diberikan ke staf.</p>
     </Modal>
   );

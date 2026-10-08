@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–037)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–038)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -36,6 +36,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase25.sql`](supabase/update_fase25.sql) (035: SDM / HR fase C: cuti & izin, saldo cuti, persetujuan cuti)
   - [`supabase/update_fase26.sql`](supabase/update_fase26.sql) (036: Tugas kanban & SOP harian)
   - [`supabase/update_fase27.sql`](supabase/update_fase27.sql) (037: SDM / HR fase E: penilaian kinerja)
+  - [`supabase/update_fase28.sql`](supabase/update_fase28.sql) (038: User Management ↔ data karyawan)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -317,6 +318,7 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
   foto & dokumen di storage **privat** (`hr-files`, dibuka lewat link sementara), nomor karyawan otomatis (EMP-0001),
   pengingat kontrak habis (30 hari) & ulang tahun. Data sensitif hanya terlihat HR (`hr.view`/`hr.manage`), owner, dan karyawan itu sendiri.
 - **Buatkan akun login** langsung dari data karyawan (role default mengikuti jabatan), atau tautkan ke akun yang sudah ada.
+- **Dari User Management**: akun tanpa data karyawan diberi tanda *Belum ada data karyawan* + tombol **Buat data karyawan** (nama, HP, email asli, outlet & jabatan diisi otomatis). Saat **+ Tambah User**, ada pilihan *Buat juga data karyawan* (aktif bawaan). Daftar tautan hanya berisi id & nomor karyawan, tanpa data pribadi.
 - **Jabatan & Departemen**, **Pengumuman** (semua / per outlet / per role, dengan jumlah pembaca).
 - **Beranda Saya** (`/saya`, untuk semua karyawan): kartu karyawan, pengumuman, ubah kontak sendiri. User tanpa menu lain otomatis diarahkan ke sini.
 - **Absensi foto + GPS** (dari Beranda Saya di HP): selfie langsung dari kamera depan (dengan cap waktu & koordinat), lokasi GPS akurasi tinggi.
