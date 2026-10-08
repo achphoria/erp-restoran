@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { MessageCircle, Sparkles, X } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import SemarChat from './SemarChat';
+import MiniAvatar from './MiniAvatar';
 import { CoffeeTable, DeskFronts, LOOKS, Mascot, OfficeBack, skyAt } from './art';
 import { useOfficeSim, type Actor, type Status } from './useOfficeSim';
 import { AGENTS, AREAS, H, W, type AgentId } from './world';
@@ -21,6 +24,9 @@ export default function PendopoOffice() {
   const [tabHidden, setTabHidden] = useState(document.hidden);
   const { actors, t, clock } = useOfficeSim(!visible || tabHidden);
   const [selected, setSelected] = useState<AgentId | null>(null);
+  const [chat, setChat] = useState(false);
+  const { profile } = useAuth();
+  const isOwner = !!profile?.permissions.includes('*');
   const [area, setArea] = useState<{ label: string; desc: string; x: number; y: number } | null>(null);
 
   // jeda animasi saat tidak terlihat (hemat baterai)
@@ -56,11 +62,13 @@ export default function PendopoOffice() {
       <div className="pd-head">
         <div>
           <div className="pd-title">Pendopo <span className="pd-sub">· kantor virtual agent SEMAR</span></div>
-          <div className="muted small">Lima abdi bekerja untuk usaha Anda. Klik karakter untuk melihat perannya.</div>
+          <div className="muted small">Lima abdi bekerja untuk usaha Anda. Semar, kepala konsultan, sudah bisa diajak ngobrol.</div>
         </div>
         <div className="pd-meta">
           <span className="pd-clock">{String(clock.hour).padStart(2, '0')}.{String(clock.minute).padStart(2, '0')} <small>WIB</small></span>
-          <span className="pd-soon"><Sparkles size={13} /> AI segera hadir</span>
+          {isOwner
+            ? <button type="button" className="btn-sm btn-primary" onClick={() => setChat(true)}><MessageCircle size={14} /> Tanya Semar</button>
+            : <span className="pd-soon"><Sparkles size={13} /> Semar khusus owner</span>}
         </div>
       </div>
 
@@ -100,6 +108,9 @@ export default function PendopoOffice() {
               {showEmoji && <span className="pd-bubble">{a.emoji}</span>}
               <span className="pd-name"><i className={`pd-dot ${STATUS[a.status][1]}`} />{DEF[a.id].name}</span>
               <span className="pd-act">{a.label}</span>
+              {a.id === 'semar' && isOwner && (
+                <button type="button" className="pd-chat-btn" onClick={(e) => { e.stopPropagation(); setChat(true); }}><MessageCircle size={12} /> Tanya</button>
+              )}
             </div>
           );
         })}
@@ -115,7 +126,9 @@ export default function PendopoOffice() {
               <div className="pd-card-role">{DEF[sel.id].role}</div>
               <div className="muted small">“{DEF[sel.id].watak}”</div>
               <div className="pd-card-now"><i className={`pd-dot ${STATUS[sel.status][1]}`} /> {STATUS[sel.status][0]} · {sel.label}</div>
-              <button className="btn-sm" disabled title="Agent AI belum aktif"><MessageCircle size={14} /> Ajak ngobrol (segera hadir)</button>
+              {sel.id === 'semar'
+                ? <button className="btn-sm btn-primary" disabled={!isOwner} title={isOwner ? undefined : 'Khusus owner'} onClick={() => setChat(true)}><MessageCircle size={14} /> {isOwner ? 'Ajak ngobrol' : 'Khusus owner'}</button>
+                : <button className="btn-sm" disabled title="Agent ini belum aktif"><MessageCircle size={14} /> Ajak ngobrol (segera hadir)</button>}
             </div>
           </div>
         )}
@@ -137,6 +150,7 @@ export default function PendopoOffice() {
           </button>
         ))}
       </div>
+      {chat && <SemarChat onClose={() => setChat(false)} />}
     </section>
   );
 }
@@ -152,16 +166,5 @@ function ActorSprite({ a, t, selected, onPick }: { a: Actor; t: number; selected
       <Mascot id={a.id} pose={a.pose} face={1} t={t + a.x * 0.01} walk={a.path.length ? a.walk || 0.01 : 0}
         typing={a.typing} blink={t < a.blinkUntil || a.status === 'tidur'} wave={waving} holding={a.holding} />
     </g>
-  );
-}
-
-// avatar kecil: kepala & badan karakter
-export function MiniAvatar({ id, size }: { id: AgentId; size: number }) {
-  const L = LOOKS[id];
-  const top = -L.h - 34;
-  return (
-    <svg width={size} height={size} viewBox={`${-L.w * 0.7} ${top} ${L.w * 1.4} ${L.w * 1.4}`} className="pd-avatar" style={{ background: `${DEF[id].tone}1a` }}>
-      <Mascot id={id} pose="stand" face={1} t={0} walk={0} />
-    </svg>
   );
 }
