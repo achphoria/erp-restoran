@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–032)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–034)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -31,6 +31,8 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase20.sql`](supabase/update_fase20.sql) (030: agent AI Semar, lalu deploy Edge Function `semar-agent`)
   - [`supabase/update_fase21.sql`](supabase/update_fase21.sql) (031: logo per brand & "Brand yang sudah bersama SEMAR" di landing page)
   - [`supabase/update_fase22.sql`](supabase/update_fase22.sql) (032: Semar bisa forecasting kebutuhan beli & membuat PO; deploy ulang Edge Function `semar-agent`)
+  - [`supabase/update_fase23.sql`](supabase/update_fase23.sql) (033: SDM / HR fase A: data karyawan, jabatan & departemen, pengumuman, Beranda Saya)
+  - [`supabase/update_fase24.sql`](supabase/update_fase24.sql) (034: SDM / HR fase B: absensi foto + GPS, titik lokasi outlet, jadwal shift, koreksi absen)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -305,6 +307,27 @@ Owner bisa bertanya tutorial, minta analisa data, dan melampirkan file (Excel, C
    - (opsional) `SEMAR_MODEL` = model Claude, default `claude-sonnet-5-5`.
    Kunci hanya disimpan di server Supabase, tidak pernah dikirim ke browser. **Jangan menempelkan kunci API di chat, kode, atau repo.**
 4. Atur batas belanja di Claude Console (Settings → Limits) supaya biaya terkendali.
+
+## SDM / HR
+Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun login & hak akses di **User Management**.
+- **Karyawan**: biodata lengkap (pribadi, identitas KTP/NPWP/BPJS, kontak & kontak darurat, pekerjaan, riwayat pendidikan & kerja),
+  foto & dokumen di storage **privat** (`hr-files`, dibuka lewat link sementara), nomor karyawan otomatis (EMP-0001),
+  pengingat kontrak habis (30 hari) & ulang tahun. Data sensitif hanya terlihat HR (`hr.view`/`hr.manage`), owner, dan karyawan itu sendiri.
+- **Buatkan akun login** langsung dari data karyawan (role default mengikuti jabatan), atau tautkan ke akun yang sudah ada.
+- **Jabatan & Departemen**, **Pengumuman** (semua / per outlet / per role, dengan jumlah pembaca).
+- **Beranda Saya** (`/saya`, untuk semua karyawan): kartu karyawan, pengumuman, ubah kontak sendiri. User tanpa menu lain otomatis diarahkan ke sini.
+- **Absensi foto + GPS** (dari Beranda Saya di HP): selfie langsung dari kamera depan (dengan cap waktu & koordinat), lokasi GPS akurasi tinggi.
+  Jam absen diambil dari **server** dan jarak ke outlet dihitung di **server** (bukan di HP). Di luar radius / GPS kurang akurat /
+  masuk di hari libur tetap tercatat tapi **ditandai untuk direview**. Foto hanya bisa diunggah ke folder absensi milik sendiri.
+  Shift malam (lewat tengah malam) didukung.
+- **Titik lokasi outlet**: Pengaturan → Outlet → *Lokasi absen karyawan* (latitude, longitude, radius; tombol **Pakai lokasi saya**).
+- **Jadwal Shift**: template shift (Pagi/Siang/Malam, warna), papan mingguan dengan "kuas" (klik sel untuk mengisi, klik nama untuk isi seminggu),
+  **salin minggu lalu**. Karyawan melihat jadwal minggu ini di Beranda Saya.
+- **Absensi (rekap)**: hadir / telat / alpa (dijadwalkan tapi tidak absen) / libur, foto masuk & pulang, jarak, lokasi di peta,
+  review absen yang ditandai, **pengajuan koreksi** (lupa absen / HP mati) yang disetujui HR atau atasan langsung, export **Excel**
+  (ringkasan per karyawan + detail), aturan (toleransi telat, wajib foto / GPS, batas akurasi). Badge menu untuk yang perlu direview.
+- Izin baru: `hr.attendance` (atur jadwal shift & review absensi), cocok untuk kepala outlet. Terbatas ke outlet yang boleh diaksesnya.
+- Rencana berikutnya: cuti & izin, task management (kanban + SOP harian), penilaian kinerja.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).

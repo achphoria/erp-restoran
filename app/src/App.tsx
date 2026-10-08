@@ -23,6 +23,8 @@ const SalesPage = lazy(() => import('./pages/SalesPage'));
 const SettlementPage = lazy(() => import('./pages/SettlementPage'));
 const PaymentReturnPage = lazy(() => import('./pages/PaymentReturnPage'));
 const PlatformPage = lazy(() => import('./pages/PlatformPage'));
+const HrPage = lazy(() => import('./pages/HrPage'));
+const MyHomePage = lazy(() => import('./pages/MyHomePage'));
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
@@ -41,7 +43,7 @@ function Home() {
   if (can('pos.order')) return <Navigate to="/pos" replace />;
   if (can('kds.update')) return <Navigate to="/kitchen" replace />;
   if (can(Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`))) return <Navigate to="/approvals" replace />;
-  return <div className="card empty">Role Anda belum punya akses ke menu apa pun.</div>;
+  return <Navigate to="/saya" replace />;
 }
 
 function AppRoutes() {
@@ -80,6 +82,8 @@ function AppRoutes() {
         <Route path="users" element={<Guard permission={['user.manage', 'settings.manage', 'audit.view']}><SettingsPage section="users" /></Guard>} />
         <Route path="approvals" element={<ApprovalsPage />} />
         <Route path="platform" element={<PlatformPage />} />
+        <Route path="saya" element={<MyHomePage />} />
+        <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance']}><HrPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -1,4 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { LocateFixed, MapPin } from 'lucide-react';
+import { getGps } from '../lib/hr';
 import { useAuth } from '../context/AuthContext';
 import { must, rpc, supabase } from '../lib/supabase';
 import { useFeedback, useNotice } from '../components/Feedback';
@@ -23,6 +25,7 @@ interface OutletRow {
   id: string; code: string; name: string; address: string | null; phone: string | null; brand_id: string;
   tax_rate: number; service_charge_rate: number; rounding_unit: number; is_active: boolean;
   is_qr_order_enabled: boolean; qr_requires_confirmation: boolean;
+  geo_lat: number | null; geo_lng: number | null; geo_radius_m: number;
 }
 interface UserRow {
   id: string; full_name: string; username: string | null; email: string | null; is_active: boolean; phone: string | null; avatar_url: string | null; last_login_at: string | null;
@@ -48,6 +51,9 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'user.manage', label: 'Kelola user & role', group: 'Admin' },
   { key: 'settings.manage', label: 'Kelola perusahaan, outlet, approval & pembayaran online', group: 'Admin' },
   { key: 'audit.view', label: 'Lihat log aktivitas', group: 'Admin' },
+  { key: 'hr.view', label: 'Lihat data karyawan', group: 'SDM / HR' },
+  { key: 'hr.manage', label: 'Kelola karyawan, jabatan & pengumuman', group: 'SDM / HR' },
+  { key: 'hr.attendance', label: 'Atur jadwal shift & review absensi', group: 'SDM / HR' },
   { key: 'approval.purchase_order', label: 'Menyetujui purchase order', group: 'Persetujuan' },
   { key: 'approval.expense', label: 'Menyetujui biaya operasional', group: 'Persetujuan' },
   { key: 'approval.stock_adjustment', label: 'Menyetujui penyesuaian stok & waste', group: 'Persetujuan' },
@@ -78,6 +84,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
   const [outlets, setOutlets] = useState<OutletRow[]>([]);
   const [brands, setBrands] = useState<BrandRow[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [staff, setStaff] = useState<{ full_name: string; employee_number: string; user_id: string }[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [error, setError] = useState('');
   const setNotice = useNotice();
@@ -98,6 +105,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
           must(supabase.from('sys_user_invitations').select('*').eq('status', 'pending').order('created_at', { ascending: false })),
         ]);
         setUsers(u);
+        // karyawan yang tertaut ke akun (data orang dikelola di SDM / HR)
+        if (can(['hr.view', 'hr.manage'])) setStaff(await must(supabase.from('hr_employees').select('full_name, employee_number, user_id').not('user_id', 'is', null)));
         setInvitations(i as Invitation[]);
       }
     } catch (e) {
@@ -137,7 +146,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
       {error && <div className="alert alert-error">{error}</div>}
 
       {tab === 'users' && (
-        <UsersTab companyId={companyId} users={users} invitations={invitations} roles={roles} outlets={outlets} brands={brands}
+        <UsersTab companyId={companyId} users={users} staff={staff} invitations={invitations} roles={roles} outlets={outlets} brands={brands}
           currentUserId={profile!.user_id} act={act} />
       )}
       {tab === 'roles' && <RolesTab companyId={companyId} roles={roles} act={act} />}
@@ -155,7 +164,8 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
 type Act = (fn: () => Promise<string | void>) => Promise<void>;
 
 // ---------------------------------------------------------------- User & undangan
-function UsersTab({ companyId, users, invitations, roles, outlets, brands, currentUserId, act }: {
+function UsersTab({ companyId, users, staff = [], invitations, roles, outlets, brands, currentUserId, act }: {
+  staff?: { full_name: string; employee_number: string; user_id: string }[];
   companyId: string; users: UserRow[]; invitations: Invitation[]; roles: Role[]; outlets: OutletRow[]; brands: BrandRow[];
   currentUserId: string; act: Act;
 }) {
@@ -185,7 +195,10 @@ function UsersTab({ companyId, users, invitations, roles, outlets, brands, curre
                 <td>
                   <div className="row" style={{ flexWrap: 'nowrap' }}>
                     <Avatar name={u.full_name} src={u.avatar_url} size={36} />
-                    <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
+                    <span>
+                      <b>{u.full_name}{u.id === currentUserId && <span className="muted"> (Anda)</span>}</b>
+                      {(() => { const st = staff.find((x) => x.user_id === u.id); return st ? <div className="muted small">👤 {st.employee_number} · data karyawan</div> : null; })()}
+                    </span>
                   </div>
                 </td>
                 <td className="small">{u.username ? <><code>{u.username}</code> <span className="muted">(username)</span></> : u.email}<div className="muted">{u.phone ?? '—'}</div></td>
@@ -409,8 +422,12 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
 }
 
 // ---------------------------------------------------------------- Outlet
+// kosong / 0 / bukan angka = belum diatur
+const geoNum = (v: unknown) => (v === null || v === undefined || v === '' || !Number(v) ? null : Number(v));
+
 function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[]; brands: BrandRow[]; act: Act; onCreated: () => Promise<void> }) {
   const [editing, setEditing] = useState<Partial<OutletRow> | null>(null);
+  const { toast } = useFeedback();
 
   const save = () => act(async () => {
     const e = editing!;
@@ -419,17 +436,29 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
         name: e.name, brand_id: e.brand_id, address: e.address, phone: e.phone, tax_rate: e.tax_rate,
         service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit, is_active: e.is_active,
         is_qr_order_enabled: e.is_qr_order_enabled, qr_requires_confirmation: e.qr_requires_confirmation,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
       }).eq('id', e.id));
     } else {
       const o = await rpc<OutletRow>('sys_create_outlet', { p_code: e.code, p_name: e.name, p_address: e.address ?? null, p_brand_id: e.brand_id ?? null });
       await must(supabase.from('sys_outlets').update({
         phone: e.phone, tax_rate: e.tax_rate, service_charge_rate: e.service_charge_rate, rounding_unit: e.rounding_unit,
+        geo_lat: geoNum(e.geo_lat), geo_lng: geoNum(e.geo_lng), geo_radius_m: Number(e.geo_radius_m) || 100,
       }).eq('id', o.id));
     }
     await onCreated();
     setEditing(null);
     return 'Outlet disimpan.';
   });
+
+  const [locating, setLocating] = useState(false);
+  const useMyLocation = async () => {
+    setLocating(true);
+    try {
+      const g = await getGps();
+      setEditing((x) => ({ ...x, geo_lat: Number(g.lat.toFixed(6)), geo_lng: Number(g.lng.toFixed(6)) }));
+      if (g.accuracy > 50) toast(`Akurasi GPS ±${g.accuracy} m. Untuk hasil terbaik, ambil lokasi saat berada di dalam outlet.`, 'error');
+    } catch (err) { toast(errorMessage(err), 'error'); } finally { setLocating(false); }
+  };
 
   const field = (key: keyof OutletRow, label: string, type = 'text', disabled = false) => (
     <label className="field"><span>{label}</span>
@@ -480,6 +509,19 @@ function OutletsTab({ outlets, brands, act, onCreated }: { outlets: OutletRow[];
             {field('service_charge_rate', 'Service charge (%)', 'number')}
             {field('rounding_unit', 'Pembulatan (Rp)', 'number')}
           </div>
+          <fieldset className="geo-box">
+            <legend><MapPin size={14} /> Lokasi absen karyawan</legend>
+            <div className="form-grid">
+              {field('geo_lat', 'Latitude', 'number')}
+              {field('geo_lng', 'Longitude', 'number')}
+              {field('geo_radius_m', 'Radius absen (meter)', 'number')}
+              <div className="field"><span>&nbsp;</span>
+                <button type="button" onClick={useMyLocation} disabled={locating}><LocateFixed size={14} /> {locating ? 'Mencari…' : 'Pakai lokasi saya'}</button>
+              </div>
+            </div>
+            <small className="muted">Absen di luar radius tetap tercatat, tapi ditandai untuk direview.
+              {editing.geo_lat != null && editing.geo_lng != null && <> <a href={`https://www.google.com/maps?q=${editing.geo_lat},${editing.geo_lng}`} target="_blank" rel="noreferrer">Cek di peta</a></>}</small>
+          </fieldset>
           {editing.id ? (
             <div className="grid" style={{ marginTop: 12 }}>
               <label className="row"><input type="checkbox" checked={!!editing.is_qr_order_enabled}
