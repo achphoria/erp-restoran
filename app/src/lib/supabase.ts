@@ -7,6 +7,13 @@ if (!url || !anonKey) {
   throw new Error('VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY belum diisi di file .env.local');
 }
 
+// Hasil link dari email (konfirmasi daftar dll.), dibaca sebelum Supabase membersihkan #hash di alamat
+const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+export const authRedirect = {
+  type: hash.get('type'),                                    // 'signup' = baru konfirmasi email
+  error: hash.get('error_description')?.replace(/\+/g, ' ') ?? null,
+};
+
 export const supabase = createClient(url, anonKey);
 
 // Panggil fungsi database (RPC) dan lempar error dengan pesan yang jelas

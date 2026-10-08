@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { authRedirect, supabase } from '../lib/supabase';
 import Gunungan from '../components/Gunungan';
 import { APP_LONG_NAME, APP_NAME } from '../lib/brand';
 import { errorMessage } from '../lib/format';
@@ -15,7 +15,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  // link email yang gagal (kedaluwarsa / sudah dipakai)
+  const [error, setError] = useState(authRedirect.error ? 'Link dari email sudah tidak berlaku (kedaluwarsa atau sudah pernah dipakai). Silakan masuk dengan email & password Anda, atau daftar ulang.' : '');
   const [info, setInfo] = useState('');
   const logo = `${import.meta.env.BASE_URL}favicon.svg`;
 
