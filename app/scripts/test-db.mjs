@@ -2182,5 +2182,20 @@ await check('pendaftar: daftar akun, status setup, badge & tandai sudah dilihat'
   assert((await val(`select sys_platform_companies()`)).every((c) => typeof c.is_new === 'boolean'), 'tanda PT baru');
 });
 
+console.log('\nDaftar usaha baru (setelah semua migrasi):');
+await check('pendaftar baru bisa membuat usaha + data contoh (log aktivitas tidak menolak)', async () => {
+  const U12 = '12121212-1212-1212-1212-121212121212';
+  await db.exec(`reset role; insert into auth.users (id, email) values ('${U12}', 'ops.kopitiam@test.com')`);
+  await loginAs(U12);
+  const r = await val(`select sys_onboard_company('Bites and Sips Kopitiam', 'BTS Cengkareng', 'Ali', true)`);
+  assert(r.outlet_id, 'outlet tidak dibuat');
+  const me = await val(`select sys_get_my_profile()`);
+  assert(me && me.company_name === 'Bites and Sips Kopitiam' && me.outlets.length === 1, JSON.stringify(me));
+  const logs = await db.query(`select user_id, user_name from sys_activity_logs where company_id = $1 order by id`, [me.company_id]);
+  assert(logs.rows.length > 0, 'tidak ada log');
+  assert(logs.rows[0].user_id === null && logs.rows[0].user_name === 'ops.kopitiam@test.com', JSON.stringify(logs.rows[0]));
+  assert(logs.rows.some((l) => l.user_id === U12 && l.user_name === 'Ali'), 'log setelah terdaftar tidak memakai user');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
