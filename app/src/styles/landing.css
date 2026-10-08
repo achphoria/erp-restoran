@@ -145,6 +145,47 @@
   border-top: 1px solid var(--border); color: var(--text-muted); font-size: 13px;
 }
 
+/* pita UMKM di hero */
+.lp-pill {
+  display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); font-size: 12.5px; font-weight: 700; color: var(--text);
+}
+.lp-hero-copy .lp-eyebrow { display: block; }
+
+/* UMKM */
+.lp-umkm {
+  display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 36px; align-items: center; padding: 40px; border-radius: 28px;
+  background: linear-gradient(135deg, var(--warning-soft), #fff 55%, var(--primary-soft)); border: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.lp-umkm-copy h2 { font-size: clamp(24px, 3vw, 34px); letter-spacing: -0.02em; margin: 10px 0 12px; }
+.lp-umkm-copy p { color: var(--text-muted); line-height: 1.65; margin: 0; font-size: 15.5px; }
+.lp-umkm-badge {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 8px 14px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px;
+}
+.lp-umkm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.lp-umkm-item { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.lp-umkm-item .lp-feature-icon { flex-shrink: 0; }
+.lp-umkm-item p { color: var(--text-muted); margin: 4px 0 0; line-height: 1.5; font-size: 13.5px; }
+
+/* Sang Dalang */
+.lp-dalang { display: grid; grid-template-columns: 360px 1fr; gap: 48px; align-items: center; }
+.lp-dalang-photo {
+  margin: 0; position: relative; border-radius: 180px 180px 28px 28px; overflow: hidden; aspect-ratio: 928 / 1152;
+  border: 3px solid var(--sunshine); box-shadow: 0 0 0 8px rgba(247, 183, 51, 0.15), 0 30px 60px rgba(15, 61, 55, 0.3);
+  background: #0f3d37;
+}
+.lp-dalang-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lp-dalang-copy h2 { font-size: clamp(26px, 3.4vw, 38px); letter-spacing: -0.02em; margin: 10px 0 12px; }
+.lp-dalang-copy > p { color: var(--text-muted); line-height: 1.7; font-size: 16px; margin: 0; }
+.lp-dalang-card {
+  margin-top: 24px; padding: 22px 24px; border-radius: 20px; color: #e9f5f2;
+  background: radial-gradient(80% 140% at 100% 0%, rgba(247, 183, 51, 0.25), transparent 60%), linear-gradient(135deg, #1f7f72, #0f3d37);
+}
+.lp-dalang-name { font-size: 30px; font-weight: 800; letter-spacing: 0.04em; color: #fff; }
+.lp-dalang-role { color: var(--sunshine); font-weight: 700; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
+.lp-dalang-card p { margin: 12px 0 0; line-height: 1.65; }
+
 /* ---------------------------------------------------------------------
    HALAMAN LOGIN: panel kelir di kiri, form di kanan
    --------------------------------------------------------------------- */
@@ -180,6 +221,8 @@
    --------------------------------------------------------------------- */
 @media (max-width: 1000px) {
   .lp-puna, .lp-features { grid-template-columns: repeat(2, 1fr); }
+  .lp-umkm { grid-template-columns: 1fr; padding: 28px 22px; }
+  .lp-dalang { grid-template-columns: 280px 1fr; gap: 32px; }
 }
 @media (max-width: 860px) {
   .lp-hero { grid-template-columns: 1fr; gap: 36px; padding-top: 24px; }
@@ -190,6 +233,8 @@
   .lp-journey::before { display: none; }
   .lp-philo { grid-template-columns: 1fr; padding: 28px 22px; gap: 8px; }
   .lp-philo-art { width: 120px; }
+  .lp-dalang { grid-template-columns: 1fr; gap: 24px; }
+  .lp-dalang-photo { max-width: 300px; width: 100%; margin: 0 auto; }
   .login-split { grid-template-columns: 1fr; }
   .login-kelir { display: none; }
   .login-mobile-brand { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
@@ -198,7 +243,7 @@
   .login-mobile-brand small { color: var(--text-muted); font-size: 11.5px; }
 }
 @media (max-width: 520px) {
-  .lp-puna, .lp-features { grid-template-columns: 1fr; }
+  .lp-puna, .lp-features, .lp-umkm-grid { grid-template-columns: 1fr; }
   .lp-hero p { font-size: 15.5px; }
   .lp-cta .btn { flex: 1 1 100%; }
   .lp-float { padding: 9px 11px; font-size: 12px; }
