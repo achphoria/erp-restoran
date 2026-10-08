@@ -2598,5 +2598,94 @@ await check('Cuti: batal (menunggu / disetujui belum mulai) mengembalikan saldo;
   await expectError(`select hr_leave_balances(null, null)`, [], /izin/);
 });
 
+console.log('\nSDM / HR (fase D - tugas & SOP):');
+let taskA, cashierRoleId;
+await check('Tugas: owner memberi tugas ke kasir; terlihat penerima & atasannya, tidak oleh PT lain', async () => {
+  await loginAs(U1);
+  cashierRoleId = await val(`select role_id from sys_users where id = $1`, [KASIR]);
+  const t = await val(`select hr_task_save($1::jsonb)`, [JSON.stringify({ title: 'Bersihkan mesin espresso', assignee_id: KASIR, priority: 'high', due_date: await dOff(0),
+    outlet_id: outletId, labels: ['kebersihan'], requires_photo: true, checklist: [{ text: 'Backflush', done: false }, { text: 'Lap steam wand', done: false }] })]);
+  assert(/^TSK-\d{4}$/.test(t.task_number) && t.status === 'new', JSON.stringify(t));
+  taskA = t.id;
+  await loginAs(KASIR);
+  const mine = await val(`select hr_task_board('mine', null, false)`);
+  assert(mine.some((x) => x.id === taskA && x.roles.doer && !x.roles.manager), JSON.stringify(mine.map((x) => [x.title, x.roles])));
+  assert(Number((await val(`select hr_task_counts()`)).new) >= 1, 'badge tugas baru');
+  await loginAs(U6);   // atasan langsung Andi
+  assert((await val(`select hr_task_board('all', null, false)`)).some((x) => x.id === taskA), 'atasan melihat tugas bawahan');
+  await loginAs(U4b);
+  assert((await val(`select hr_task_board('all', null, true)`)).length === 0 && (await val(`select count(*)::int from hr_tasks`)) === 0, 'bocor ke PT lain');
+  assert((await val(`select hr_task_detail($1)`, [taskA])) === null, 'detail bocor');
+});
+await check('Tugas: alur kerja - checklist & foto bukti wajib sebelum review; dikembalikan wajib catatan; selesai oleh pembuat', async () => {
+  await loginAs(KASIR);
+  await db.query(`select hr_task_move($1, 'in_progress')`, [taskA]);
+  await expectError(`select hr_task_move($1, 'done')`, [taskA], /Review dulu/);
+  await expectError(`select hr_task_move($1, 'review')`, [taskA], /Checklist/);
+  // penerima hanya bisa mencentang checklist (judul tidak berubah)
+  const upd = await val(`select hr_task_save($1::jsonb)`, [JSON.stringify({ id: taskA, title: 'Diganti kasir', checklist: [{ text: 'Backflush', done: true }, { text: 'Lap steam wand', done: true }] })]);
+  assert(upd.title === 'Bersihkan mesin espresso' && upd.checklist.every((c) => c.done), JSON.stringify(upd));
+  await expectError(`select hr_task_move($1, 'review')`, [taskA], /foto bukti/);
+  const photo = `${company1}/tasks/${taskA}/bukti.jpg`;
+  await db.query(`insert into storage.objects (bucket_id, name) values ('task-files', $1)`, [photo]);
+  await expectError(`select hr_task_photo($1, $2)`, [taskA, `${company1}/tasks/${taskA}/belum-ada.jpg`], /belum terunggah/);
+  await db.query(`select hr_task_photo($1, $2)`, [taskA, photo]);
+  await db.query(`select hr_task_move($1, 'review')`, [taskA]);
+  await expectError(`select hr_task_move($1, 'archived')`, [taskA], /pembuat tugas|direview/);
+  await db.query(`select hr_task_comment($1, 'Sudah bersih, cek ya')`, [taskA]);
+  await loginAs(U1);
+  await expectError(`select hr_task_move($1, 'in_progress')`, [taskA], /catatan/);
+  await db.query(`select hr_task_move($1, 'in_progress', 'Drip tray belum dicuci')`, [taskA]);
+  await loginAs(KASIR);
+  await db.query(`select hr_task_move($1, 'review')`, [taskA]);
+  await loginAs(U1);
+  assert(Number((await val(`select hr_task_counts()`)).review) >= 1, 'badge review');
+  const done = await val(`select hr_task_move($1, 'done')`, [taskA]);
+  assert(done.status === 'done' && done.done_by === U1 && done.started_at, JSON.stringify(done));
+  const d = await val(`select hr_task_detail($1)`, [taskA]);
+  assert(d.comments.filter((c) => c.kind === 'event').length >= 6 && d.comments.some((c) => c.kind === 'comment' && c.body === 'Sudah bersih, cek ya'),
+    JSON.stringify(d.comments.map((c) => [c.kind, c.body])));
+  assert(d.comments.some((c) => c.body.includes('Drip tray belum dicuci')), 'catatan pengembalian tercatat');
+});
+await check('Tugas: tugas tim diambil anggota pertama; tugas pribadi bisa langsung selesai; foto ke tugas orang lain ditolak', async () => {
+  await loginAs(U1);
+  const team = await val(`select hr_task_save($1::jsonb)`, [JSON.stringify({ title: 'Cek stok gelas', assignee_role_id: cashierRoleId, outlet_id: outletId })]);
+  const secret = await val(`select hr_task_save($1::jsonb)`, [JSON.stringify({ title: 'Rahasia owner' })]);
+  await loginAs(U6);
+  assert(!(await val(`select hr_task_board('all', null, false)`)).some((x) => x.id === team.id), 'pelayan melihat tugas tim kasir');
+  await loginAs(KASIR);
+  assert((await val(`select hr_task_board('mine', null, false)`)).some((x) => x.id === team.id), 'kasir melihat tugas tim');
+  const taken = await val(`select hr_task_move($1, 'in_progress')`, [team.id]);
+  assert(taken.assignee_id === KASIR, 'diambil');
+  await expectError(`insert into storage.objects (bucket_id, name) values ('task-files', $1)`, [`${company1}/tasks/${secret.id}/x.jpg`], /row-level security/);
+  const own = await val(`select hr_task_save($1::jsonb)`, [JSON.stringify({ title: 'Isi ulang tisu' })]);
+  assert((await val(`select hr_task_move($1, 'done')`, [own.id])).status === 'done', 'tugas pribadi selesai');
+  await loginAs(U6);
+  assert((await val(`select hr_task_board('all', null, false)`)).some((x) => x.id === team.id), 'setelah diambil kasir, atasan melihat');
+});
+await check('SOP harian: dibuat otomatis per hari untuk role-nya; item foto wajib; rekap kepatuhan', async () => {
+  await loginAs(U1);
+  await db.query(`insert into hr_sop_templates (company_id, name, role_id, items) values ($1, 'Buka toko', $2, $3::jsonb)`,
+    [company1, cashierRoleId, JSON.stringify([{ text: 'Nyalakan mesin kasir' }, { text: 'Foto etalase', photo: true }])]);
+  await loginAs(KASIR);
+  const runs = await val(`select hr_my_sops()`);
+  assert(runs.length === 1 && runs[0].items.length === 2 && runs[0].outlet === (await val(`select name from sys_outlets where id = $1`, [outletId])), JSON.stringify(runs));
+  assert((await val(`select hr_my_sops()`)).length === 1 && (await val(`select count(*)::int from hr_sop_runs`)) === 1, 'tidak dobel');
+  const run = runs[0].id;
+  await db.query(`select hr_sop_check($1, 0, true)`, [run]);
+  await expectError(`select hr_sop_check($1, 1, true)`, [run], /wajib foto/);
+  const pic = `${company1}/sop/${run}/etalase.jpg`;
+  await db.query(`insert into storage.objects (bucket_id, name) values ('task-files', $1)`, [pic]);
+  const r = await val(`select hr_sop_check($1, 1, true, $2)`, [run, pic]);
+  assert(r.completed_at && r.items[1].by === KASIR && r.items[1].by_name, JSON.stringify(r));
+  await expectError(`insert into hr_sop_templates (company_id, name) values ($1, 'x')`, [company1], /row-level security/);
+  await loginAs(U6);
+  assert((await val(`select hr_my_sops()`)).length === 0, 'pelayan dapat SOP kasir');
+  await expectError(`select hr_sop_check($1, 0, false)`, [run], /bukan untuk role/);
+  await loginAs(U1);
+  const rep = await val(`select hr_sop_report(current_date - 1, current_date + 1, null)`);
+  assert(rep.runs.length === 1 && Number(rep.runs[0].done) === 2 && rep.templates[0].role === (await val(`select name from sys_roles where id = $1`, [cashierRoleId])), JSON.stringify(rep).slice(0, 300));
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
