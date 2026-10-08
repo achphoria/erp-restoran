@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
-  ScrollText, Settings, ShoppingCart, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
+  ScrollText, Settings, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { rpc, supabase } from '../lib/supabase';
@@ -81,7 +81,24 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/finance', label: 'Keuangan', icon: Wallet, permission: ['finance.view', 'finance.manage'] },
       { to: '/reports', label: 'Laporan', icon: BarChart3, permission: 'report.view' },
-      { to: '/settings', label: 'Pengaturan', icon: Settings, permission: ['user.manage', 'settings.manage', 'audit.view'] },
+    ],
+  },
+  {
+    group: 'User Management', icon: UserCog,
+    items: [
+      { to: '/users?tab=users', label: 'User', icon: UserCog, permission: 'user.manage' },
+      { to: '/users?tab=roles', label: 'Role & Hak Akses', icon: KeyRound, permission: 'user.manage' },
+      { to: '/users?tab=approvals', label: 'Approval Transaksi', icon: ShieldCheck, permission: 'settings.manage' },
+      { to: '/users?tab=logs', label: 'Log Aktivitas', icon: History, permission: ['audit.view', 'user.manage'] },
+    ],
+  },
+  {
+    group: 'Pengaturan', icon: Settings,
+    items: [
+      { to: '/settings?tab=company', label: 'Perusahaan & Logo', icon: Building2, permission: 'settings.manage' },
+      { to: '/settings?tab=outlets', label: 'Outlet', icon: Store, permission: 'settings.manage' },
+      { to: '/settings?tab=payment', label: 'Pembayaran Online', icon: CreditCard, permission: 'settings.manage' },
+      { to: '/settings?tab=data', label: 'Data & Backup', icon: DatabaseBackup, permission: '*' },
     ],
   },
 ];

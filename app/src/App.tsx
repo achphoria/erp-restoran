@@ -66,7 +66,8 @@ function AppRoutes() {
         <Route path="reports" element={<Guard permission="report.view"><ReportsPage /></Guard>} />
         <Route path="customers" element={<Guard permission="crm.manage"><CustomersPage /></Guard>} />
         <Route path="finance" element={<Guard permission={['finance.view', 'finance.manage']}><FinancePage /></Guard>} />
-        <Route path="settings" element={<Guard permission={['user.manage', 'settings.manage', 'audit.view']}><SettingsPage /></Guard>} />
+        <Route path="settings" element={<Guard permission="settings.manage"><SettingsPage section="settings" /></Guard>} />
+        <Route path="users" element={<Guard permission={['user.manage', 'settings.manage', 'audit.view']}><SettingsPage section="users" /></Guard>} />
         <Route path="approvals" element={<ApprovalsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
