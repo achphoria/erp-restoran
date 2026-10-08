@@ -11,6 +11,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>Santap ERP · ERP & POS Restoran</title>
+    <script>
+      // pakai nama aplikasi perusahaan yang diingat browser sejak awal, supaya judul tab tidak berkedip "Santap ERP"
+      try {
+        var n = localStorage.getItem('santap.app_name');
+        if (n) document.title = n + ' · ERP & POS Restoran';
+      } catch (e) { /* abaikan */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>
