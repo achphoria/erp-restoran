@@ -6,6 +6,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// tanggal tes konsisten seperti CI (UTC), walau dijalankan jam 00-07 WIB
+process.env.TZ = 'UTC';
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '../../supabase/migrations');
 const db = new PGlite();
 
@@ -2371,6 +2373,115 @@ await check('HR: pengumuman sesuai sasaran (semua / outlet / role) & tanda sudah
   assert((await val(`select hr_my_announcements()`)).find((a) => a.id === all).read === true, 'tanda baca');
   await loginAs(U1);
   assert(Number((await val(`select hr_announcement_stats()`))[all]) === 1, 'statistik baca');
+});
+
+console.log('\nSDM / HR (fase B - absensi):');
+const PLUIT = { lat: -6.117, lng: 106.79 };
+let shiftPagi, todayLocal, attAndi;
+await check('Absensi: jarak GPS dihitung server (haversine)', async () => {
+  const d = await val(`select hr_distance_m(-6.2, 106.8, -6.2, 106.81)`);
+  assert(d > 1090 && d < 1120, `jarak ${d}`);
+  assert((await val(`select hr_distance_m(null, 106.8, -6.2, 106.81)`)) === null, 'null');
+});
+await check('Absensi: owner atur titik outlet, template shift & jadwal; kasir tidak bisa', async () => {
+  await loginAs(U1);
+  await db.query(`update sys_outlets set geo_lat = $2, geo_lng = $3, geo_radius_m = 100 where id = $1`, [outletId, PLUIT.lat, PLUIT.lng]);
+  shiftPagi = await val(`insert into hr_shifts (company_id, code, name, start_time, end_time) values ($1, 'PAGI', 'Pagi', '07:00', '15:00') returning id`, [company1]);
+  await db.query(`insert into hr_shifts (company_id, code, name, start_time, end_time) values ($1, 'MALAM', 'Malam', '22:00', '06:00')`, [company1]);
+  todayLocal = await val(`select to_char((now() at time zone 'Asia/Jakarta')::date, 'YYYY-MM-DD')`);
+  const siti = await val(`select id from hr_employees where full_name = 'Siti Aminah'`);
+  await db.query(`update hr_employees set outlet_id = $2 where id = $1`, [siti, outletId]);
+  const n = await val(`select hr_roster_save($1::jsonb)`, [JSON.stringify([
+    { employee_id: empAndi, work_date: todayLocal, shift_id: shiftPagi },
+    { employee_id: siti, work_date: todayLocal, is_off: true },
+  ])]);
+  assert(n === 2, `simpan ${n}`);
+  // jadwal Siti 3 hari lalu tanpa absen = alpa
+  await db.query(`insert into hr_rosters (company_id, employee_id, work_date, outlet_id, shift_id) values ($1, $2, $3::date - 3, $4, $5)`, [company1, siti, todayLocal, outletId, shiftPagi]);
+  const board = await val(`select hr_roster_board($1::date - 1, $1::date + 6, $2)`, [todayLocal, outletId]);
+  assert(board.employees.some((e) => e.full_name === 'Andi Saputra') && board.rows.length >= 2 && board.shifts.length === 2, JSON.stringify(board).slice(0, 300));
+  // salin minggu ini ke minggu depan
+  const copied = await val(`select hr_roster_copy_week($1::date, $1::date + 7, null, false)`, [todayLocal]);
+  assert(copied >= 2, `salin ${copied}`);
+  // malam: jadwal lewat tengah malam -> selesai besok
+  const s = await val(`select hr_schedule_for($1, $2::date)`, [empAndi, todayLocal]);
+  assert(s.shift === 'Pagi' && s.geo_radius_m === 100 && new Date(s.scheduled_end) - new Date(s.scheduled_start) === 8 * 3600e3, JSON.stringify(s));
+  await loginAs(KASIR);
+  await expectError(`select hr_roster_board(current_date, current_date + 6)`, [], /izin/);
+  await expectError(`select hr_roster_save('[]'::jsonb)`, [], /izin/);
+  await expectError(`insert into hr_shifts (company_id, code, name, start_time, end_time) values ($1, 'X', 'X', '07:00', '08:00')`, [company1], /row-level security/);
+  const mine = await val(`select hr_my_roster($1::date, $1::date + 1)`, [todayLocal]);
+  assert(mine.length === 2 && mine[0].shift === 'Pagi', JSON.stringify(mine));
+});
+await check('Absensi: selfie hanya ke folder absensi sendiri; wajib foto + GPS', async () => {
+  await loginAs(KASIR);
+  const ok = `${company1}/${empAndi}/attendance/${todayLocal}-in.webp`;
+  await db.query(`insert into storage.objects (bucket_id, name) values ('hr-files', $1)`, [ok]);
+  await expectError(`insert into storage.objects (bucket_id, name) values ('hr-files', $1)`, [`${company1}/${empAndi}/kontrak.pdf`], /row-level security/);
+  const siti = await val(`select id from hr_employees where full_name = 'Siti Aminah'`).catch(() => null);
+  assert(siti === undefined || siti === null, 'kasir melihat data Siti');
+  await expectError(`insert into storage.objects (bucket_id, name) values ('hr-files', $1)`, [`${company1}/00000000-0000-0000-0000-000000000000/attendance/x.webp`], /row-level security/);
+  await expectError(`select hr_clock('in', $1, $2, 10, null)`, [PLUIT.lat, PLUIT.lng], /Foto selfie wajib/);
+  await expectError(`select hr_clock('in', null, null, null, $1)`, [ok], /GPS wajib/);
+  await expectError(`select hr_clock('in', $1, $2, 10, $3)`, [PLUIT.lat, PLUIT.lng, `${company1}/${empAndi}/attendance/palsu.webp`], /belum terunggah/);
+  await expectError(`select hr_clock('in', $1, $2, 10, $3)`, [PLUIT.lat, PLUIT.lng, `${company1}/lain/attendance/x.webp`], /tidak valid/);
+  await expectError(`select hr_clock('out', $1, $2, 10, $3)`, [PLUIT.lat, PLUIT.lng, ok], /Belum ada absen masuk/);
+});
+await check('Absensi: masuk di outlet = normal; pulang 2 km dari outlet = ditandai untuk review', async () => {
+  await loginAs(KASIR);
+  const pin = `${company1}/${empAndi}/attendance/${todayLocal}-in.webp`;
+  const a = await val(`select hr_clock('in', $1, $2, 12, $3)`, [PLUIT.lat + 0.0003, PLUIT.lng, pin]);
+  assert(a.work_date === todayLocal && a.shift_id === shiftPagi && a.check_in_distance_m < 50 && a.flags.length === 0 && a.review_status === 'none', JSON.stringify(a));
+  attAndi = a.id;
+  await expectError(`select hr_clock('in', $1, $2, 12, $3)`, [PLUIT.lat, PLUIT.lng, pin], /sudah absen masuk/);
+  const today = await val(`select hr_attendance_today()`);
+  assert(today.attendance.id === attAndi && today.schedule.shift === 'Pagi' && today.settings.require_photo === true, JSON.stringify(today).slice(0, 300));
+  const pout = `${company1}/${empAndi}/attendance/${todayLocal}-out.webp`;
+  await db.query(`insert into storage.objects (bucket_id, name) values ('hr-files', $1)`, [pout]);
+  const b = await val(`select hr_clock('out', $1, $2, 400, $3)`, [PLUIT.lat + 0.018, PLUIT.lng, pout]);
+  assert(b.check_out_distance_m > 1900 && b.flags.includes('outside_radius') && b.flags.includes('low_accuracy') && b.review_status === 'pending', JSON.stringify(b));
+  // karyawan tidak bisa mengubah absen langsung
+  await db.query(`update hr_attendances set check_in_at = now() - interval '9 hours', flags = '{}' where id = $1`, [attAndi]);
+  assert((await val(`select array_length(flags, 1) from hr_attendances where id = $1`, [attAndi])) === 2, 'kasir ubah absen');
+  await expectError(`insert into hr_attendances (company_id, employee_id, work_date) values ($1, $2, current_date - 5)`, [company1, empAndi], /row-level security/);
+  await expectError(`select hr_review_attendance($1, true)`, [attAndi], /izin/);
+});
+await check('Absensi: hitung telat dari jadwal, rekap (hadir/telat/libur/alpa), review & isolasi PT', async () => {
+  await loginAs(U1);
+  // pakai jadwal mundur 30 menit dari jam masuk -> telat 30 menit (toleransi 10)
+  await db.query(`update hr_attendances set scheduled_start = check_in_at - interval '30 minutes' where id = $1`, [attAndi]);
+  assert((await val(`select late_minutes from hr_attendances where id = $1`, [attAndi])) === 30, 'telat 30');
+  await db.query(`insert into hr_settings (company_id, late_tolerance_minutes) values ($1, 45)`, [company1]);
+  await db.query(`update hr_attendances set scheduled_start = scheduled_start where id = $1`, [attAndi]);
+  assert((await val(`select late_minutes from hr_attendances where id = $1`, [attAndi])) === 0, 'masih dalam toleransi 45');
+  await db.query(`update hr_settings set late_tolerance_minutes = 10 where company_id = $1`, [company1]);
+  await db.query(`update hr_attendances set scheduled_start = scheduled_start where id = $1`, [attAndi]);
+  const rec = await val(`select hr_attendance_recap($1::date - 7, $1::date, null)`, [todayLocal]);
+  const andi = rec.find((r) => r.full_name === 'Andi Saputra' && r.work_date === todayLocal);
+  assert(andi && andi.status === 'late' && andi.late_minutes === 30 && andi.check_in_photo, JSON.stringify(andi));
+  assert(rec.some((r) => r.full_name === 'Siti Aminah' && r.status === 'off') && rec.some((r) => r.full_name === 'Siti Aminah' && r.status === 'absent'), JSON.stringify(rec.map((r) => [r.full_name, r.work_date, r.status])));
+  assert((await val(`select hr_attendance_pending_count()`)) >= 1, 'badge');
+  await db.query(`select hr_review_attendance($1, true, 'Antar barang ke gudang')`, [attAndi]);
+  assert((await val(`select review_status from hr_attendances where id = $1`, [attAndi])) === 'approved', 'review');
+  await loginAs('44444444-4444-4444-4444-444444444444');
+  assert((await val(`select hr_attendance_recap(current_date - 7, current_date, null)`)).length === 0, 'bocor ke PT lain');
+  assert((await val(`select count(*)::int from hr_attendances`)) === 0, 'tabel bocor');
+});
+await check('Absensi: koreksi absen diajukan karyawan, disetujui HR, tidak bisa setujui sendiri', async () => {
+  await loginAs(KASIR);
+  const yesterday = await val(`select to_char($1::date - 1, 'YYYY-MM-DD')`, [todayLocal]);
+  const id = await val(`select hr_request_correction($1::date, ($1 || ' 07:02+07')::timestamptz, ($1 || ' 15:05+07')::timestamptz, 'HP mati')`, [yesterday]);
+  await expectError(`select hr_request_correction($1::date, ($1 || ' 07:00+07')::timestamptz, null, 'lagi')`, [yesterday], /Masih ada pengajuan/);
+  await expectError(`select hr_request_correction(current_date - 2, null, null, 'x')`, [], /Isi jam/);
+  await expectError(`select hr_review_correction($1, true)`, [id], /sendiri/);
+  assert((await val(`select hr_my_attendance(current_date - 7, current_date + 1)`)).corrections[0].status === 'pending', 'riwayat');
+  await loginAs(U1);
+  const inbox = await val(`select hr_correction_inbox('pending')`);
+  assert(inbox.length === 1 && inbox[0].full_name === 'Andi Saputra', JSON.stringify(inbox));
+  await db.query(`select hr_review_correction($1, true, 'ok')`, [id]);
+  const a = await one(`select check_in_at, check_out_at, flags, review_status from hr_attendances where employee_id = $1 and work_date = $2::date`, [empAndi, yesterday]);
+  assert(a && a.flags.includes('corrected') && a.review_status === 'approved' && a.check_out_at > a.check_in_at, JSON.stringify(a));
+  await expectError(`select hr_review_correction($1, false)`, [id], /sudah diproses/);
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

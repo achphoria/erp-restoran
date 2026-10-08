@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Briefcase, Clock, Megaphone, MapPin, Pencil, Phone, Pin, UserRound } from 'lucide-react';
+import { Briefcase, Megaphone, MapPin, Pencil, Phone, Pin, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeedback } from '../components/Feedback';
 import Modal from '../components/Modal';
 import HrPhoto from '../components/hr/HrPhoto';
+import MyAttendance from '../components/hr/MyAttendance';
 import { rpc } from '../lib/supabase';
 import { errorMessage, formatDateTime } from '../lib/format';
 import { EMPLOYMENT } from '../lib/hr';
@@ -57,14 +58,7 @@ export default function MyHomePage() {
       )}
 
       <div className="me-grid">
-        <div className="card me-attend">
-          <div className="me-card-title"><Clock size={16} /> Absensi hari ini</div>
-          <p className="muted small" style={{ margin: '4px 0 10px' }}>Absen dengan foto selfie & lokasi GPS. Fitur ini segera aktif.</p>
-          <div className="me-attend-btns">
-            <button className="btn-primary btn-lg" disabled>Absen Masuk</button>
-            <button className="btn-lg" disabled>Absen Pulang</button>
-          </div>
-        </div>
+        {profile && <MyAttendance companyId={profile.company_id} />}
 
         <div className="card">
           <div className="me-card-title"><Megaphone size={16} /> Pengumuman {unread > 0 && <span className="badge badge-danger">{unread} baru</span>}</div>
