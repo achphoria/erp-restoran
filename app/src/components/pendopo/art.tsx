@@ -395,9 +395,11 @@ export interface MascotProps {
   id: AgentId; pose: Pose; face: 1 | -1; t: number;        // t = detik (untuk napas, kedip, ketik)
   walk: number;                                            // fase langkah 0..1 (0 = diam)
   typing?: boolean; blink?: boolean; wave?: boolean; holding?: 'clipboard' | 'cup' | 'kentongan' | null;
+  arms?: 'up' | 'chin' | null;                             // sorak/menggeliat, atau tangan di dagu (berpikir)
+  talking?: boolean;                                      // mulut bergerak saat bicara
 }
 
-export function Mascot({ id, pose, face, t, walk, typing, blink, wave, holding }: MascotProps) {
+export function Mascot({ id, pose, face, t, walk, typing, blink, wave, holding, arms, talking }: MascotProps) {
   const L = LOOKS[id];
   const { w, h } = L;
   const breathe = 1 + 0.018 * Math.sin(t * 2.2 + w);
@@ -409,7 +411,9 @@ export function Mascot({ id, pose, face, t, walk, typing, blink, wave, holding }
   const legLift = walk ? Math.sin(walk * Math.PI * 2) * 5 : 0;
   const armA = typing ? Math.sin(t * 18) * 4 : 0;
   const armB = typing ? Math.sin(t * 18 + 2) * 4 : 0;
-  const waveDeg = wave ? -120 + Math.sin(t * 10) * 25 : 0;
+  const waveDeg = wave ? -120 + Math.sin(t * 10) * 25 : arms === 'up' ? -150 + Math.sin(t * 12) * 10 : arms === 'chin' ? -118 : 0;
+  const leftDeg = arms === 'up' ? 150 - Math.sin(t * 12) * 10 : 0;
+  const mouthOpen = talking && Math.sin(t * 22) > -0.2;
   const clip = `pd-clip-${id}`;
   const kainY = -h * 0.42;
 
@@ -444,7 +448,7 @@ export function Mascot({ id, pose, face, t, walk, typing, blink, wave, holding }
       </g>
       {/* lengan */}
       <g fill={L.skin}>
-        <ellipse cx={-w / 2 + 2} cy={-h * 0.44 + armA} rx={9} ry={16} />
+        <ellipse cx={-w / 2 + 2} cy={-h * 0.44 + armA} rx={9} ry={16} transform={leftDeg ? `rotate(${leftDeg} ${-w / 2 + 2} ${-h * 0.54})` : undefined} />
         <g transform={`rotate(${waveDeg} ${w / 2 - 2} ${-h * 0.54})`}>
           <ellipse cx={w / 2 - 2} cy={-h * 0.44 + armB} rx={9} ry={16} />
           {L.tattoo && <TattooGunungan x={w / 2 - 2} y={-h * 0.48 + armB} s={0.32} c={L.tattoo} />}
@@ -468,7 +472,8 @@ export function Mascot({ id, pose, face, t, walk, typing, blink, wave, holding }
           ? <path d={`M${face * 2} ${eyeY + 4}Q${face * 30} ${eyeY + 6} ${face * 40} ${eyeY + 15}Q${face * 18} ${eyeY + 18} ${face * 2} ${eyeY + 14}Z`} fill={L.skinD} stroke="#8a5a3a" strokeWidth="1.5" />
           : <ellipse cx={face * 2} cy={eyeY + 10} rx={4} ry={3} fill={L.skinD} />}
         {L.mouth === 'grin' && <path d={`M-14 ${eyeY + 20}Q0 ${eyeY + 36} 14 ${eyeY + 20}Z`} fill="#3a1a14" />}
-        {L.mouth === 'smile' && <path d={`M-6 ${eyeY + 19}Q0 ${eyeY + 24} 6 ${eyeY + 19}`} stroke="#3a1a14" strokeWidth="2" fill="none" strokeLinecap="round" />}
+        {mouthOpen && <ellipse cx={0} cy={eyeY + (L.mouth === 'kumis' ? 24 : 22)} rx={6} ry={4.5} fill="#3a1a14" />}
+        {L.mouth === 'smile' && !mouthOpen && <path d={`M-6 ${eyeY + 19}Q0 ${eyeY + 24} 6 ${eyeY + 19}`} stroke="#3a1a14" strokeWidth="2" fill="none" strokeLinecap="round" />}
         {L.mouth === 'kumis' && <>
           <path d={`M-14 ${eyeY + 18}Q-6 ${eyeY + 12} 0 ${eyeY + 17}Q6 ${eyeY + 12} 14 ${eyeY + 18}Q6 ${eyeY + 22} 0 ${eyeY + 19}Q-6 ${eyeY + 22} -14 ${eyeY + 18}Z`} fill="#111" />
         </>}

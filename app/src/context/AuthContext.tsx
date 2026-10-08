@@ -18,7 +18,8 @@ interface AuthState {
   signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthState | null>(null);
+// diekspor untuk pratinjau/tes komponen dengan profil contoh
+export const AuthContext = createContext<AuthState | null>(null);
 const OUTLET_KEY = 'erp.outlet_id';
 
 function readStoredOutlet() {
