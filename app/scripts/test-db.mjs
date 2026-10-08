@@ -2889,5 +2889,52 @@ await check('Kiosk: dibayar di kasir -> otomatis masuk dapur; token diganti -> l
   assert((await val(`select public_kiosk_menu($1)`, [newToken])).items.length > 0, 'token baru');
 });
 
+console.log('\nDashboard grup & konsolidasi:');
+let grpId;
+await check('Grup: hanya pemilik grup yang melihat; ringkasan semua PT sesuai data penjualan', async () => {
+  await db.exec('reset role');
+  grpId = await val(`insert into sys_company_groups (code, name) values ('GRP-T', 'Grup Uji') returning id`);
+  await db.query(`update sys_companies set group_id = $1 where id in ($2, $3)`, [grpId, company1, company2]);
+  await db.query(`insert into sys_group_members (group_id, user_id) values ($1, $2)`, [grpId, U1]);
+  const expected = await val(`select coalesce(sum(subtotal - discount_amount - promotion_amount - points_amount), 0)::numeric from pos_orders
+    where company_id = $1 and status = 'paid' and business_date between current_date - 30 and current_date`, [company1]);
+  await loginAs(U1);
+  const groups = await val(`select grp_my_groups()`);
+  assert(groups.some((g) => g.id === grpId && g.companies.length === 2), JSON.stringify(groups));
+  const d = await val(`select grp_dashboard($1, current_date - 30, current_date)`, [grpId]);
+  const c1 = d.companies.find((c) => c.id === company1);
+  assert(d.companies.length === 2 && Math.abs(Number(c1.net_sales) - Number(expected)) < 0.01 && c1.outlets >= 1, JSON.stringify(c1));
+  assert(Array.isArray(d.daily) && Array.isArray(d.top_menus) && Array.isArray(d.top_outlets), 'struktur');
+  await loginAs(U4b);  // user PT lain, bukan pemilik grup (U2 = Platform Admin, boleh melihat)
+  await expectError(`select grp_dashboard($1, current_date - 30, current_date)`, [grpId], /bukan pemilik grup/);
+  assert((await val(`select grp_my_groups()`)).length === 0, 'grup bocor');
+  await loginAs(KASIR);
+  await expectError(`select grp_financials($1, current_date - 30, current_date)`, [grpId], /bukan pemilik grup/);
+  await expectError(`select * from grp_company_balances($1, current_date - 30, current_date, $2)`, [company1, grpId], /permission denied/);
+});
+await check('Konsolidasi: laba rugi & neraca per PT digabung per kode akun; transaksi antar-PT dieliminasi', async () => {
+  await loginAs(U1);
+  const f = await val(`select grp_financials($1, '2000-01-01', current_date + 1)`, [grpId]);
+  const sales = f.accounts.find((a) => a.code === '4-1100');
+  assert(f.companies.length === 2 && sales && Number(sales.by_company[company1]) > 0 && Number(sales.elimination) === 0
+    && Number(sales.consolidated) === Number(sales.total), JSON.stringify(sales));
+  // neraca seimbang per PT: aset = kewajiban + ekuitas + laba ditahan
+  const sum = (t, cid) => f.accounts.filter((a) => a.account_type === t && !a.is_header).reduce((s, a) => s + Number(a.by_company[cid] ?? 0), 0);
+  const gap = sum('asset', company1) - sum('liability', company1) - sum('equity', company1) - Number(f.retained_earnings[company1] ?? 0);
+  assert(Math.abs(gap) < 1, `neraca PT1 tidak seimbang: ${gap}`);
+  // tandai satu baris pendapatan sebagai transaksi ke PT 2 -> tereliminasi
+  await db.exec('reset role');
+  const line = await one(`select l.id, l.credit - l.debit as amt from fin_journal_lines l join fin_accounts a on a.id = l.account_id
+    where l.company_id = $1 and a.code = '4-1100' and l.credit > 0 order by l.created_at limit 1`, [company1]);
+  await db.query(`update fin_journal_lines set counterparty_company_id = $2 where id = $1`, [line.id, company2]);
+  await loginAs(U1);
+  const f2 = await val(`select grp_financials($1, '2000-01-01', current_date + 1)`, [grpId]);
+  const s2 = f2.accounts.find((a) => a.code === '4-1100');
+  assert(Math.abs(Number(s2.elimination) - Number(line.amt)) < 0.01 && Math.abs(Number(s2.consolidated) - (Number(s2.total) - Number(line.amt))) < 0.01, JSON.stringify(s2));
+  await db.exec('reset role');
+  await db.query(`update fin_journal_lines set counterparty_company_id = null where id = $1`, [line.id]);
+  await db.query(`update sys_companies set group_id = null where id in ($1, $2)`, [company1, company2]);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

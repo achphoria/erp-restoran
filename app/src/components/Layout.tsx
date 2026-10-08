@@ -17,7 +17,8 @@ import Avatar from './Avatar';
 import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
-// permission 'platform' = khusus Platform Admin (developer); 'self' = semua user yang login
+// permission 'platform' = khusus Platform Admin (developer); 'self' = semua user yang login;
+// 'group' = pemilik grup usaha (bisa pindah ke PT lain) atau Platform Admin
 interface NavItem { to: string; label: string; icon: LucideIcon; permission: string | string[]; badge?: 'approvals' | 'signups' | 'attendance' | 'leave' | 'tasks' | 'me' | 'feedback' }
 interface NavGroup { group: string; icon: LucideIcon; items: NavItem[]; flat?: boolean }   // flat = tampil sebagai menu utama tanpa grup
 
@@ -29,6 +30,7 @@ const NAV: NavGroup[] = [
       { to: '/saya', label: 'Beranda Saya', icon: UserRound, permission: 'self', badge: 'me' },
       { to: '/tugas', label: 'Tugas', icon: ListTodo, permission: 'self', badge: 'tasks' },
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, permission: 'report.view' },
+      { to: '/grup', label: 'Dashboard Grup', icon: Building2, permission: 'group' },
       { to: '/approvals', label: 'Persetujuan', icon: BadgeCheck, permission: ['pos.order', 'approval.leave', ...Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`)], badge: 'approvals' },
     ],
   },
@@ -299,7 +301,8 @@ export default function Layout() {
     });
   };
 
-  const allowed = (i: NavItem) => (i.permission === 'self' ? !!profile : i.permission === 'platform' ? !!profile?.is_platform_admin : can(i.permission));
+  const allowed = (i: NavItem) => (i.permission === 'self' ? !!profile : i.permission === 'platform' ? !!profile?.is_platform_admin
+    : i.permission === 'group' ? !!profile && ((profile.companies?.length ?? 0) > 1 || !!profile.is_platform_admin) : can(i.permission));
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length);
 
   // PT yang bisa dipindah: PT sendiri + PT grup (+ PT yang sedang dimasuki mode support)
