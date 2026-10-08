@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight, BadgeCheck, ChefHat, HandHeart, Languages, LogIn, Network, Package, QrCode, Receipt, ScanBarcode, ShieldCheck, Smartphone, Sprout, Store, Truck, Users, Wallet,
@@ -6,6 +7,7 @@ import {
 import Gunungan from '../components/Gunungan';
 import { APP_LONG_NAME, APP_NAME } from '../lib/brand';
 import { formatRupiah } from '../lib/format';
+import { rpc } from '../lib/supabase';
 import '../styles/landing.css';
 
 // Punakawan = modul SEMAR. Watak tiap tokoh dipakai sebagai cerita modulnya.
@@ -46,7 +48,16 @@ const JOURNEY: [LucideIcon, string, string][] = [
   [Network, 'Grup usaha', 'Beberapa PT dalam satu grup, pindah PT dengan sekali klik.'],
 ];
 
+// Brand pengguna SEMAR yang mengizinkan tampil (dari database, tanpa login)
+function useBrands() {
+  const [brands, setBrands] = useState<{ name: string; logo_url: string }[]>([]);
+  useEffect(() => { rpc<{ name: string; logo_url: string }[]>('sys_public_brands').then(setBrands).catch(() => setBrands([])); }, []);
+  return brands;
+}
+
 export default function LandingPage() {
+  const brands = useBrands();
+  const marquee = brands.length >= 5;
   return (
     <div className="landing">
       <header className="lp-nav">
@@ -105,6 +116,24 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* BRAND YANG SUDAH BERSAMA SEMAR */}
+      {brands.length > 0 && (
+        <section className="lp-brands" aria-label="Brand yang sudah bersama SEMAR">
+          <span className="lp-eyebrow">Kolaborasi brand</span>
+          <h2>Brand yang sudah bersama {APP_NAME}</h2>
+          <div className={`lp-brands-track ${marquee ? 'marquee' : ''}`}>
+            <div className="lp-brands-row">
+              {(marquee ? [...brands, ...brands] : brands).map((b, i) => (
+                <figure key={`${b.name}-${i}`} className="lp-brand" aria-hidden={i >= brands.length ? true : undefined}>
+                  <img src={b.logo_url} alt={b.name} loading="lazy" />
+                  <figcaption>{b.name}</figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* PUNAKAWAN = MODUL */}
       <section id="punakawan" className="lp-section">

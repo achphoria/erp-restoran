@@ -284,3 +284,17 @@
 .onb-demo small { color: var(--text-muted); line-height: 1.45; }
 .onb-invite { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
 .onb-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+
+/* brand yang sudah bersama SEMAR */
+.lp-brands { max-width: var(--lp-max); margin: 0 auto; padding: 8px 16px 40px; text-align: center; }
+.lp-brands h2 { font-size: clamp(20px, 2.4vw, 26px); letter-spacing: -0.01em; margin: 6px 0 18px; }
+.lp-brands-track { overflow: hidden; }
+.lp-brands-track.marquee { -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+.lp-brands-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; }
+.marquee .lp-brands-row { width: max-content; flex-wrap: nowrap; justify-content: flex-start; animation: lp-marquee 40s linear infinite; }
+.marquee:hover .lp-brands-row { animation-play-state: paused; }
+.lp-brand { margin: 0; width: 120px; display: grid; justify-items: center; gap: 8px; }
+.lp-brand img { width: 84px; height: 84px; object-fit: cover; border-radius: 22px; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lp-brand figcaption { font-size: 12.5px; font-weight: 700; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes lp-marquee { from { transform: translateX(0); } to { transform: translateX(calc(-50% - 9px)); } }
+@media (prefers-reduced-motion: reduce) { .marquee .lp-brands-row { animation: none; flex-wrap: wrap; width: auto; justify-content: center; } }

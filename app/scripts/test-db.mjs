@@ -2258,5 +2258,26 @@ await check('obrolan Semar khusus owner & pribadi; struktur tabel menyembunyikan
   assert((await val(`select count(*)::int from ai_chat_messages`)) === 0, 'owner lain melihat obrolan');
 });
 
+console.log('\nLogo brand & landing page:');
+await check('landing page hanya menampilkan brand berlogo yang mengizinkan (bisa tanpa login)', async () => {
+  await loginAs(U1);
+  const brand = await val(`select id from sys_brands where company_id = $1 order by created_at limit 1`, [company1]);
+  await db.query(`update sys_brands set logo_url = 'https://x.test/logo-a.webp' where id = $1`, [brand]);
+  await db.query(`insert into sys_brands (company_id, code, name, logo_url, show_on_landing) values ($1, 'PRIV', 'Brand Rahasia', 'https://x.test/b.webp', false)`, [company1]);
+  await db.query(`insert into sys_brands (company_id, code, name) values ($1, 'NOLOGO', 'Tanpa Logo')`, [company1]);
+  // tanpa login
+  await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false); set role anon;`);
+  const list = await val(`select sys_public_brands()`);
+  const names = list.map((b) => b.name);
+  assert(list.some((b) => b.logo_url === 'https://x.test/logo-a.webp'), JSON.stringify(list));
+  assert(!names.includes('Brand Rahasia') && !names.includes('Tanpa Logo'), 'brand yang tidak mengizinkan / tanpa logo tampil');
+  assert(list.every((b) => Object.keys(b).sort().join() === 'logo_url,name'), 'data lain ikut terbuka');
+  // perusahaan nonaktif tidak tampil
+  await db.exec('reset role');
+  await db.query(`update sys_companies set is_active = false where id = $1`, [company1]);
+  assert(!(await val(`select sys_public_brands()`)).some((b) => b.logo_url === 'https://x.test/logo-a.webp'), 'PT nonaktif tampil');
+  await db.query(`update sys_companies set is_active = true where id = $1`, [company1]);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–030)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–031)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -29,6 +29,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase18.sql`](supabase/update_fase18.sql) (028: daftar pendaftar baru & badge di Console Platform)
   - [`supabase/update_fase19.sql`](supabase/update_fase19.sql) (029: perbaikan error saat pendaftar baru membuat usaha)
   - [`supabase/update_fase20.sql`](supabase/update_fase20.sql) (030: agent AI Semar, lalu deploy Edge Function `semar-agent`)
+  - [`supabase/update_fase21.sql`](supabase/update_fase21.sql) (031: logo per brand & "Brand yang sudah bersama SEMAR" di landing page)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -265,6 +266,8 @@ Tingkatan: **Platform Admin** (developer) → **Grup usaha** → **Perusahaan / 
   lewat pilihan 🏢 perusahaan di sidebar, dengan akses penuh (log ditandai *(Pemilik grup)*).
   PT baru tetap dibuat lewat daftar biasa, lalu Platform Admin memasukkannya ke grup.
 - **Pengaturan → Brand**: 1 PT bisa punya beberapa brand; setiap outlet dipilih brand-nya (menu kasir mengikuti brand outlet).
+  Setiap brand bisa diberi **logo** (tampil di sidebar outlet brand itu). Bila diizinkan owner (*Tampilkan di halaman depan SEMAR*, default aktif),
+  logo & nama brand muncul di landing page bagian **Brand yang sudah bersama SEMAR** (hanya nama & logo, tanpa data lain).
 - **Akses per brand** (User Management → Akses): user melihat semua branch milik brand tertentu, termasuk branch baru brand itu.
 
 ### Menjadikan akun Anda Platform Admin (sekali, lewat SQL Editor)
