@@ -159,6 +159,19 @@ function useNewSignups(enabled: boolean) {
   return count;
 }
 
+// Logo brand dari outlet aktif (fallback: logo perusahaan). Event 'brand-updated' = brand baru disimpan.
+function useBrandLogo(brandId?: string) {
+  const [logo, setLogo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!brandId) { setLogo(null); return; }
+    const load = () => { supabase.from('sys_brands').select('logo_url').eq('id', brandId).maybeSingle().then(({ data }) => setLogo(data?.logo_url ?? null)); };
+    load();
+    window.addEventListener('brand-updated', load);
+    return () => window.removeEventListener('brand-updated', load);
+  }, [brandId]);
+  return logo;
+}
+
 export default function Layout() {
   const { profile, outlet, setOutletId, can, signOut, switchCompany } = useAuth();
   const location = useLocation();
@@ -171,6 +184,7 @@ export default function Layout() {
   const [editingProfile, setEditingProfile] = useState(false);
   const pending = usePendingApprovals(!!profile);
   const signups = useNewSignups(!!profile?.is_platform_admin);
+  const logoSrc = useBrandLogo(outlet?.brand_id) ?? profile?.company_logo_url;
   const badgeCount = (b?: NavItem['badge']) => (b === 'approvals' ? pending : b === 'signups' ? signups : 0);
   const current = activeItem(location.pathname, location.search);
   const currentGroup = NAV.find((g) => g.items.includes(current!))?.group;
@@ -213,7 +227,7 @@ export default function Layout() {
       {/* Topbar khusus HP / tablet */}
       <header className="topbar">
         <button className="icon-btn" onClick={() => setDrawerOpen(true)} aria-label="Buka menu"><MenuIcon size={22} /></button>
-        <Logo src={profile?.company_logo_url} size={32} withName subtitle={outlet?.name} />
+        <Logo src={logoSrc} size={32} withName subtitle={outlet?.name} />
         {pending > 0 && (
           <NavLink to="/approvals" className="icon-btn btn" aria-label="Persetujuan">
             <BadgeCheck size={20} /><span className="nav-badge">{pending}</span>
@@ -228,7 +242,7 @@ export default function Layout() {
 
       <aside className="sidebar" aria-label="Navigasi utama">
         <div className="sidebar-head">
-          <Logo src={profile?.company_logo_url} size={40} withName subtitle={profile?.company_name} textClassName="hide-collapsed" />
+          <Logo src={logoSrc} size={40} withName subtitle={profile?.company_name} textClassName="hide-collapsed" />
           <button className="icon-btn pin-btn hide-collapsed" onClick={togglePin} title={pinned ? 'Lepas pin (auto-hide)' : 'Pin sidebar'}>
             {pinned ? <PinOff size={16} /> : <Pin size={16} />}
           </button>
