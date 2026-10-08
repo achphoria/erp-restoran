@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Check, FileSpreadsheet, Paperclip, Plus, Search, Send, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Check, FileSpreadsheet, Paperclip, Plus, Search, Send, ShoppingCart, X } from 'lucide-react';
 import type { ChatEvent } from './useOfficeSim';
 import { useFeedback } from '../Feedback';
 import { useAuth } from '../../context/AuthContext';
 import { must, supabase } from '../../lib/supabase';
-import { errorMessage, formatDateTime } from '../../lib/format';
+import { errorMessage, formatDateTime, formatRupiah } from '../../lib/format';
 import { MiniMarkdown } from '../../lib/miniMarkdown';
 import { invokeSemar, readAttachment, type Attachment } from '../../lib/semar';
 import MiniAvatar from './MiniAvatar';
@@ -18,9 +19,14 @@ const SUGGESTIONS = [
   'Bantu saya migrasi data supplier dari file Excel',
   'Bagaimana cara membuat menu yang terhubung ke resep & stok?',
   'Analisa penjualan 7 hari terakhir dan menu terlaris',
+  'Bahan apa yang perlu dibeli untuk 7 hari ke depan? Buatkan PO-nya',
   'Bahan baku apa yang stoknya menipis?',
 ];
-const TOOL_LABEL: Record<string, string> = { daftar_tabel: 'melihat daftar data', struktur_tabel: 'mempelajari struktur', cari_data: 'membaca data' };
+const TOOL_LABEL: Record<string, string> = {
+  daftar_tabel: 'melihat daftar data', struktur_tabel: 'mempelajari struktur', cari_data: 'membaca data',
+  analisa_kebutuhan_beli: 'menganalisa kebutuhan beli & harga supplier',
+};
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po'];
 const OP_LABEL: Record<string, string> = { tambah: 'Tambah data', ubah: 'Ubah data', hapus: 'Hapus data' };
 const newId = () => crypto.randomUUID();
 
@@ -122,6 +128,12 @@ export default function SemarChat({ onClose, onEvent }: { onClose: () => void; o
   // status usulan dari catatan [Sistem]
   const decisions = new Map<string, Record<string, any>>();
   rows.forEach((r) => { if (r.meta?.action_id) decisions.set(r.meta.action_id, r.meta); });
+  const previews = new Map<string, Record<string, any>>();
+  rows.forEach((r) => r.content.forEach((b) => {
+    if (b.type !== 'tool_result' || typeof b.content !== 'string') return;
+    const i = b.content.indexOf('PRATINJAU: ');
+    if (i >= 0) { try { previews.set(b.tool_use_id, JSON.parse(b.content.slice(i + 11))); } catch { /* abaikan */ } }
+  }));
 
   return (
     <aside className="semar-panel" aria-label="Obrolan dengan Semar">
@@ -150,7 +162,7 @@ export default function SemarChat({ onClose, onEvent }: { onClose: () => void; o
                   <div className="semar-suggest">{SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)}>{s}</button>)}</div>
                 </div>
               )}
-              {rows.map((r) => <Message key={r.id} row={r} decisions={decisions} acting={acting} onDecide={decide} />)}
+              {rows.map((r) => <Message key={r.id} row={r} decisions={decisions} previews={previews} acting={acting} onDecide={decide} />)}
               {draft && <div className="semar-msg me"><div className="semar-bubble">{draft}</div></div>}
               {busy && <div className="semar-msg ai"><div className="semar-bubble thinking"><span /><span /><span /> Semar sedang menimbang…</div></div>}
             </div>
@@ -179,8 +191,9 @@ export default function SemarChat({ onClose, onEvent }: { onClose: () => void; o
   );
 }
 
-function Message({ row, decisions, acting, onDecide }: {
-  row: Row; decisions: Map<string, Record<string, any>>; acting: string | null; onDecide: (id: string, a: 'execute' | 'reject') => void;
+function Message({ row, decisions, previews, acting, onDecide }: {
+  row: Row; decisions: Map<string, Record<string, any>>; previews: Map<string, Record<string, any>>; acting: string | null;
+  onDecide: (id: string, a: 'execute' | 'reject') => void;
 }) {
   if (row.role === 'user') {
     if (row.meta) {
@@ -206,9 +219,12 @@ function Message({ row, decisions, acting, onDecide }: {
         if (b.type === 'text' && b.text?.trim()) {
           return <div key={i} className="semar-msg ai"><MiniAvatar id="semar" size={30} /><div className="semar-bubble"><MiniMarkdown text={b.text} /></div></div>;
         }
-        if (b.type === 'tool_use' && b.name !== 'usulkan_perubahan') {
+        if (b.type === 'tool_use' && !PROPOSAL_TOOLS.includes(b.name)) {
           const t = b.input?.tabel;
           return <div key={i} className="semar-tool"><Search size={12} /> {TOOL_LABEL[b.name] ?? b.name}{t ? `: ${Array.isArray(t) ? t.join(', ') : t}` : ''}</div>;
+        }
+        if (b.type === 'tool_use' && b.name === 'usulkan_po') {
+          return <PoProposal key={i} id={b.id} input={b.input} preview={previews.get(b.id)} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
         }
         if (b.type === 'tool_use') return <Proposal key={i} id={b.id} input={b.input} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
         return null;
@@ -249,6 +265,63 @@ function Proposal({ id, input, decision, acting, onDecide }: {
       {!st && (
         <div className="semar-prop-actions">
           <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}><Check size={14} /> {acting ? 'Menjalankan…' : 'Setujui & jalankan'}</button>
+          <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Kartu usulan Purchase Order dari Semar
+function PoProposal({ id, input, preview, decision, acting, onDecide }: {
+  id: string; input: Record<string, any>; preview?: Record<string, any>; decision?: Record<string, any>; acting: boolean;
+  onDecide: (id: string, a: 'execute' | 'reject') => void;
+}) {
+  const st = decision?.status;
+  const items: Record<string, any>[] = preview?.items ?? (input.items ?? []);
+  const total = preview?.total ?? items.reduce((s2, it) => s2 + Number(it.qty ?? 0) * Number(it.harga ?? 0), 0);
+  const warn: string[] = preview?.peringatan ?? [];
+  return (
+    <div className={`semar-prop po ${st ?? 'pending'}`}>
+      <div className="semar-prop-head">
+        <span className="badge badge-primary"><ShoppingCart size={12} /> Purchase Order</span>
+        <span className="badge">{input.ajukan ? 'Langsung diajukan' : 'Draft'}</span>
+        {st === 'executed' && <span className="badge badge-success">Sudah dibuat</span>}
+        {st === 'rejected' && <span className="badge">Ditolak</span>}
+        {st === 'failed' && <span className="badge badge-danger">Gagal</span>}
+      </div>
+      <b>{input.ringkasan}</b>
+      <div className="small">
+        <b>{preview?.supplier ?? input.supplier_nama ?? 'Supplier'}</b> → {preview?.gudang ?? input.gudang_nama ?? 'Gudang'}
+        {input.tanggal_kirim && <> · kirim {input.tanggal_kirim}</>}
+      </div>
+      <div className="md-table">
+        <table className="table">
+          <thead><tr><th>Bahan</th><th className="right">Qty</th><th>Satuan</th><th className="right">Harga</th><th className="right">Subtotal</th></tr></thead>
+          <tbody>
+            {items.map((it, i) => (
+              <tr key={i}>
+                <td>{it.nama ?? it.item_id}{it.sumber_harga && <div className="muted" style={{ fontSize: 10.5 }}>{it.sumber_harga}</div>}</td>
+                <td className="right">{Number(it.qty).toLocaleString('id-ID')}</td>
+                <td>{it.satuan ?? '-'}</td>
+                <td className="right">{it.harga != null ? formatRupiah(Number(it.harga)) : 'otomatis'}</td>
+                <td className="right">{it.subtotal != null ? formatRupiah(Number(it.subtotal)) : it.harga != null ? formatRupiah(Number(it.qty) * Number(it.harga)) : '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot><tr><td colSpan={4} className="right bold">Total</td><td className="right bold">{formatRupiah(Number(total))}</td></tr></tfoot>
+        </table>
+      </div>
+      {warn.map((w) => <div key={w} className="small" style={{ color: 'var(--warning)' }}>⚠️ {w}</div>)}
+      {input.catatan && <div className="small muted">Catatan: {input.catatan}</div>}
+      {st === 'executed' && (
+        <div className="small">✅ {decision?.result?.message} · <Link to="/purchasing?tab=po">Buka di Pembelian →</Link></div>
+      )}
+      {st === 'failed' && <div className="small" style={{ color: 'var(--danger)' }}>{decision?.result?.message}</div>}
+      {!st && (
+        <div className="semar-prop-actions">
+          <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}>
+            <Check size={14} /> {acting ? 'Membuat PO…' : input.ajukan ? 'Setujui & buat PO' : 'Setujui & simpan draft'}</button>
           <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
         </div>
       )}

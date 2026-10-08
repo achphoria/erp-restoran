@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–031)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–032)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -30,6 +30,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase19.sql`](supabase/update_fase19.sql) (029: perbaikan error saat pendaftar baru membuat usaha)
   - [`supabase/update_fase20.sql`](supabase/update_fase20.sql) (030: agent AI Semar, lalu deploy Edge Function `semar-agent`)
   - [`supabase/update_fase21.sql`](supabase/update_fase21.sql) (031: logo per brand & "Brand yang sudah bersama SEMAR" di landing page)
+  - [`supabase/update_fase22.sql`](supabase/update_fase22.sql) (032: Semar bisa forecasting kebutuhan beli & membuat PO; deploy ulang Edge Function `semar-agent`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -287,7 +288,10 @@ Owner bisa bertanya tutorial, minta analisa data, dan melampirkan file (Excel, C
 - **Khusus owner** (role dengan hak `*`). Staf melihat pesan "Semar hanya melayani owner".
 - Semar membaca & menulis memakai **akun owner sendiri**, jadi hanya data perusahaan owner itu yang tersentuh (dijamin RLS database).
 - Setiap perubahan data muncul sebagai **kartu usulan**; data baru berubah setelah owner menekan **Setujui & jalankan**.
-- Yang bisa diubah hanya **master data**; transaksi (penjualan, PO, stok, jurnal) hanya dibaca.
+- Yang bisa diubah langsung hanya **master data**. Transaksi yang bisa dibuat: **Purchase Order** (usulan PO dengan pratinjau harga;
+  draft atau langsung diajukan lewat matriks approval). Transaksi lain (penjualan, stok, jurnal) hanya dibaca.
+- **Forecasting kebutuhan beli**: pemakaian per hari dari kartu stok, stok cukup berapa hari, saran qty (satuan beli),
+  opsi supplier & harga dari pricelist aktif, dan pembelian terakhir. Contoh: *"Bahan apa yang perlu dibeli 7 hari ke depan? Buatkan PO-nya"*.
 - Batas 40 pesan per jam per owner; token yang terpakai tercatat di tabel `ai_chat_messages`.
 
 ### Setup (sekali saja)

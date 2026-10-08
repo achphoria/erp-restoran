@@ -57,6 +57,17 @@ function fakeDb({ owner = true, company = 'C1' } = {}) {
     rpc: async (fn, args) => {
       if (fn === 'sys_get_my_profile') return { data: { user_id: 'U1', company_id: company, company_name: 'Warung Uji', full_name: 'Budi', permissions: owner ? ['*'] : ['pos.order'], outlets: [{ name: 'Pusat' }] }, error: null };
       if (fn === 'ai_recent_usage') return { data: { messages_last_hour: tables.ai_chat_messages.filter((m) => m.role === 'user' && !m.meta).length }, error: null };
+      if (fn === 'ai_purchase_forecast') {
+        calls.push({ rpc: fn, args });
+        return { data: { periode_data_hari: args.p_days, items: [{ nama: 'Susu UHT', stok: 2, pemakaian_per_hari: 1.5, cukup_untuk_hari: 1.3, saran_beli: 9 }] }, error: null };
+      }
+      if (fn === 'ai_create_purchase_order') {
+        calls.push({ rpc: fn, args });
+        if (!args.p.items?.length) return { data: null, error: { message: 'Item PO masih kosong' } };
+        if (args.p_dry_run) return { data: { supplier: 'CV Susu', gudang: 'Gudang Pusat', items: [{ nama: 'Susu UHT', qty: 10, harga: 18000, subtotal: 180000 }], total: 180000 }, error: null };
+        tables.pur_purchase_orders = [...(tables.pur_purchase_orders ?? []), { id: 'po1', company_id: company }];
+        return { data: { id: 'po1', po_number: args.p.submit ? 'PO/OUT01/0001' : null, status: args.p.submit ? 'disetujui' : 'draft', total: 180000 }, error: null };
+      }
       if (fn === 'ai_table_info') {
         const all = Object.values(info);
         return { data: args.p_tables ? all.filter((t) => args.p_tables.includes(t.table)) : all.map(({ columns, ...t }) => t), error: null };
@@ -162,6 +173,38 @@ await check('lampiran gambar dikirim ke Claude tapi tidak disimpan; error kredit
   const r = await handle({ action: 'chat', conversation_id: CONV, text: 'x' }, deps(db, fakeClaude([{ httpError: 400, message: 'Your credit balance is too low' }])))
     .catch((e) => ({ error: e.message }));
   assert(/Saldo kredit/.test(r.error), JSON.stringify(r));
+});
+
+await check('forecast kebutuhan beli memanggil fungsi database dengan parameter', async () => {
+  const db = fakeDb();
+  const claude = fakeClaude([tool('f1', 'analisa_kebutuhan_beli', { hari_data: 30, cukup_hari: 10 }), say('Susu UHT hanya cukup 1 hari')]);
+  await handle({ action: 'chat', conversation_id: CONV, text: 'bahan apa yang perlu dibeli?' }, deps(db, claude));
+  const call = db.calls.find((c) => c.rpc === 'ai_purchase_forecast');
+  assert(call && call.args.p_days === 30 && call.args.p_cover_days === 10, JSON.stringify(call));
+  assert(/Susu UHT/.test(claude.requests[1].messages.at(-1).content[0].content), 'hasil tidak dikirim ke Claude');
+});
+await check('usulan PO: diuji coba (dry run) dulu, belum dibuat sampai disetujui, lalu dibuat & diajukan', async () => {
+  const db = fakeDb();
+  const input = { supplier_id: 'sup1', supplier_nama: 'CV Susu', gudang_id: 'wh1', gudang_nama: 'Gudang Pusat', ajukan: true,
+    items: [{ item_id: 'it1', nama: 'Susu UHT', qty: 10 }], ringkasan: 'PO susu ke CV Susu' };
+  const claude = fakeClaude([tool('po_1', 'usulkan_po', input), say('Silakan cek usulan PO, Juragan')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'buatkan PO susu' }, deps(db, claude));
+  assert(r.body.pending.length === 1 && r.body.pending[0].kind === 'po' && r.body.pending[0].preview.total === 180000, JSON.stringify(r.body.pending));
+  const dry = db.calls.find((c) => c.rpc === 'ai_create_purchase_order');
+  assert(dry.args.p_dry_run === true && dry.args.p.warehouse_id === 'wh1' && dry.args.p.submit === true, JSON.stringify(dry.args));
+  assert(!(db.tables.pur_purchase_orders ?? []).length, 'PO dibuat sebelum disetujui!');
+  assert(/PRATINJAU/.test(claude.requests[1].messages.at(-1).content[0].content), 'pratinjau tidak dikirim ke Claude');
+  const ex = await handle({ action: 'execute', conversation_id: CONV, action_id: 'po_1' }, deps(db, claude));
+  assert(ex.body.status === 'executed' && /PO\/OUT01\/0001/.test(ex.body.result.message), JSON.stringify(ex.body));
+  assert((db.tables.pur_purchase_orders ?? []).length === 1, 'PO tidak dibuat');
+  assert(db.calls.filter((c) => c.rpc === 'ai_create_purchase_order').at(-1).args.p_dry_run === false, 'eksekusi masih dry run');
+});
+await check('usulan PO yang tidak valid ditolak sistem sebelum sampai ke owner', async () => {
+  const db = fakeDb();
+  const claude = fakeClaude([tool('po_x', 'usulkan_po', { supplier_id: 's', gudang_id: 'w', items: [], ringkasan: 'kosong' }), say('maaf')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'po' }, deps(db, claude));
+  assert(r.body.pending.length === 0, 'usulan kosong lolos');
+  assert(/Item PO masih kosong/.test(claude.requests[1].messages.at(-1).content[0].content), 'error tidak diteruskan ke Claude');
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
