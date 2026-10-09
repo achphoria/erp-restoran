@@ -29,6 +29,11 @@ export interface Profile {
   group_name?: string | null;
   /** PT yang bisa dipindah: PT sendiri + PT di grup usaha */
   companies?: { id: string; name: string; group_name: string | null }[];
+  /** modul perusahaan aktif: enabled null = semua modul aktif */
+  modules?: {
+    enabled: string[] | null; business_type: string | null;
+    setup_completed_at: string | null; guide_dismissed_at: string | null;
+  };
 }
 
 export interface MenuCategory {

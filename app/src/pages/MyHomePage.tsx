@@ -16,7 +16,7 @@ import { EMPLOYMENT } from '../lib/hr';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Beranda Saya: halaman setiap karyawan (dirancang untuk HP) - kartu karyawan, absen, pengumuman, profil
 export default function MyHomePage() {
-  const { profile, outlet } = useAuth();
+  const { profile, outlet, hasModule } = useAuth();
   const { toast } = useFeedback();
   const [me, setMe] = useState<any | null | undefined>(undefined);
   const [ann, setAnn] = useState<any[]>([]);
@@ -29,7 +29,7 @@ export default function MyHomePage() {
     setAnn(a ?? []);
   }, []);
   useEffect(() => { load().catch((e) => toast(errorMessage(e), 'error')); }, [load, toast]);
-  useEffect(() => { rpc('ast_sync_maintenance').catch(() => undefined); }, []);
+  useEffect(() => { if (hasModule('assets')) rpc('ast_sync_maintenance').catch(() => undefined); }, [hasModule]);
 
   const read = async (a: any) => {
     setOpen(open === a.id ? null : a.id);
@@ -63,12 +63,12 @@ export default function MyHomePage() {
       )}
 
       <div className="me-grid">
-        {profile && <MyAttendance companyId={profile.company_id} />}
-        <TeamInbox />
-        <MyAppraisals />
-        <MyTasks />
-        <ReportAssetCard />
-        {profile && <MyLeave companyId={profile.company_id} />}
+        {profile && hasModule('hr') && <MyAttendance companyId={profile.company_id} />}
+        {hasModule('hr') && <TeamInbox />}
+        {hasModule('hr') && <MyAppraisals />}
+        {hasModule('tasks') && <MyTasks />}
+        {hasModule('assets') && <ReportAssetCard />}
+        {profile && hasModule('hr') && <MyLeave companyId={profile.company_id} />}
 
         <div className="card">
           <div className="me-card-title"><Megaphone size={16} /> Pengumuman {unread > 0 && <span className="badge badge-danger">{unread} baru</span>}</div>

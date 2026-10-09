@@ -5,6 +5,7 @@ import { must, supabase } from '../lib/supabase';
 import { errorMessage, formatNumber, formatRupiah, todayISO } from '../lib/format';
 import { expiryInfo, NEAR_EXPIRY_DAYS } from '../components/inventory/batchUtils';
 import PendopoOffice from '../components/pendopo/PendopoOffice';
+import SetupGuide from '../components/SetupGuide';
 
 interface DailySales { business_date: string; order_count: number; guest_count: number; grand_total: number }
 interface MenuSales { menu_item_name: string; quantity: number; revenue: number }
@@ -66,6 +67,7 @@ export default function DashboardPage() {
       </div>
       {error && <div className="alert alert-error">{error}</div>}
 
+      <SetupGuide />
       <PendopoOffice />
 
       <div className="grid grid-4">
