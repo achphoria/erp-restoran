@@ -73,6 +73,16 @@ function fakeDb({ owner = true, company = 'C1' } = {}) {
         return { data: fn === 'ai_business_brief' ? { penjualan: { hari_ini: { omzet: 1200000 } }, sdm: { belum_absen: [{ nama: 'Andi' }] } } : [{ nama: 'Andi', telat: 2 }], error: null };
       }
       if (fn === 'hr_task_people') return { data: { users: [{ id: 'u-andi', full_name: 'Andi', role: 'Kasir' }], roles: [{ id: 'r-kasir', name: 'Kasir' }] }, error: null };
+      if (fn === 'ai_asset_insights') {
+        calls.push({ rpc: fn, args });
+        return { data: { ringkasan: { aktif: 2 }, aset: [{ id: 'a-ac', kode: 'AST-MSN-0001', nama: 'AC split', biaya_perawatan_12_bulan: 850000 }] }, error: null };
+      }
+      if (fn === 'ast_list') return { data: [{ id: 'a-ac', asset_number: 'AST-MSN-0001', name: 'AC split' }], error: null };
+      if (fn === 'ast_save_plan') {
+        calls.push({ rpc: fn, args });
+        tables.ast_maintenance_plans = [...(tables.ast_maintenance_plans ?? []), { company_id: company, ...args.p }];
+        return { data: { id: 'pl1' }, error: null };
+      }
       if (fn === 'hr_task_save') {
         calls.push({ rpc: fn, args });
         tables.hr_tasks = [...(tables.hr_tasks ?? []), { id: `t${(tables.hr_tasks ?? []).length}`, company_id: company, ...args.p }];
@@ -254,6 +264,30 @@ await check('usulan tugas dengan penerima karangan ditolak sistem', async () => 
   const r = await handle({ action: 'chat', conversation_id: CONV, text: 'tugas' }, deps(db, claude));
   assert(r.body.pending.length === 0, 'penerima palsu lolos');
   assert(/penerima tidak ditemukan/.test(claude.requests[1].messages.at(-1).content[0].content), 'error tidak diteruskan');
+});
+
+await check('analisa_aset memanggil ai_asset_insights dan hasilnya sampai ke Claude', async () => {
+  const db = fakeDb(), claude = fakeClaude([tool('as1', 'analisa_aset', {}), say('AC split biaya servis tinggi')]);
+  await handle({ action: 'chat', conversation_id: CONV, text: 'aset mana yang bermasalah?' }, deps(db, claude));
+  assert(db.calls.some((c) => c.rpc === 'ai_asset_insights'), 'rpc tidak dipanggil');
+  assert(/850000/.test(claude.requests[1].messages.at(-1).content[0].content), 'hasil tidak diteruskan');
+  assert(/Aset & perawatan/.test(claude.requests[0].system[0].text), 'panduan aset tidak ada di prompt');
+});
+await check('usulan jadwal perawatan: menunggu persetujuan, lalu dibuat lewat ast_save_plan; aset karangan ditolak', async () => {
+  const db = fakeDb();
+  const input = { ringkasan: 'Servis rutin AC', jadwal: [{ asset_id: 'a-ac', aset_nama: 'AC split', judul: 'Service AC', setiap: 3, satuan: 'bulan',
+    mulai: '2026-11-01', untuk_role_id: 'r-kasir', checklist: ['Cuci filter'], perkiraan_biaya: 150000 }] };
+  const claude = fakeClaude([tool('mp_1', 'usulkan_perawatan', input), say('Silakan cek jadwal')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'buatkan jadwal servis AC' }, deps(db, claude));
+  assert(r.body.pending.length === 1 && r.body.pending[0].kind === 'maintenance', JSON.stringify(r.body.pending));
+  assert(!(db.tables.ast_maintenance_plans ?? []).length, 'jadwal dibuat sebelum disetujui!');
+  const ex = await handle({ action: 'execute', conversation_id: CONV, action_id: 'mp_1' }, deps(db, claude));
+  assert(ex.body.status === 'executed' && /1 jadwal perawatan dibuat/.test(ex.body.result.message), JSON.stringify(ex.body));
+  const pl = db.tables.ast_maintenance_plans[0];
+  assert(pl.interval_unit === 'month' && pl.interval_value === 3 && pl.assignee_role_id === 'r-kasir' && pl.next_due_date === '2026-11-01' && pl.estimated_cost === 150000, JSON.stringify(pl));
+  const db2 = fakeDb(), claude2 = fakeClaude([tool('mp_x', 'usulkan_perawatan', { ringkasan: 'x', jadwal: [{ ...input.jadwal[0], asset_id: 'a-palsu' }] }), say('maaf')]);
+  const r2 = await handle({ action: 'chat', conversation_id: CONV, text: 'jadwal' }, deps(db2, claude2));
+  assert(r2.body.pending.length === 0 && /aset tidak ditemukan/.test(claude2.requests[1].messages.at(-1).content[0].content), 'aset palsu lolos');
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

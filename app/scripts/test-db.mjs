@@ -3292,5 +3292,28 @@ await check('aset dilepas → jadwal perawatan nonaktif & tugas perawatan terbuk
   await journalBalanced();
 });
 
+console.log('\nSemar AI x aset:');
+await check('briefing harian berisi bagian aset (kerusakan terbuka, perawatan, garansi); PT lain kosong', async () => {
+  await loginAs(U1);
+  const b = await val(`select ai_business_brief(7)`);
+  assert(b.penjualan && b.aset && b.aset.jumlah_aset >= 3, JSON.stringify(b.aset));
+  assert(b.aset.kerusakan_terbuka.some((r) => /Chiller/.test(r.aset)), JSON.stringify(b.aset.kerusakan_terbuka));
+  assert('perawatan_terlambat' in b.aset && 'garansi_habis_30_hari' in b.aset && 'perlu_disusutkan_sampai_bulan_lalu' in b.aset, 'kunci aset');
+  await expectError(`select ai_business_brief_v1(7)`, [], /permission denied|izin/);
+  await loginAs(U4b);
+  const o = await val(`select ai_business_brief(7)`);
+  assert(o.aset.jumlah_aset === 0, JSON.stringify(o.aset));
+});
+await check('ai_asset_insights: umur, % tersusut, biaya perawatan 12 bulan, jadwal; kasir ditolak', async () => {
+  await loginAs(U1);
+  const r = await val(`select ai_asset_insights()`);
+  const ac = r.aset.find((a) => a.id === astAc);
+  assert(ac && Number(ac.biaya_perawatan_12_bulan) === 850000 && ac.kerusakan_12_bulan === 1 && ac.jadwal_perawatan.length === 1 && 'persen_tersusut' in ac, JSON.stringify(ac));
+  assert(r.ringkasan.aktif >= 3 && 'kerusakan_terbuka' in r.ringkasan && r.kerusakan_60_hari.length >= 2, JSON.stringify(r.ringkasan));
+  assert(!r.aset.some((a) => a.id === astKompor), 'aset dilepas ikut');
+  await loginAs(KASIR);
+  await expectError(`select ai_asset_insights()`, [], /izin/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

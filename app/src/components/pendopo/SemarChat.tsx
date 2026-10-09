@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, FileSpreadsheet, ListTodo, Paperclip, Plus, Search, Send, ShoppingCart, X } from 'lucide-react';
+import { Check, FileSpreadsheet, ListTodo, Paperclip, Plus, Search, Send, ShoppingCart, Wrench, X } from 'lucide-react';
 import type { ChatEvent } from './useOfficeSim';
 import { useFeedback } from '../Feedback';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,7 @@ const SUGGESTIONS = [
   'Analisa ulasan pelanggan bulan ini',
   'Rekap absensi, telat & cuti tim minggu ini',
   'Buatkan tugas perbaikan dari ulasan yang buruk',
+  'Aset mana yang perlu perhatian? Servis atau ganti baru?',
   'Saya owner baru. Apa langkah pertama menyiapkan usaha di SEMAR?',
   'Bantu saya migrasi data supplier dari file Excel',
   'Bahan apa yang perlu dibeli untuk 7 hari ke depan? Buatkan PO-nya',
@@ -29,8 +30,9 @@ const TOOL_LABEL: Record<string, string> = {
   analisa_kebutuhan_beli: 'menganalisa kebutuhan beli & harga supplier',
   ringkasan_bisnis: 'membaca ringkasan usaha (penjualan, stok, SDM, tugas, ulasan)',
   analisa_ulasan: 'membaca ulasan pelanggan', rekap_sdm: 'merekap absensi & cuti', daftar_tim: 'melihat daftar tim',
+  analisa_aset: 'menganalisa aset, kerusakan & biaya perawatan',
 };
-const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas'];
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas', 'usulkan_perawatan'];
 const PRIORITY: Record<string, [string, string]> = {
   low: ['Rendah', ''], normal: ['Normal', 'badge-info'], high: ['Tinggi', 'badge-warning'], urgent: ['Mendesak', 'badge-danger'],
 };
@@ -230,6 +232,9 @@ function Message({ row, decisions, previews, acting, onDecide }: {
           const t = b.input?.tabel ?? (b.input?.dari ? `${b.input.dari} s/d ${b.input.sampai}` : undefined);
           return <div key={i} className="semar-tool"><Search size={12} /> {TOOL_LABEL[b.name] ?? b.name}{t ? `: ${Array.isArray(t) ? t.join(', ') : t}` : ''}</div>;
         }
+        if (b.type === 'tool_use' && b.name === 'usulkan_perawatan') {
+          return <MaintenanceProposal key={i} id={b.id} input={b.input} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
+        }
         if (b.type === 'tool_use' && b.name === 'usulkan_tugas') {
           return <TaskProposal key={i} id={b.id} input={b.input} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
         }
@@ -275,6 +280,43 @@ function Proposal({ id, input, decision, acting, onDecide }: {
       {!st && (
         <div className="semar-prop-actions">
           <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}><Check size={14} /> {acting ? 'Menjalankan…' : 'Setujui & jalankan'}</button>
+          <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Kartu usulan jadwal perawatan aset dari Semar
+function MaintenanceProposal({ id, input, decision, acting, onDecide }: {
+  id: string; input: Record<string, any>; decision?: Record<string, any>; acting: boolean; onDecide: (id: string, a: 'execute' | 'reject') => void;
+}) {
+  const st = decision?.status;
+  const plans: Record<string, any>[] = Array.isArray(input.jadwal) ? input.jadwal : [];
+  return (
+    <div className={`semar-prop task ${st ?? 'pending'}`}>
+      <div className="semar-prop-head">
+        <span className="badge badge-primary"><Wrench size={12} /> {plans.length} jadwal perawatan</span>
+        {st === 'executed' && <span className="badge badge-success">Sudah dibuat</span>}
+        {st === 'rejected' && <span className="badge">Ditolak</span>}
+        {st === 'failed' && <span className="badge badge-danger">Gagal</span>}
+      </div>
+      <b>{input.ringkasan}</b>
+      <div className="semar-tasks">
+        {plans.map((j, i) => (
+          <div key={i} className="semar-task">
+            <div><b>{j.judul}</b> · {j.aset_nama ?? 'aset'}</div>
+            <div className="small">Tiap {j.setiap} {j.satuan} · mulai {j.mulai}{j.untuk_nama && <> · {j.untuk_nama}</>}
+              {j.perkiraan_biaya ? <> · ± {formatRupiah(Number(j.perkiraan_biaya))}</> : null}</div>
+            {Array.isArray(j.checklist) && j.checklist.length > 0 && <ul className="small">{j.checklist.slice(0, 5).map((c: string, k: number) => <li key={k}>{c}</li>)}</ul>}
+          </div>
+        ))}
+      </div>
+      {st === 'executed' && <div className="small">✅ {decision?.result?.message} · <Link to="/assets?tab=maintenance">Buka Perawatan Aset →</Link></div>}
+      {st === 'failed' && <div className="small" style={{ color: 'var(--danger)' }}>{decision?.result?.message}</div>}
+      {!st && (
+        <div className="semar-prop-actions">
+          <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}><Check size={14} /> {acting ? 'Menyimpan…' : 'Setujui & buat jadwal'}</button>
           <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
         </div>
       )}

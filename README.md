@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–045)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–046)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -44,6 +44,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase33.sql`](supabase/update_fase33.sql) (043: Semar makin pintar: briefing harian, ulasan, rekap SDM, membuat tugas & SOP; deploy ulang Edge Function `semar-agent`)
   - [`supabase/update_fase34.sql`](supabase/update_fase34.sql) (044: manajemen aset tetap: daftar aset, label QR, penyusutan, mutasi & pelepasan)
   - [`supabase/update_fase35.sql`](supabase/update_fase35.sql) (045: perawatan rutin → Tugas, laporan kerusakan, opname aset scan QR)
+  - [`supabase/update_fase36.sql`](supabase/update_fase36.sql) (046: Semar membaca aset & briefing harian berisi aset; deploy ulang Edge Function `semar-agent`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -448,7 +449,10 @@ Menu **Aset**: peralatan dapur, elektronik, mesin besar, furnitur, kendaraan & r
 - **Opname aset** per outlet: scan QR satu per satu → ditemukan / salah lokasi / rusak (rusak otomatis jadi laporan kerusakan);
   saat ditutup yang tidak ter-scan tercatat hilang. Petugas opname juga bisa menandai dari halaman scan QR.
 - **Biaya perawatan terbesar 12 bulan** per aset, dengan tanda bila biaya > 50% nilai buku (pertimbangkan ganti baru).
-- Tahap berikutnya: Semar membaca data aset & briefing harian mengingatkan perawatan terlambat / aset rusak.
+**Tahap 3: Semar x aset**
+- Briefing harian Semar ikut menyebut aset mati total / rusak, perawatan terlambat, garansi mau habis, penyusutan yang belum dijalankan.
+- Tanya Semar *"Aset mana yang perlu perhatian? Servis atau ganti baru?"*: Semar menganalisa umur, % tersusut, biaya perawatan & kerusakan 12 bulan.
+- Semar bisa **mengusulkan jadwal perawatan** untuk aset penting yang belum punya jadwal (kartu usulan → Setujui → jadwal dibuat).
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).
