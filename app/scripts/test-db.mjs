@@ -3315,5 +3315,41 @@ await check('ai_asset_insights: umur, % tersusut, biaya perawatan 12 bulan, jadw
   await expectError(`select ai_asset_insights()`, [], /izin/);
 });
 
+console.log('\nModul perusahaan & panduan memulai:');
+await check('perusahaan lama: semua modul aktif & tidak diminta wizard; profil membawa info modul', async () => {
+  await loginAs(U1);
+  const p = await val(`select sys_get_my_profile()`);
+  assert(p.company_id === company1 && p.modules && p.modules.enabled === null && p.modules.setup_completed_at, JSON.stringify(p.modules));
+  await expectError(`select sys_get_my_profile_base()`, [], /permission denied/);
+});
+await check('owner memilih modul: modul pendukung ikut aktif, wizard selesai; kunci asing & kasir ditolak', async () => {
+  const U14 = 'd8d8d8d8-d8d8-d8d8-d8d8-d8d8d8d8d8d8';
+  await db.exec(`reset role; insert into auth.users values ('${U14}', 'owner.baru@test.com')`);
+  await loginAs(U14);
+  await db.query(`select sys_onboard_company('Kedai Baru', 'Outlet Pertama', 'Rina', false)`);
+  const before = await val(`select sys_get_my_profile()`);
+  assert(before.modules.setup_completed_at === null, 'PT baru seharusnya belum selesai setup: ' + JSON.stringify(before.modules));
+  const m = await val(`select sys_save_modules(array['purchasing', 'kds', 'ai'], 'resto', true)`);
+  assert(JSON.stringify(m.enabled) === JSON.stringify(['ai', 'inventory', 'kds', 'pos', 'purchasing']) && m.business_type === 'resto' && m.setup_completed_at, JSON.stringify(m));
+  await expectError(`select sys_save_modules(array['pos', 'judi'])`, [], /tidak dikenal/);
+  await expectError(`select sys_save_modules(array['pos'], 'pabrik')`, [], /Tipe usaha/);
+  assert((await val(`select sys_get_my_profile()`)).modules.enabled.includes('kds'), 'profil belum ikut berubah');
+  const all = await val(`select sys_save_modules(null)`);
+  assert(all.enabled === null && all.business_type === 'resto', JSON.stringify(all));
+  await loginAs(KASIR);
+  await expectError(`select sys_save_modules(array['pos'])`, [], /owner/);
+});
+await check('panduan memulai: langkah tercentang dari data; khusus owner; bisa disembunyikan', async () => {
+  await loginAs(U1);
+  const g = await val(`select sys_setup_progress()`);
+  assert(g.menu === true && g.staff === true && g.first_order === true && g.asset === true && 'semar' in g, JSON.stringify(g));
+  await db.query(`select sys_dismiss_setup_guide(false)`);
+  assert((await val(`select sys_get_my_profile()`)).modules.guide_dismissed_at === null, 'panduan belum muncul lagi');
+  await db.query(`select sys_dismiss_setup_guide(true)`);
+  assert((await val(`select sys_get_my_profile()`)).modules.guide_dismissed_at, 'panduan belum tersembunyi');
+  await loginAs(KASIR);
+  await expectError(`select sys_setup_progress()`, [], /owner/);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

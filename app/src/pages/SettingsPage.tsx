@@ -18,8 +18,10 @@ import DataToolsTab from '../components/settings/DataToolsTab';
 import { CreateStaffUserModal, ResetPasswordModal } from '../components/settings/StaffUserModal';
 import BranchAccessPicker, { accessValid, type OutletScope } from '../components/settings/BranchAccessPicker';
 import BrandsTab, { type BrandRow } from '../components/settings/BrandsTab';
+import ModulesSettings from '../components/settings/ModulesSettings';
+import { moduleOfPermission } from '../lib/modules';
 
-type Tab = 'company' | 'users' | 'roles' | 'brands' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
+type Tab = 'company' | 'modules' | 'users' | 'roles' | 'brands' | 'outlets' | 'approvals' | 'payment' | 'logs' | 'data';
 
 interface Role { id: string; code: string; name: string; permissions: string[]; default_outlet_scope?: OutletScope }
 interface OutletRow {
@@ -84,6 +86,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
     ['approvals', 'Approval Transaksi', can('settings.manage'), 'users'],
     ['logs', 'Log Aktivitas', can(['audit.view', 'user.manage']), 'users'],
     ['company', 'Perusahaan & Logo', can('settings.manage'), 'settings'],
+    ['modules', 'Modul', can('settings.manage'), 'settings'],
     ['brands', 'Brand', can('settings.manage'), 'settings'],
     ['outlets', 'Outlet', can('settings.manage'), 'settings'],
     ['payment', 'Pembayaran Online', can('settings.manage'), 'settings'],
@@ -164,6 +167,7 @@ export default function SettingsPage({ section = 'settings' }: { section?: 'sett
       {tab === 'brands' && <BrandsTab companyId={companyId} brands={brands} outlets={outlets} act={act} />}
       {tab === 'outlets' && <OutletsTab outlets={outlets} brands={brands} act={act} onCreated={refreshProfile} />}
       {tab === 'company' && <CompanyTab />}
+      {tab === 'modules' && <ModulesSettings />}
       {tab === 'approvals' && <ApprovalMatrixTab />}
       {tab === 'payment' && <PaymentGatewayTab />}
       {tab === 'logs' && <ActivityLogTab />}
@@ -380,7 +384,10 @@ function UserAccessModal({ title, roles, outlets, brands = [], initial, withEmai
 // ---------------------------------------------------------------- Role
 function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[]; act: Act }) {
   const { prompt } = useFeedback();
-  const groups = [...new Set(PERMISSIONS.map((p) => p.group))];
+  const { hasModule } = useAuth();
+  // izin modul yang dimatikan tidak ditampilkan (yang sudah tercentang tetap tersimpan)
+  const perms = PERMISSIONS.filter((p) => hasModule(moduleOfPermission(p.key) ?? undefined));
+  const groups = [...new Set(perms.map((p) => p.group))];
 
   const toggle = (role: Role, key: string) =>
     act(async () => {
@@ -422,7 +429,7 @@ function RolesTab({ companyId, roles, act }: { companyId: string; roles: Role[];
           {groups.map((g) => (
             <Fragment key={g}>
               <tr><td colSpan={roles.length + 1} className="bold small" style={{ background: 'var(--surface-2)' }}>{g}</td></tr>
-              {PERMISSIONS.filter((p) => p.group === g).map((p) => (
+              {perms.filter((p) => p.group === g).map((p) => (
                 <tr key={p.key}>
                   <td>{p.label}</td>
                   {roles.map((r) => {

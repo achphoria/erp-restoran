@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–046)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–047)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -45,6 +45,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase34.sql`](supabase/update_fase34.sql) (044: manajemen aset tetap: daftar aset, label QR, penyusutan, mutasi & pelepasan)
   - [`supabase/update_fase35.sql`](supabase/update_fase35.sql) (045: perawatan rutin → Tugas, laporan kerusakan, opname aset scan QR)
   - [`supabase/update_fase36.sql`](supabase/update_fase36.sql) (046: Semar membaca aset & briefing harian berisi aset; deploy ulang Edge Function `semar-agent`)
+  - [`supabase/update_fase37.sql`](supabase/update_fase37.sql) (047: modul per perusahaan, wizard owner baru & panduan memulai; deploy ulang Edge Function `semar-agent`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -453,6 +454,18 @@ Menu **Aset**: peralatan dapur, elektronik, mesin besar, furnitur, kendaraan & r
 - Briefing harian Semar ikut menyebut aset mati total / rusak, perawatan terlambat, garansi mau habis, penyusutan yang belum dijalankan.
 - Tanya Semar *"Aset mana yang perlu perhatian? Servis atau ganti baru?"*: Semar menganalisa umur, % tersusut, biaya perawatan & kerusakan 12 bulan.
 - Semar bisa **mengusulkan jadwal perawatan** untuk aset penting yang belum punya jadwal (kartu usulan → Setujui → jadwal dibuat).
+
+## Modul per perusahaan & panduan memulai
+Tidak semua usaha memakai semua modul, jadi owner memilih sendiri modul yang tampil.
+- **Wizard owner baru** (muncul sekali setelah membuat usaha): pilih **tipe usaha** (warung / kafe-restoran / multi cabang + dapur pusat /
+  katering-B2B) → modul yang cocok tercentang otomatis → kartu modul berisi *apa gunanya, siapa yang memakai, cocok bila…* → langkah pertama.
+  Ada tombol *Lewati, aktifkan semua modul*.
+- **Pengaturan → Modul**: nyalakan / matikan kapan saja. Modul pendukung ikut otomatis (mis. Pembelian butuh Stok, Self kiosk butuh Kasir).
+  Modul yang dimatikan **disembunyikan** dari menu, halaman, hak akses role, Beranda Saya & saran Semar; **data tidak dihapus**.
+  Modul inti selalu aktif: Dashboard, Menu, Laporan, Persetujuan, User, Pengaturan, Beranda Saya.
+- **Panduan memulai** di Dashboard (owner): checklist sesuai modul aktif yang tercentang otomatis dari data (menu, bahan, resep, stok awal,
+  supplier, akun tim, karyawan, shift, transaksi pertama, dll.), tiap langkah langsung membuka halaman terkait.
+- Perusahaan yang sudah ada sebelum fitur ini: semua modul aktif & tidak diminta wizard. Kunci modul: `sys_module_keys()`.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).

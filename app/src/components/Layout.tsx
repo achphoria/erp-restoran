@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import {
-  Armchair, CalendarCheck, ScanLine, Wrench, ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
+  Armchair, LayoutGrid, CalendarCheck, ScanLine, Wrench, ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
   IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, MessageSquareHeart, MonitorSmartphone, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
@@ -14,6 +14,8 @@ import { setDocumentTitle } from '../lib/brand';
 import Logo from './Logo';
 import { APPROVAL_DOCS } from './settings/approvalCatalog';
 import Avatar from './Avatar';
+import ModuleOff from './ModuleOff';
+import { moduleOfPath } from '../lib/modules';
 import QrOrderAlert from './QrOrderAlert';
 import ProfileModal from './ProfileModal';
 
@@ -129,6 +131,7 @@ const NAV: NavGroup[] = [
     group: 'Pengaturan', icon: Settings,
     items: [
       { to: '/settings?tab=company', label: 'Perusahaan & Logo', icon: Building2, permission: 'settings.manage' },
+      { to: '/settings?tab=modules', label: 'Modul', icon: LayoutGrid, permission: 'settings.manage' },
       { to: '/settings?tab=brands', label: 'Brand', icon: Tags, permission: 'settings.manage' },
       { to: '/settings?tab=outlets', label: 'Outlet', icon: Store, permission: 'settings.manage' },
       { to: '/settings?tab=payment', label: 'Pembayaran Online', icon: CreditCard, permission: 'settings.manage' },
@@ -273,7 +276,7 @@ function useBrandLogo(brandId?: string) {
 }
 
 export default function Layout() {
-  const { profile, outlet, setOutletId, can, signOut, switchCompany } = useAuth();
+  const { profile, outlet, setOutletId, can, hasModule, signOut, switchCompany } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useFeedback();
@@ -312,8 +315,9 @@ export default function Layout() {
     });
   };
 
-  const allowed = (i: NavItem) => (i.permission === 'self' ? !!profile : i.permission === 'platform' ? !!profile?.is_platform_admin
+  const allowed = (i: NavItem) => hasModule(moduleOfPath(i.to) ?? undefined) && (i.permission === 'self' ? !!profile : i.permission === 'platform' ? !!profile?.is_platform_admin
     : i.permission === 'group' ? !!profile && ((profile.companies?.length ?? 0) > 1 || !!profile.is_platform_admin) : can(i.permission));
+  const pageModule = moduleOfPath(location.pathname + location.search);
   const groups = NAV.map((g) => ({ ...g, items: g.items.filter(allowed) })).filter((g) => g.items.length);
 
   // PT yang bisa dipindah: PT sendiri + PT grup (+ PT yang sedang dimasuki mode support)
@@ -444,7 +448,7 @@ export default function Layout() {
         )}
         <Suspense fallback={<div className="grid">{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 90 }} />)}</div>}>
           {/* error di satu halaman tidak membuat seluruh layar putih; pindah menu = coba lagi */}
-          <ErrorBoundary inline key={location.pathname}><Outlet /></ErrorBoundary>
+          <ErrorBoundary inline key={location.pathname}>{pageModule && !hasModule(pageModule) ? <ModuleOff module={pageModule} /> : <Outlet />}</ErrorBoundary>
         </Suspense>
       </main>
 

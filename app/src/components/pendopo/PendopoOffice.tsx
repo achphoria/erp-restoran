@@ -27,8 +27,10 @@ export default function PendopoOffice() {
   const { sim, actors, t, clock } = useOfficeSim(!visible || tabHidden);
   const [selected, setSelected] = useState<AgentId | null>(null);
   const [chat, setChat] = useState(false);
-  const { profile } = useAuth();
-  const isOwner = !!profile?.permissions.includes('*');
+  const { profile, hasModule } = useAuth();
+  const owner = !!profile?.permissions.includes('*');
+  const aiOn = hasModule('ai');
+  const isOwner = owner && aiOn;
   const [area, setArea] = useState<{ label: string; desc: string; x: number; y: number } | null>(null);
 
   // semua menyapa saat Dashboard dibuka
@@ -92,7 +94,7 @@ export default function PendopoOffice() {
           <span className="pd-clock">{String(clock.hour).padStart(2, '0')}.{String(clock.minute).padStart(2, '0')} <small>WIB</small></span>
           {isOwner
             ? <button type="button" className={`btn-sm ${chat ? '' : 'btn-primary'}`} onClick={() => setChat((c) => !c)}><MessageCircle size={14} /> {chat ? 'Tutup obrolan' : 'Tanya Semar'}</button>
-            : <span className="pd-soon"><Sparkles size={13} /> Semar khusus owner</span>}
+            : <span className="pd-soon"><Sparkles size={13} /> {owner ? 'Semar AI belum diaktifkan (Pengaturan → Modul)' : 'Semar khusus owner'}</span>}
         </div>
       </div>
 

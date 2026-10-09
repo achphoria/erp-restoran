@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { rpc, supabase } from '../lib/supabase';
 import { setCompanyName } from '../lib/brand';
 import type { Outlet, Profile } from '../lib/types';
+import type { ModuleKey } from '../lib/modules';
 
 interface AuthState {
   session: Session | null;
@@ -12,6 +13,8 @@ interface AuthState {
   setOutletId: (id: string) => void;
   /** true bila user punya salah satu permission yang diberikan */
   can: (permission: string | string[]) => boolean;
+  /** modul aktif di perusahaan ini (Pengaturan -> Modul); modul inti selalu true */
+  hasModule: (key: ModuleKey | ModuleKey[] | undefined) => boolean;
   refreshProfile: () => Promise<void>;
   /** pindah PT (grup usaha / mode support). null = kembali ke PT sendiri */
   switchCompany: (companyId: string | null) => Promise<void>;
@@ -100,6 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [profile],
   );
 
+  // salah satu modul aktif cukup; undefined = modul inti
+  const hasModule = useCallback((key: ModuleKey | ModuleKey[] | undefined) => {
+    if (!key) return true;
+    const enabled = profile?.modules?.enabled;
+    if (!enabled) return true;
+    return (Array.isArray(key) ? key : [key]).some((k) => enabled.includes(k));
+  }, [profile]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
@@ -107,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, profile, loading, outlet, setOutletId, can, refreshProfile, switchCompany, signOut }}
+      value={{ session, profile, loading, outlet, setOutletId, can, hasModule, refreshProfile, switchCompany, signOut }}
     >
       {children}
     </AuthContext.Provider>

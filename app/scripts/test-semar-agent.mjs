@@ -1,6 +1,6 @@
 // Uji Edge Function semar-agent dengan Claude palsu & database palsu (tanpa memakai kredit API).
 // Jalankan: npm run test:agent
-import { handle, LIMITS } from '../../supabase/functions/semar-agent/index.ts';
+import { handle, LIMITS, modulesNote } from '../../supabase/functions/semar-agent/index.ts';
 
 let passed = 0, failed = 0;
 async function check(name, fn) {
@@ -288,6 +288,12 @@ await check('usulan jadwal perawatan: menunggu persetujuan, lalu dibuat lewat as
   const db2 = fakeDb(), claude2 = fakeClaude([tool('mp_x', 'usulkan_perawatan', { ringkasan: 'x', jadwal: [{ ...input.jadwal[0], asset_id: 'a-palsu' }] }), say('maaf')]);
   const r2 = await handle({ action: 'chat', conversation_id: CONV, text: 'jadwal' }, deps(db2, claude2));
   assert(r2.body.pending.length === 0 && /aset tidak ditemukan/.test(claude2.requests[1].messages.at(-1).content[0].content), 'aset palsu lolos');
+});
+
+await check('prompt Semar menyebut modul aktif & tidak aktif (Pengaturan → Modul)', async () => {
+  assert(modulesNote({}) === 'Semua modul aplikasi aktif.', 'tanpa info modul = semua aktif');
+  const n = modulesNote({ modules: { enabled: ['pos', 'inventory'] } });
+  assert(/Modul aktif: Kasir \(POS\), Stok & gudang/.test(n) && /TIDAK aktif.*SDM & absensi/.test(n) && /Pengaturan → Modul/.test(n), n);
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

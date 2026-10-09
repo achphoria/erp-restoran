@@ -35,6 +35,7 @@ const TasksPage = lazyRetry(() => import('./pages/TasksPage'));
 const GroupPage = lazyRetry(() => import('./pages/GroupPage'));
 const AssetsPage = lazyRetry(() => import('./pages/AssetsPage'));
 const AssetScanPage = lazyRetry(() => import('./pages/AssetScanPage'));
+const SetupWizard = lazyRetry(() => import('./pages/SetupWizard'));
 const LandingPage = lazyRetry(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
@@ -49,10 +50,10 @@ function Guard({ permission, children }: { permission: string | string[]; childr
 }
 
 function Home() {
-  const { can } = useAuth();
+  const { can, hasModule } = useAuth();
   if (can('report.view')) return <DashboardPage />;
-  if (can('pos.order')) return <Navigate to="/pos" replace />;
-  if (can('kds.update')) return <Navigate to="/kitchen" replace />;
+  if (can('pos.order') && hasModule('pos')) return <Navigate to="/pos" replace />;
+  if (can('kds.update') && hasModule('kds')) return <Navigate to="/kitchen" replace />;
   if (can(Object.keys(APPROVAL_DOCS).map((t) => `approval.${t}`))) return <Navigate to="/approvals" replace />;
   return <Navigate to="/saya" replace />;
 }
@@ -71,6 +72,8 @@ function AppRoutes() {
   }
   if (loading) return <div className="auth-page"><div className="skeleton" style={{ width: 280, height: 160 }} /></div>;
   if (!profile) return <OnboardingPage />;
+  // owner baru: pilih tipe usaha & modul dulu (perusahaan lama sudah ditandai selesai)
+  if (profile.permissions.includes('*') && !profile.acting_mode && profile.modules && !profile.modules.setup_completed_at) return <SetupWizard />;
 
   return (
     <Routes>

@@ -1,0 +1,73 @@
+/* Pilihan modul (wizard awal & Pengaturan -> Modul) + panduan memulai */
+.mod-picker { display: grid; gap: 18px; }
+.mod-core { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 14px; border-radius: 12px; background: var(--surface-2); color: var(--text-muted); font-size: 13px; }
+.mod-group { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.mod-card {
+  position: relative; display: grid; gap: 6px; align-content: start; text-align: left; padding: 16px 16px 14px; border-radius: 16px; min-height: 0;
+  background: var(--surface); border: 1.5px solid var(--border); font-weight: 400; white-space: normal; transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.mod-card:hover { border-color: var(--border-strong); }
+.mod-card.on { border-color: var(--fresh); background: var(--primary-soft); box-shadow: 0 0 0 3px var(--primary-ring); }
+.mod-card > b { font-size: 15px; padding-right: 26px; }
+.mod-check { position: absolute; top: 14px; right: 14px; width: 22px; height: 22px; border-radius: 7px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; background: var(--surface); }
+.mod-card.on .mod-check { background: var(--primary); border-color: var(--primary); color: #fff; }
+.mod-icon { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.mod-card.on .mod-icon { background: var(--surface); }
+.mod-desc { font-size: 13px; line-height: 1.5; color: var(--text); }
+.mod-meta { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.mod-meta b { color: var(--text); font-weight: 700; }
+.mod-req { font-size: 11.5px; color: var(--primary); font-weight: 700; }
+
+/* wizard */
+.setup-wrap { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.setup-head { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--glass, rgba(255,255,255,.85)); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+.setup-head img { border-radius: 10px; }
+.setup-steps { display: flex; gap: 6px; margin-left: auto; list-style: none; padding: 0; }
+.setup-steps li { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.setup-steps li span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); font-size: 12px; }
+.setup-steps li.now { color: var(--primary); }
+.setup-steps li.now span { background: var(--primary); color: #fff; }
+.setup-steps li.done span { background: var(--fresh); color: #fff; }
+.setup-steps li + li::before { content: ''; width: 18px; height: 2px; background: var(--border); margin-right: 2px; }
+.setup-body { width: 100%; max-width: 1080px; margin: 0 auto; padding: 28px 20px 40px; }
+.setup-body h1 { font-size: clamp(24px, 3vw, 32px); letter-spacing: -.02em; margin: 0 0 6px; }
+.setup-body > p.lead { color: var(--text-muted); margin: 0 0 22px; font-size: 15px; }
+.setup-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.setup-type { display: grid; gap: 8px; align-content: start; text-align: left; padding: 20px; border-radius: 18px; background: var(--surface); border: 1.5px solid var(--border); font-weight: 400; white-space: normal; min-height: 0; }
+.setup-type .emoji { font-size: 34px; line-height: 1; }
+.setup-type b { font-size: 16px; }
+.setup-type small { color: var(--text-muted); line-height: 1.5; font-size: 13px; }
+.setup-type .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.setup-type .chips span { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); font-weight: 700; }
+.setup-type.on { border-color: var(--fresh); background: var(--primary-soft); box-shadow: 0 0 0 3px var(--primary-ring); }
+.setup-foot { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--border); }
+.setup-foot .spacer { flex: 1; }
+.setup-foot small { color: var(--text-muted); }
+
+/* panduan memulai */
+.guide { display: grid; gap: 12px; }
+.guide-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.guide-head h2 { margin: 0; font-size: 18px; }
+.guide-bar { flex: 1 1 160px; height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.guide-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--fresh), var(--sunshine)); border-radius: inherit; transition: width .3s; }
+.guide-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; list-style: none; padding: 0; margin: 0; }
+.guide-step { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); text-decoration: none; color: var(--text); }
+.guide-step:hover { border-color: var(--fresh); }
+.guide-step .tick { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border-strong); display: grid; place-items: center; margin-top: 1px; }
+.guide-step.done { background: var(--surface-2); }
+.guide-step.done .tick { background: var(--fresh); border-color: var(--fresh); color: #fff; }
+.guide-step.done b { text-decoration: line-through; color: var(--text-muted); }
+.guide-step b { display: block; font-size: 14px; }
+.guide-step small { color: var(--text-muted); line-height: 1.45; }
+.guide-step .opt { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+
+@media (max-width: 640px) {
+  .setup-steps li b { display: none; }
+  .setup-head { padding: 10px 14px; }
+  .setup-body { padding: 20px 14px 32px; }
+  .setup-foot { padding: 10px 14px; flex-wrap: wrap; }
+  .setup-foot small { flex-basis: 100%; order: -1; }
+}
+.btn-ghost-link { background: none; border-color: transparent; color: var(--text-muted); font-weight: 600; }
+.btn-ghost-link:hover:not(:disabled) { color: var(--primary); background: none !important; }

@@ -55,14 +55,30 @@ Menu sidebar:
 - Aset: Daftar Aset (kode AST-..., label QR, nilai buku, detail & riwayat), Penyusutan bulanan (jurnal otomatis), Perawatan & Kerusakan (jadwal servis rutin jadi tugas otomatis, tiket kerusakan dari karyawan, biaya perawatan), Opname Aset (scan QR per outlet), Mutasi & Pelepasan (lewat approval), Kategori Aset. Karyawan melapor kerusakan dengan scan QR label aset atau dari Beranda Saya.
 - Dashboard Grup (khusus pemilik grup usaha): ringkasan semua PT, laba rugi & neraca konsolidasi, transaksi antar-PT (PO ke "PT dalam grup" otomatis jadi SO di PT penjual).
 - User Management: User (owner membuat akun staf dengan username), Role & Hak Akses, Approval Transaksi (siapa pembuat & penyetuju), Log Aktivitas.
-- Pengaturan: Perusahaan & Logo, Brand, Outlet, Pembayaran Online, Data & Backup (data contoh, backup, restore, reset).
+- Pengaturan: Perusahaan & Logo, Modul (nyalakan / matikan modul yang dipakai; modul inti selalu aktif), Brand, Outlet, Pembayaran Online, Data & Backup (data contoh, backup, restore, reset). Owner baru juga punya Panduan memulai di Dashboard.
 Alur umum owner baru: 1) Pengaturan: outlet & brand; 2) Master Produk: satuan, kategori, bahan baku + harga beli; 3) Supplier; 4) Menu + resep (menu terhubung ke bahan lewat resep supaya stok & HPP otomatis); 5) Metode pembayaran & meja; 6) User staf & role; 7) Mulai jualan di Kasir.
 Stok berkurang otomatis saat menu terjual (sesuai resep). Jurnal akuntansi terbentuk otomatis dari transaksi.`;
+
+// nama modul (sama dengan app/src/lib/modules.ts); null = semua aktif
+const MODULE_NAMES: Record<string, string> = {
+  pos: 'Kasir (POS)', kds: 'Layar dapur', kiosk: 'Self kiosk', crm: 'Member & promo', feedback: 'Ulasan pelanggan', inventory: 'Stok & gudang',
+  production: 'Produksi', purchasing: 'Pembelian', sales: 'Penjualan B2B & antar cabang', finance: 'Keuangan', hr: 'SDM & absensi',
+  tasks: 'Tugas & SOP', assets: 'Aset', ai: 'Semar AI',
+};
+export function modulesNote(p: Json) {
+  const enabled: string[] | null | undefined = p.modules?.enabled;
+  if (!enabled) return 'Semua modul aplikasi aktif.';
+  const on = enabled.map((k) => MODULE_NAMES[k] ?? k);
+  const off = Object.keys(MODULE_NAMES).filter((k) => !enabled.includes(k)).map((k) => MODULE_NAMES[k]);
+  return `Modul aktif: ${on.join(', ') || '(hanya modul inti)'}. Modul TIDAK aktif (menunya tersembunyi): ${off.join(', ') || '-'}. `
+    + 'Jangan mengarahkan Juragan ke menu modul yang tidak aktif; bila fitur itu memang dibutuhkan, sarankan mengaktifkannya di Pengaturan → Modul (data lama tetap aman).';
+}
 
 function systemPrompt(p: Json, today: string) {
   const outlets = (p.outlets ?? []).map((o: Json) => o.name).join(', ') || '-';
   return `Kamu adalah Semar, kepala konsultan di aplikasi SEMAR. Watakmu bijak, sabar, dan ngemong seperti Semar di pewayangan.
 Kamu melayani owner bernama ${p.full_name} dari perusahaan "${p.company_name}" (outlet: ${outlets}). Hari ini ${today} (WIB).
+${modulesNote(p)}
 Panggil owner "Juragan". Gunakan bahasa Indonesia yang santai, sopan, dan jelas. Jawab ringkas, pakai daftar atau tabel markdown bila membantu.
 
 Tugasmu:
