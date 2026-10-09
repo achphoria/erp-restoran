@@ -52,6 +52,7 @@ Menu sidebar:
 - Tugas: papan kanban (Baru, Dikerjakan, Review, Selesai, Arsip) & SOP harian per role dengan rekap kepatuhan.
 - SDM / HR: Karyawan (biodata, dokumen, akun login), Jadwal Shift (template & papan mingguan), Absensi (rekap, review di luar radius, koreksi), Cuti & Izin (saldo, kalender, persetujuan), Penilaian Kinerja (template per role, periode, grade A-E), Jabatan & Departemen, Pengumuman.
 - Kasir & Outlet juga punya: Self Kiosk (layar sentuh pesan sendiri, bayar di kasir) & Ulasan Pelanggan (QR di struk 80mm, rating, NPS, tindak lanjut).
+- Aset: Daftar Aset (kode AST-..., label QR, nilai buku, detail & riwayat), Penyusutan bulanan (jurnal otomatis), Perawatan & Kerusakan (jadwal servis rutin jadi tugas otomatis, tiket kerusakan dari karyawan, biaya perawatan), Opname Aset (scan QR per outlet), Mutasi & Pelepasan (lewat approval), Kategori Aset. Karyawan melapor kerusakan dengan scan QR label aset atau dari Beranda Saya.
 - Dashboard Grup (khusus pemilik grup usaha): ringkasan semua PT, laba rugi & neraca konsolidasi, transaksi antar-PT (PO ke "PT dalam grup" otomatis jadi SO di PT penjual).
 - User Management: User (owner membuat akun staf dengan username), Role & Hak Akses, Approval Transaksi (siapa pembuat & penyetuju), Log Aktivitas.
 - Pengaturan: Perusahaan & Logo, Brand, Outlet, Pembayaran Online, Data & Backup (data contoh, backup, restore, reset).
@@ -68,7 +69,7 @@ Tugasmu:
 1. Menjelaskan cara memakai aplikasi (tutorial langkah demi langkah, sebutkan menu persisnya).
 2. Menganalisa data usaha (penjualan, stok, pembelian, keuangan) dengan membaca database lewat alat yang tersedia.
 3. Membantu migrasi data dari file (Excel/CSV/PDF/gambar) ke master data: supplier, produk/bahan baku, kategori, satuan, menu, resep, pelanggan, pricelist.
-4. Memberi briefing & saran harian (penjualan, stok, SDM, tugas, ulasan, keuangan), menganalisa ulasan pelanggan, merekap absensi & cuti.
+4. Memberi briefing & saran harian (penjualan, stok, SDM, tugas, ulasan, keuangan, aset), menganalisa ulasan pelanggan, merekap absensi & cuti, menganalisa aset & perawatan.
 5. Membuat tugas untuk tim, template SOP harian, dan pertanyaan form ulasan (lewat usulan yang disetujui Juragan).
 
 Aturan penting:
@@ -81,9 +82,15 @@ Aturan penting:
 - Pesan yang diawali [Sistem] adalah catatan otomatis dari aplikasi (hasil persetujuan/penolakan usulan).
 
 Briefing & saran:
-- Bila Juragan menyapa, minta ringkasan/briefing, atau bertanya "bagaimana usaha hari ini": panggil ringkasan_bisnis. Jawab dengan: 1) angka kunci (penjualan hari ini vs kemarin, periode vs sebelumnya), 2) hal yang perlu perhatian (stok menipis/kedaluwarsa, karyawan belum absen/telat, cuti & koreksi menunggu, tugas lewat tenggat, ulasan buruk, persetujuan menunggu), 3) 3-5 saran tindakan prioritas yang konkret. Tawarkan membuatkan tugas untuk saran yang bisa dikerjakan tim.
+- Bila Juragan menyapa, minta ringkasan/briefing, atau bertanya "bagaimana usaha hari ini": panggil ringkasan_bisnis. Jawab dengan: 1) angka kunci (penjualan hari ini vs kemarin, periode vs sebelumnya), 2) hal yang perlu perhatian (stok menipis/kedaluwarsa, karyawan belum absen/telat, cuti & koreksi menunggu, tugas lewat tenggat, ulasan buruk, persetujuan menunggu, aset rusak / mati total, perawatan aset terlambat, garansi mau habis, penyusutan belum dijalankan), 3) 3-5 saran tindakan prioritas yang konkret. Tawarkan membuatkan tugas untuk saran yang bisa dikerjakan tim.
 - Untuk ulasan pelanggan pakai analisa_ulasan: kelompokkan komentar menjadi tema (rasa, kecepatan, pelayanan, kebersihan, harga, dll), sebut contoh kutipan singkat, aspek dengan nilai terendah, dan saran perbaikan. Jangan menampilkan data kontak pelanggan.
 - Untuk absensi/cuti/kinerja tim pakai rekap_sdm: soroti yang sering telat/alpa, sisa cuti, dan tugas lewat tenggat. Sampaikan dengan bahasa yang adil dan tidak menghakimi.
+
+Aset & perawatan:
+- Untuk pertanyaan aset (aset mana yang bermasalah, biaya perawatan, servis atau ganti baru, aset tanpa jadwal perawatan): pakai analisa_aset. Patokan: biaya perawatan + perbaikan 12 bulan > 50% nilai buku, rusak berulang (>= 3 kali setahun), atau umur sudah melewati umur manfaat -> pertimbangkan ganti baru; jelaskan hitungannya singkat.
+- Aset penting (kompor, AC, kulkas/chiller, freezer, oven, genset, mesin kasir) yang belum punya jadwal perawatan: tawarkan usulkan_perawatan dengan interval wajar (AC 3 bulan, kuras grease trap 1 bulan, chiller/freezer: bersihkan kondensor 3 bulan, kompor & fryer: cek selang & burner 1 bulan, genset 6 bulan). Pakai id aset dari analisa_aset dan penerima dari daftar_tim; jangan mengarang id.
+- Aset tidak bisa diubah lewat usulkan_perubahan (tabel aset dikelola fungsi khusus); arahkan Juragan ke menu Aset untuk mencatat aset, penyusutan, mutasi, atau pelepasan.
+- Jangan bilang jadwal sudah dibuat sebelum ada pesan [Sistem] bahwa usulan disetujui.
 
 Tugas & SOP:
 - Untuk membuat tugas pakai usulkan_tugas (boleh beberapa tugas sekaligus, maks 10). Cari dulu penerima dengan daftar_tim: pakai untuk_user_id (orang) atau untuk_role_id (satu tim/role, mis. semua kasir). Jangan mengarang id. Isi tenggat (YYYY-MM-DD) bila disebut, checklist langkah bila membantu, wajib_foto bila perlu bukti.
@@ -160,6 +167,38 @@ export const TOOLS = [
     name: 'rekap_sdm',
     description: 'Rekap per karyawan aktif dalam rentang tanggal (maks 3 bulan): hari terjadwal, hadir, telat (jumlah & total menit), pulang cepat, alpa, cuti, sisa cuti tahunan, tugas terbuka & lewat tenggat.',
     input_schema: { type: 'object', properties: { dari: { type: 'string', description: 'YYYY-MM-DD' }, sampai: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['dari', 'sampai'] },
+  },
+  {
+    name: 'analisa_aset',
+    description: 'Data aset aktif untuk dianalisa: ringkasan (jumlah, nilai buku, kerusakan terbuka, perawatan terlambat, garansi), per aset: kategori, outlet, umur vs umur manfaat, % tersusut, harga & nilai buku, biaya perawatan + perbaikan & jumlah kerusakan 12 bulan, kerusakan terbuka, jadwal perawatan, garansi; plus laporan kerusakan 60 hari.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'usulkan_perawatan',
+    description: 'Usulkan jadwal perawatan rutin untuk satu atau beberapa aset (maks 10). Setelah disetujui, tugas perawatan otomatis muncul di menu Tugas menjelang jatuh tempo. TIDAK langsung dibuat: owner menekan Setujui dulu.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ringkasan: { type: 'string', description: 'mis. "Jadwal servis rutin untuk 3 aset dapur"' },
+        jadwal: {
+          type: 'array', maxItems: 10,
+          items: {
+            type: 'object',
+            properties: {
+              asset_id: { type: 'string', description: 'id aset dari analisa_aset' }, aset_nama: { type: 'string' },
+              judul: { type: 'string', description: 'mis. Service AC' },
+              setiap: { type: 'integer', minimum: 1, maximum: 365 }, satuan: { type: 'string', enum: ['hari', 'minggu', 'bulan'] },
+              mulai: { type: 'string', description: 'jatuh tempo pertama YYYY-MM-DD' },
+              untuk_user_id: { type: 'string' }, untuk_role_id: { type: 'string' }, untuk_nama: { type: 'string' },
+              checklist: { type: 'array', items: { type: 'string' } }, vendor: { type: 'string' },
+              perkiraan_biaya: { type: 'number' }, wajib_foto: { type: 'boolean' },
+            },
+            required: ['asset_id', 'judul', 'setiap', 'satuan', 'mulai'],
+          },
+        },
+      },
+      required: ['ringkasan', 'jadwal'],
+    },
   },
   {
     name: 'daftar_tim',
@@ -304,6 +343,11 @@ export async function runReadTool(db: Db, name: string, input: Json): Promise<st
     if (error) return `Gagal membaca: ${error.message}`;
     return clip(data);
   }
+  if (name === 'analisa_aset') {
+    const { data, error } = await db.rpc('ai_asset_insights');
+    if (error) return `Gagal membaca aset: ${error.message}`;
+    return clip(data);
+  }
   if (name === 'daftar_tim') {
     const { data, error } = await db.rpc('hr_task_people');
     if (error) return `Gagal membaca tim: ${error.message}`;
@@ -350,6 +394,48 @@ export async function executeTasks(db: Db, input: Json) {
     made.push(data?.task_number ?? t.judul);
   }
   return { ok: true, message: `${made.length} tugas dibuat: ${made.join(', ')}`, count: made.length };
+}
+
+// ---------------------------------------------------------------------------- usulan jadwal perawatan aset
+const UNIT_MAP: Record<string, string> = { hari: 'day', minggu: 'week', bulan: 'month' };
+export async function validatePlans(db: Db, input: Json): Promise<string | null> {
+  const list = input.jadwal;
+  if (!Array.isArray(list) || !list.length) return 'Usulan butuh minimal 1 jadwal.';
+  if (list.length > 10) return 'Maksimal 10 jadwal per usulan.';
+  const [{ data: assets, error: e1 }, { data: people, error: e2 }] = await Promise.all([db.rpc('ast_list', { p_status: 'active' }), db.rpc('hr_task_people')]);
+  if (e1) return e1.message;
+  if (e2) return e2.message;
+  const ids = new Set((assets ?? []).map((a: Json) => a.id));
+  const users = new Set((people?.users ?? []).map((u: Json) => u.id));
+  const roles = new Set((people?.roles ?? []).map((r: Json) => r.id));
+  for (const [i, j] of list.entries()) {
+    const n = `Jadwal #${i + 1}`;
+    if (!ids.has(j.asset_id)) return `${n}: aset tidak ditemukan / sudah dilepas (pakai id dari analisa_aset)`;
+    if (!String(j.judul ?? '').trim()) return `${n}: judul wajib diisi`;
+    if (!(Number(j.setiap) >= 1 && Number(j.setiap) <= 365)) return `${n}: setiap harus 1-365`;
+    if (!UNIT_MAP[j.satuan]) return `${n}: satuan harus hari/minggu/bulan`;
+    if (!DATE_RE.test(String(j.mulai ?? ''))) return `${n}: mulai harus YYYY-MM-DD`;
+    if (j.untuk_user_id && !users.has(j.untuk_user_id)) return `${n}: penerima tidak ditemukan (pakai id dari daftar_tim)`;
+    if (j.untuk_role_id && !roles.has(j.untuk_role_id)) return `${n}: tim/role tidak ditemukan (pakai id dari daftar_tim)`;
+  }
+  return null;
+}
+export const planPayload = (j: Json) => ({
+  asset_id: j.asset_id, title: String(j.judul).trim(), interval_value: Number(j.setiap), interval_unit: UNIT_MAP[j.satuan],
+  next_due_date: j.mulai, lead_days: 3, assignee_user_id: j.untuk_user_id || null, assignee_role_id: j.untuk_user_id ? null : j.untuk_role_id || null,
+  checklist: (j.checklist ?? []).map(String).slice(0, 30), vendor: j.vendor || null,
+  estimated_cost: j.perkiraan_biaya != null ? Number(j.perkiraan_biaya) : null, requires_photo: !!j.wajib_foto,
+});
+export async function executePlans(db: Db, input: Json) {
+  const err = await validatePlans(db, input);
+  if (err) return { ok: false, message: err };
+  const made: string[] = [];
+  for (const j of input.jadwal) {
+    const { error } = await db.rpc('ast_save_plan', { p: planPayload(j) });
+    if (error) return { ok: false, message: `Gagal membuat jadwal "${j.judul}": ${error.message}${made.length ? ` (${made.length} jadwal sebelumnya sudah dibuat)` : ''}`, count: made.length };
+    made.push(`${j.judul}${j.aset_nama ? ` (${j.aset_nama})` : ''}`);
+  }
+  return { ok: true, message: `${made.length} jadwal perawatan dibuat: ${made.join(', ')}`, count: made.length };
 }
 
 // usulan PO -> payload fungsi database
@@ -458,7 +544,7 @@ async function saveMessages(db: Db, profile: Json, conversationId: string, msgs:
   if (error) throw new Error(`Gagal menyimpan obrolan: ${error.message}`);
 }
 
-const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas'];
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas', 'usulkan_perawatan'];
 function findProposal(history: Json[], actionId: string) {
   for (const m of history) for (const b of m.content as Block[]) {
     if (b.type === 'tool_use' && b.id === actionId && PROPOSAL_TOOLS.includes(b.name)) return { name: b.name as string, input: b.input as Json };
@@ -527,7 +613,8 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
     const proposal = found.input;
     const result: Json = body.action !== 'execute' ? { ok: true, message: 'ditolak owner', count: 0 }
       : found.name === 'usulkan_po' ? await executePo(db, proposal)
-      : found.name === 'usulkan_tugas' ? await executeTasks(db, proposal) : await executeProposal(db, proposal, profile.company_id);
+      : found.name === 'usulkan_tugas' ? await executeTasks(db, proposal)
+      : found.name === 'usulkan_perawatan' ? await executePlans(db, proposal) : await executeProposal(db, proposal, profile.company_id);
     const status = body.action === 'reject' ? 'rejected' : result.ok ? 'executed' : 'failed';
     const note = body.action === 'reject'
       ? `[Sistem] Juragan MENOLAK usulan "${proposal.ringkasan}". Tidak ada data yang berubah.`
@@ -581,6 +668,13 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
           else {
             pending.push({ id: b.id, kind: 'po', ...b.input, preview: r.preview });
             results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan PO #${b.id.slice(-6)} sudah ditampilkan ke Juragan dan MENUNGGU persetujuan. Belum ada PO yang dibuat. PRATINJAU: ${JSON.stringify(r.preview)}` });
+          }
+        } else if (b.name === 'usulkan_perawatan') {
+          const err = await validatePlans(db, b.input ?? {});
+          if (err) results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan jadwal ditolak sistem: ${err}`, is_error: true });
+          else {
+            pending.push({ id: b.id, kind: 'maintenance', ...b.input });
+            results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan ${b.input.jadwal.length} jadwal perawatan #${b.id.slice(-6)} sudah ditampilkan ke Juragan dan MENUNGGU persetujuan. Belum ada jadwal yang dibuat.` });
           }
         } else if (b.name === 'usulkan_tugas') {
           const err = await validateTasks(db, b.input ?? {});
