@@ -68,6 +68,16 @@ function fakeDb({ owner = true, company = 'C1' } = {}) {
         tables.pur_purchase_orders = [...(tables.pur_purchase_orders ?? []), { id: 'po1', company_id: company }];
         return { data: { id: 'po1', po_number: args.p.submit ? 'PO/OUT01/0001' : null, status: args.p.submit ? 'disetujui' : 'draft', total: 180000 }, error: null };
       }
+      if (fn === 'ai_business_brief' || fn === 'ai_feedback_insights' || fn === 'ai_hr_recap') {
+        calls.push({ rpc: fn, args });
+        return { data: fn === 'ai_business_brief' ? { penjualan: { hari_ini: { omzet: 1200000 } }, sdm: { belum_absen: [{ nama: 'Andi' }] } } : [{ nama: 'Andi', telat: 2 }], error: null };
+      }
+      if (fn === 'hr_task_people') return { data: { users: [{ id: 'u-andi', full_name: 'Andi', role: 'Kasir' }], roles: [{ id: 'r-kasir', name: 'Kasir' }] }, error: null };
+      if (fn === 'hr_task_save') {
+        calls.push({ rpc: fn, args });
+        tables.hr_tasks = [...(tables.hr_tasks ?? []), { id: `t${(tables.hr_tasks ?? []).length}`, company_id: company, ...args.p }];
+        return { data: { task_number: `TSK-000${tables.hr_tasks.length}` }, error: null };
+      }
       if (fn === 'ai_table_info') {
         const all = Object.values(info);
         return { data: args.p_tables ? all.filter((t) => args.p_tables.includes(t.table)) : all.map(({ columns, ...t }) => t), error: null };
@@ -205,6 +215,45 @@ await check('usulan PO yang tidak valid ditolak sistem sebelum sampai ke owner',
   const r = await handle({ action: 'chat', conversation_id: CONV, text: 'po' }, deps(db, claude));
   assert(r.body.pending.length === 0, 'usulan kosong lolos');
   assert(/Item PO masih kosong/.test(claude.requests[1].messages.at(-1).content[0].content), 'error tidak diteruskan ke Claude');
+});
+
+await check('briefing harian: ringkasan_bisnis memanggil ai_business_brief dengan periode', async () => {
+  const db = fakeDb(), claude = fakeClaude([tool('b1', 'ringkasan_bisnis', { hari: 14 }), say('Omzet hari ini Rp1,2 jt. Saran: ...')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'ringkasan hari ini' }, deps(db, claude));
+  assert(r.status === 200, JSON.stringify(r.body));
+  assert(db.calls.find((c) => c.rpc === 'ai_business_brief')?.args.p_days === 14, 'periode tidak diteruskan');
+  assert(/1200000/.test(claude.requests[1].messages.at(-1).content[0].content), 'hasil briefing tidak dikirim ke Claude');
+  assert(/ringkasan_bisnis/.test(claude.requests[0].system) || claude.requests[0].tools.some((t) => t.name === 'ringkasan_bisnis'), 'alat tidak tersedia');
+});
+await check('analisa_ulasan & rekap_sdm meneruskan rentang tanggal', async () => {
+  const db = fakeDb(), claude = fakeClaude([tool('a1', 'analisa_ulasan', { dari: '2026-10-01', sampai: '2026-10-09' }), tool('a2', 'rekap_sdm', { dari: '2026-10-01', sampai: '2026-10-07' }), say('ok')]);
+  await handle({ action: 'chat', conversation_id: CONV, text: 'ulasan & absensi' }, deps(db, claude));
+  const f = db.calls.find((c) => c.rpc === 'ai_feedback_insights'), h = db.calls.find((c) => c.rpc === 'ai_hr_recap');
+  assert(f?.args.p_from === '2026-10-01' && f.args.p_to === '2026-10-09', JSON.stringify(f));
+  assert(h?.args.p_to === '2026-10-07', JSON.stringify(h));
+});
+await check('usulan tugas: menunggu persetujuan, lalu dibuat lewat hr_task_save', async () => {
+  const db = fakeDb();
+  const input = { ringkasan: '2 tugas dari ulasan', tugas: [
+    { judul: 'Bersihkan meja lebih sering', untuk_role_id: 'r-kasir', untuk_nama: 'Tim Kasir', prioritas: 'high', tenggat: '2026-10-12', checklist: ['Lap meja tiap 30 menit'], wajib_foto: true },
+    { judul: 'Cek waktu saji', untuk_user_id: 'u-andi', untuk_role_id: 'r-kasir' }] };
+  const claude = fakeClaude([tool('tk_1', 'usulkan_tugas', input), say('Silakan cek usulan tugas')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'buatkan tugas' }, deps(db, claude));
+  assert(r.body.pending.length === 1 && r.body.pending[0].kind === 'task', JSON.stringify(r.body.pending));
+  assert(!(db.tables.hr_tasks ?? []).length, 'tugas dibuat sebelum disetujui!');
+  const ex = await handle({ action: 'execute', conversation_id: CONV, action_id: 'tk_1' }, deps(db, claude));
+  assert(ex.body.status === 'executed' && /2 tugas dibuat: TSK-0001, TSK-0002/.test(ex.body.result.message), JSON.stringify(ex.body));
+  const [a, b] = db.tables.hr_tasks;
+  assert(a.assignee_role_id === 'r-kasir' && a.assignee_id === null && a.priority === 'high' && a.due_date === '2026-10-12' && a.requires_photo === true, JSON.stringify(a));
+  assert(a.checklist[0].text === 'Lap meja tiap 30 menit' && a.checklist[0].done === false, 'checklist salah');
+  assert(b.assignee_id === 'u-andi' && b.assignee_role_id === null && b.priority === 'normal', JSON.stringify(b));
+});
+await check('usulan tugas dengan penerima karangan ditolak sistem', async () => {
+  const db = fakeDb();
+  const claude = fakeClaude([tool('tk_x', 'usulkan_tugas', { ringkasan: 'x', tugas: [{ judul: 'Tes', untuk_user_id: 'u-palsu' }] }), say('maaf')]);
+  const r = await handle({ action: 'chat', conversation_id: CONV, text: 'tugas' }, deps(db, claude));
+  assert(r.body.pending.length === 0, 'penerima palsu lolos');
+  assert(/penerima tidak ditemukan/.test(claude.requests[1].messages.at(-1).content[0].content), 'error tidak diteruskan');
 });
 
 console.log(`\n${passed} lulus, ${failed} gagal\n`);

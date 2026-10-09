@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, FileSpreadsheet, Paperclip, Plus, Search, Send, ShoppingCart, X } from 'lucide-react';
+import { Check, FileSpreadsheet, ListTodo, Paperclip, Plus, Search, Send, ShoppingCart, X } from 'lucide-react';
 import type { ChatEvent } from './useOfficeSim';
 import { useFeedback } from '../Feedback';
 import { useAuth } from '../../context/AuthContext';
@@ -15,18 +15,25 @@ type Block = Record<string, any>;
 interface Row { id: number; role: 'user' | 'assistant'; content: Block[]; meta: Record<string, any> | null; created_at: string }
 
 const SUGGESTIONS = [
+  'Ringkasan usaha hari ini & saran prioritas',
+  'Analisa ulasan pelanggan bulan ini',
+  'Rekap absensi, telat & cuti tim minggu ini',
+  'Buatkan tugas perbaikan dari ulasan yang buruk',
   'Saya owner baru. Apa langkah pertama menyiapkan usaha di SEMAR?',
   'Bantu saya migrasi data supplier dari file Excel',
-  'Bagaimana cara membuat menu yang terhubung ke resep & stok?',
-  'Analisa penjualan 7 hari terakhir dan menu terlaris',
   'Bahan apa yang perlu dibeli untuk 7 hari ke depan? Buatkan PO-nya',
-  'Bahan baku apa yang stoknya menipis?',
+  'Buatkan SOP buka toko untuk kasir',
 ];
 const TOOL_LABEL: Record<string, string> = {
   daftar_tabel: 'melihat daftar data', struktur_tabel: 'mempelajari struktur', cari_data: 'membaca data',
   analisa_kebutuhan_beli: 'menganalisa kebutuhan beli & harga supplier',
+  ringkasan_bisnis: 'membaca ringkasan usaha (penjualan, stok, SDM, tugas, ulasan)',
+  analisa_ulasan: 'membaca ulasan pelanggan', rekap_sdm: 'merekap absensi & cuti', daftar_tim: 'melihat daftar tim',
 };
-const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po'];
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas'];
+const PRIORITY: Record<string, [string, string]> = {
+  low: ['Rendah', ''], normal: ['Normal', 'badge-info'], high: ['Tinggi', 'badge-warning'], urgent: ['Mendesak', 'badge-danger'],
+};
 const OP_LABEL: Record<string, string> = { tambah: 'Tambah data', ubah: 'Ubah data', hapus: 'Hapus data' };
 const newId = () => crypto.randomUUID();
 
@@ -220,8 +227,11 @@ function Message({ row, decisions, previews, acting, onDecide }: {
           return <div key={i} className="semar-msg ai"><MiniAvatar id="semar" size={30} /><div className="semar-bubble"><MiniMarkdown text={b.text} /></div></div>;
         }
         if (b.type === 'tool_use' && !PROPOSAL_TOOLS.includes(b.name)) {
-          const t = b.input?.tabel;
+          const t = b.input?.tabel ?? (b.input?.dari ? `${b.input.dari} s/d ${b.input.sampai}` : undefined);
           return <div key={i} className="semar-tool"><Search size={12} /> {TOOL_LABEL[b.name] ?? b.name}{t ? `: ${Array.isArray(t) ? t.join(', ') : t}` : ''}</div>;
+        }
+        if (b.type === 'tool_use' && b.name === 'usulkan_tugas') {
+          return <TaskProposal key={i} id={b.id} input={b.input} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
         }
         if (b.type === 'tool_use' && b.name === 'usulkan_po') {
           return <PoProposal key={i} id={b.id} input={b.input} preview={previews.get(b.id)} decision={decisions.get(b.id)} acting={acting === b.id} onDecide={onDecide} />;
@@ -265,6 +275,49 @@ function Proposal({ id, input, decision, acting, onDecide }: {
       {!st && (
         <div className="semar-prop-actions">
           <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}><Check size={14} /> {acting ? 'Menjalankan…' : 'Setujui & jalankan'}</button>
+          <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Kartu usulan tugas untuk tim dari Semar
+function TaskProposal({ id, input, decision, acting, onDecide }: {
+  id: string; input: Record<string, any>; decision?: Record<string, any>; acting: boolean; onDecide: (id: string, a: 'execute' | 'reject') => void;
+}) {
+  const st = decision?.status;
+  const tasks: Record<string, any>[] = Array.isArray(input.tugas) ? input.tugas : [];
+  return (
+    <div className={`semar-prop task ${st ?? 'pending'}`}>
+      <div className="semar-prop-head">
+        <span className="badge badge-primary"><ListTodo size={12} /> {tasks.length} tugas</span>
+        {st === 'executed' && <span className="badge badge-success">Sudah dibuat</span>}
+        {st === 'rejected' && <span className="badge">Ditolak</span>}
+        {st === 'failed' && <span className="badge badge-danger">Gagal</span>}
+      </div>
+      <b>{input.ringkasan}</b>
+      <div className="semar-tasks">
+        {tasks.map((t, i) => (
+          <div key={i} className="semar-task">
+            <div><b>{t.judul}</b> <span className={`badge ${PRIORITY[t.prioritas ?? 'normal']?.[1] ?? ''}`}>{PRIORITY[t.prioritas ?? 'normal']?.[0] ?? t.prioritas}</span></div>
+            {t.deskripsi && <div className="small muted">{t.deskripsi}</div>}
+            <div className="small">
+              Untuk: <b>{t.untuk_nama ?? (t.untuk_user_id || t.untuk_role_id ? 'penerima terpilih' : 'belum ditentukan')}</b>
+              {t.tenggat && <> · tenggat {t.tenggat}</>}
+              {t.wajib_foto && <> · wajib foto bukti</>}
+            </div>
+            {Array.isArray(t.checklist) && t.checklist.length > 0 && (
+              <ul className="small">{t.checklist.slice(0, 6).map((c: string, j: number) => <li key={j}>{c}</li>)}{t.checklist.length > 6 && <li className="muted">… {t.checklist.length - 6} langkah lagi</li>}</ul>
+            )}
+          </div>
+        ))}
+      </div>
+      {st === 'executed' && <div className="small">✅ {decision?.result?.message} · <Link to="/tugas">Buka papan Tugas →</Link></div>}
+      {st === 'failed' && <div className="small" style={{ color: 'var(--danger)' }}>{decision?.result?.message}</div>}
+      {!st && (
+        <div className="semar-prop-actions">
+          <button type="button" className="btn-primary btn-sm" disabled={acting} onClick={() => onDecide(id, 'execute')}><Check size={14} /> {acting ? 'Membuat tugas…' : 'Setujui & buat tugas'}</button>
           <button type="button" className="btn-sm" disabled={acting} onClick={() => onDecide(id, 'reject')}><X size={14} /> Tolak</button>
         </div>
       )}

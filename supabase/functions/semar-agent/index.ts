@@ -1,5 +1,6 @@
 // Edge Function: semar-agent
-// Semar, kepala konsultan AI SEMAR untuk OWNER: tutorial, analisa data, migrasi Excel ke master data.
+// Semar, kepala konsultan AI SEMAR untuk OWNER: tutorial, analisa data, briefing harian, ulasan, SDM,
+// migrasi Excel ke master data, usulan PO & tugas.
 //
 // Keamanan:
 //   * Hanya owner (permission '*') yang dilayani; dicek di sini dan di RLS tabel ai_chat_messages.
@@ -47,6 +48,11 @@ Menu sidebar:
 - Persediaan: Stok, Dokumen Stok (penyesuaian, waste, opname, transfer), Batch & Kedaluwarsa (FIFO biaya, FEFO keluar), Produksi (simple manufacturing/BOM), Kartu Stok, Gudang & Lokasi.
 - Master Data: Master Produk (bahan baku/barang: kategori, satuan & konversi, harga beli, resep/BOM, impor Excel), Menu (kategori menu, harga per outlet, modifier, paket, jadwal harga, impor Excel).
 - Keuangan & Laporan: Keuangan (COA, jurnal otomatis, biaya, laba rugi, neraca), Laporan.
+- Beranda Saya: absen foto + GPS, jadwal minggu ini, cuti & izin, tugas saya, penilaian kinerja, pengumuman (untuk semua karyawan, dari HP).
+- Tugas: papan kanban (Baru, Dikerjakan, Review, Selesai, Arsip) & SOP harian per role dengan rekap kepatuhan.
+- SDM / HR: Karyawan (biodata, dokumen, akun login), Jadwal Shift (template & papan mingguan), Absensi (rekap, review di luar radius, koreksi), Cuti & Izin (saldo, kalender, persetujuan), Penilaian Kinerja (template per role, periode, grade A-E), Jabatan & Departemen, Pengumuman.
+- Kasir & Outlet juga punya: Self Kiosk (layar sentuh pesan sendiri, bayar di kasir) & Ulasan Pelanggan (QR di struk 80mm, rating, NPS, tindak lanjut).
+- Dashboard Grup (khusus pemilik grup usaha): ringkasan semua PT, laba rugi & neraca konsolidasi, transaksi antar-PT (PO ke "PT dalam grup" otomatis jadi SO di PT penjual).
 - User Management: User (owner membuat akun staf dengan username), Role & Hak Akses, Approval Transaksi (siapa pembuat & penyetuju), Log Aktivitas.
 - Pengaturan: Perusahaan & Logo, Brand, Outlet, Pembayaran Online, Data & Backup (data contoh, backup, restore, reset).
 Alur umum owner baru: 1) Pengaturan: outlet & brand; 2) Master Produk: satuan, kategori, bahan baku + harga beli; 3) Supplier; 4) Menu + resep (menu terhubung ke bahan lewat resep supaya stok & HPP otomatis); 5) Metode pembayaran & meja; 6) User staf & role; 7) Mulai jualan di Kasir.
@@ -62,6 +68,8 @@ Tugasmu:
 1. Menjelaskan cara memakai aplikasi (tutorial langkah demi langkah, sebutkan menu persisnya).
 2. Menganalisa data usaha (penjualan, stok, pembelian, keuangan) dengan membaca database lewat alat yang tersedia.
 3. Membantu migrasi data dari file (Excel/CSV/PDF/gambar) ke master data: supplier, produk/bahan baku, kategori, satuan, menu, resep, pelanggan, pricelist.
+4. Memberi briefing & saran harian (penjualan, stok, SDM, tugas, ulasan, keuangan), menganalisa ulasan pelanggan, merekap absensi & cuti.
+5. Membuat tugas untuk tim, template SOP harian, dan pertanyaan form ulasan (lewat usulan yang disetujui Juragan).
 
 Aturan penting:
 - Kamu HANYA bisa mengakses data perusahaan Juragan ini. Jangan pernah mengaku bisa melihat perusahaan lain.
@@ -71,6 +79,16 @@ Aturan penting:
 - Migrasi file: (a) baca isi lampiran, (b) cek struktur_tabel tujuan (kolom wajib, relasi, aturan), (c) cek data yang sudah ada dengan cari_data supaya tidak dobel, (d) jelaskan pemetaan kolom ke Juragan, (e) usulkan dalam batch (maks ${LIMITS.maxWriteRows} baris). Bila butuh id relasi (kategori, satuan, supplier), cari id-nya dulu; bila belum ada, usulkan pembuatannya lebih dulu, tunggu disetujui, baru lanjut.
 - company_id diisi otomatis oleh sistem; jangan mengisinya.
 - Pesan yang diawali [Sistem] adalah catatan otomatis dari aplikasi (hasil persetujuan/penolakan usulan).
+
+Briefing & saran:
+- Bila Juragan menyapa, minta ringkasan/briefing, atau bertanya "bagaimana usaha hari ini": panggil ringkasan_bisnis. Jawab dengan: 1) angka kunci (penjualan hari ini vs kemarin, periode vs sebelumnya), 2) hal yang perlu perhatian (stok menipis/kedaluwarsa, karyawan belum absen/telat, cuti & koreksi menunggu, tugas lewat tenggat, ulasan buruk, persetujuan menunggu), 3) 3-5 saran tindakan prioritas yang konkret. Tawarkan membuatkan tugas untuk saran yang bisa dikerjakan tim.
+- Untuk ulasan pelanggan pakai analisa_ulasan: kelompokkan komentar menjadi tema (rasa, kecepatan, pelayanan, kebersihan, harga, dll), sebut contoh kutipan singkat, aspek dengan nilai terendah, dan saran perbaikan. Jangan menampilkan data kontak pelanggan.
+- Untuk absensi/cuti/kinerja tim pakai rekap_sdm: soroti yang sering telat/alpa, sisa cuti, dan tugas lewat tenggat. Sampaikan dengan bahasa yang adil dan tidak menghakimi.
+
+Tugas & SOP:
+- Untuk membuat tugas pakai usulkan_tugas (boleh beberapa tugas sekaligus, maks 10). Cari dulu penerima dengan daftar_tim: pakai untuk_user_id (orang) atau untuk_role_id (satu tim/role, mis. semua kasir). Jangan mengarang id. Isi tenggat (YYYY-MM-DD) bila disebut, checklist langkah bila membantu, wajib_foto bila perlu bukti.
+- Template SOP harian (mis. Buka toko) & pertanyaan form ulasan diusulkan lewat usulkan_perubahan ke tabel hr_sop_templates / crm_feedback_questions; cek struktur_tabel dulu (items SOP = [{text, photo}]).
+- Jangan bilang tugas sudah dibuat sebelum ada pesan [Sistem] bahwa usulan disetujui.
 
 Pembelian & forecasting:
 - Untuk pertanyaan kebutuhan beli, stok cukup berapa hari, atau saran belanja: pakai analisa_kebutuhan_beli. Jelaskan dengan tabel singkat: bahan, stok, pemakaian/hari, cukup berapa hari, saran beli, supplier & harga terbaik. Sebutkan asumsinya (periode data & target hari).
@@ -126,6 +144,55 @@ export const TOOLS = [
         cukup_hari: { type: 'integer', minimum: 1, maximum: 90, description: 'Target stok cukup untuk berapa hari (default 7)' },
         cari: { type: 'string', description: 'Filter nama/kode bahan' },
       },
+    },
+  },
+  {
+    name: 'ringkasan_bisnis',
+    description: 'Briefing usaha dalam satu panggilan: penjualan (hari ini, kemarin, periode vs sebelumnya, per outlet, jam ramai, menu terlaris & menu tidak laku 14 hari), stok menipis & mau kedaluwarsa, SDM hari ini (hadir, telat, belum absen, cuti, pengajuan menunggu, kontrak habis), tugas (lewat tenggat, review, SOP kemarin), ulasan, persetujuan menunggu, pembelian, laba rugi bulan ini.',
+    input_schema: { type: 'object', properties: { hari: { type: 'integer', minimum: 1, maximum: 90, description: 'Panjang periode (default 7 hari)' } } },
+  },
+  {
+    name: 'analisa_ulasan',
+    description: 'Ulasan pelanggan dari QR struk dalam rentang tanggal: ringkasan (rata-rata bintang, NPS, nilai aspek, yang paling disukai, tren, per outlet) dan isi ulasan/komentar (maks 120 terbaru) untuk dianalisa temanya.',
+    input_schema: { type: 'object', properties: { dari: { type: 'string', description: 'YYYY-MM-DD' }, sampai: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['dari', 'sampai'] },
+  },
+  {
+    name: 'rekap_sdm',
+    description: 'Rekap per karyawan aktif dalam rentang tanggal (maks 3 bulan): hari terjadwal, hadir, telat (jumlah & total menit), pulang cepat, alpa, cuti, sisa cuti tahunan, tugas terbuka & lewat tenggat.',
+    input_schema: { type: 'object', properties: { dari: { type: 'string', description: 'YYYY-MM-DD' }, sampai: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['dari', 'sampai'] },
+  },
+  {
+    name: 'daftar_tim',
+    description: 'Daftar user aktif (id, nama, role) dan role/tim (id, nama) untuk memilih penerima tugas.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'usulkan_tugas',
+    description: 'Usulkan satu atau beberapa tugas untuk tim (muncul di menu Tugas penerima). TIDAK langsung dibuat: owner menekan Setujui dulu.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        ringkasan: { type: 'string', description: 'mis. "3 tugas perbaikan dari ulasan minggu ini"' },
+        tugas: {
+          type: 'array', maxItems: 10,
+          items: {
+            type: 'object',
+            properties: {
+              judul: { type: 'string' }, deskripsi: { type: 'string' },
+              untuk_user_id: { type: 'string', description: 'id user penerima (dari daftar_tim)' },
+              untuk_role_id: { type: 'string', description: 'id role/tim penerima; anggota pertama yang mengerjakan jadi penerima' },
+              untuk_nama: { type: 'string', description: 'nama penerima / tim, untuk ditampilkan' },
+              prioritas: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+              tenggat: { type: 'string', description: 'YYYY-MM-DD' },
+              label: { type: 'array', items: { type: 'string' } },
+              checklist: { type: 'array', items: { type: 'string' } },
+              wajib_foto: { type: 'boolean' },
+            },
+            required: ['judul'],
+          },
+        },
+      },
+      required: ['ringkasan', 'tugas'],
     },
   },
   {
@@ -227,7 +294,62 @@ export async function runReadTool(db: Db, name: string, input: Json): Promise<st
     if (error) return `Gagal menganalisa: ${error.message}`;
     return clip(data);
   }
+  if (name === 'ringkasan_bisnis') {
+    const { data, error } = await db.rpc('ai_business_brief', { p_days: input.hari ?? 7 });
+    if (error) return `Gagal membaca ringkasan: ${error.message}`;
+    return clip(data);
+  }
+  if (name === 'analisa_ulasan' || name === 'rekap_sdm') {
+    const { data, error } = await db.rpc(name === 'analisa_ulasan' ? 'ai_feedback_insights' : 'ai_hr_recap', { p_from: input.dari, p_to: input.sampai });
+    if (error) return `Gagal membaca: ${error.message}`;
+    return clip(data);
+  }
+  if (name === 'daftar_tim') {
+    const { data, error } = await db.rpc('hr_task_people');
+    if (error) return `Gagal membaca tim: ${error.message}`;
+    return clip({ user: (data?.users ?? []).map((u: Json) => ({ id: u.id, nama: u.full_name, role: u.role })), role: data?.roles ?? [] });
+  }
   return `Alat tidak dikenal: ${name}`;
+}
+
+// ---------------------------------------------------------------------------- usulan tugas
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+export async function validateTasks(db: Db, input: Json): Promise<string | null> {
+  const list = input.tugas;
+  if (!Array.isArray(list) || !list.length) return 'Usulan tugas butuh minimal 1 tugas.';
+  if (list.length > 10) return 'Maksimal 10 tugas per usulan.';
+  const { data, error } = await db.rpc('hr_task_people');
+  if (error) return error.message;
+  const users = new Set((data?.users ?? []).map((u: Json) => u.id));
+  const roles = new Set((data?.roles ?? []).map((r: Json) => r.id));
+  for (const [i, t] of list.entries()) {
+    const n = `Tugas #${i + 1}`;
+    if (!String(t.judul ?? '').trim()) return `${n}: judul wajib diisi`;
+    if (t.untuk_user_id && !users.has(t.untuk_user_id)) return `${n}: penerima tidak ditemukan (pakai id dari daftar_tim)`;
+    if (t.untuk_role_id && !roles.has(t.untuk_role_id)) return `${n}: tim/role tidak ditemukan (pakai id dari daftar_tim)`;
+    if (t.prioritas && !PRIORITIES.includes(t.prioritas)) return `${n}: prioritas harus low/normal/high/urgent`;
+    if (t.tenggat && !DATE_RE.test(t.tenggat)) return `${n}: tenggat harus YYYY-MM-DD`;
+  }
+  return null;
+}
+export const taskPayload = (t: Json) => ({
+  title: String(t.judul).trim(), description: t.deskripsi ?? '', priority: t.prioritas || 'normal',
+  assignee_id: t.untuk_user_id || null, assignee_role_id: t.untuk_user_id ? null : t.untuk_role_id || null,
+  due_date: t.tenggat || null, labels: (t.label ?? []).map(String).slice(0, 8),
+  checklist: (t.checklist ?? []).map((x: unknown) => ({ text: String(x), done: false })).slice(0, 30),
+  requires_photo: !!t.wajib_foto,
+});
+export async function executeTasks(db: Db, input: Json) {
+  const err = await validateTasks(db, input);
+  if (err) return { ok: false, message: err };
+  const made: string[] = [];
+  for (const t of input.tugas) {
+    const { data, error } = await db.rpc('hr_task_save', { p: taskPayload(t) });
+    if (error) return { ok: false, message: `Gagal membuat "${t.judul}": ${error.message}${made.length ? ` (${made.length} tugas sebelumnya sudah dibuat)` : ''}`, count: made.length };
+    made.push(data?.task_number ?? t.judul);
+  }
+  return { ok: true, message: `${made.length} tugas dibuat: ${made.join(', ')}`, count: made.length };
 }
 
 // usulan PO -> payload fungsi database
@@ -336,7 +458,7 @@ async function saveMessages(db: Db, profile: Json, conversationId: string, msgs:
   if (error) throw new Error(`Gagal menyimpan obrolan: ${error.message}`);
 }
 
-const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po'];
+const PROPOSAL_TOOLS = ['usulkan_perubahan', 'usulkan_po', 'usulkan_tugas'];
 function findProposal(history: Json[], actionId: string) {
   for (const m of history) for (const b of m.content as Block[]) {
     if (b.type === 'tool_use' && b.id === actionId && PROPOSAL_TOOLS.includes(b.name)) return { name: b.name as string, input: b.input as Json };
@@ -404,7 +526,8 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
     if (history.some((m) => m.meta?.action_id === body.action_id)) return { status: 409, body: { error: 'Usulan ini sudah diproses.' } };
     const proposal = found.input;
     const result: Json = body.action !== 'execute' ? { ok: true, message: 'ditolak owner', count: 0 }
-      : found.name === 'usulkan_po' ? await executePo(db, proposal) : await executeProposal(db, proposal, profile.company_id);
+      : found.name === 'usulkan_po' ? await executePo(db, proposal)
+      : found.name === 'usulkan_tugas' ? await executeTasks(db, proposal) : await executeProposal(db, proposal, profile.company_id);
     const status = body.action === 'reject' ? 'rejected' : result.ok ? 'executed' : 'failed';
     const note = body.action === 'reject'
       ? `[Sistem] Juragan MENOLAK usulan "${proposal.ringkasan}". Tidak ada data yang berubah.`
@@ -458,6 +581,13 @@ export async function handle(body: Json, deps: Deps): Promise<{ status: number; 
           else {
             pending.push({ id: b.id, kind: 'po', ...b.input, preview: r.preview });
             results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan PO #${b.id.slice(-6)} sudah ditampilkan ke Juragan dan MENUNGGU persetujuan. Belum ada PO yang dibuat. PRATINJAU: ${JSON.stringify(r.preview)}` });
+          }
+        } else if (b.name === 'usulkan_tugas') {
+          const err = await validateTasks(db, b.input ?? {});
+          if (err) results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan tugas ditolak sistem: ${err}`, is_error: true });
+          else {
+            pending.push({ id: b.id, kind: 'task', ...b.input });
+            results.push({ type: 'tool_result', tool_use_id: b.id, content: `Usulan ${b.input.tugas.length} tugas #${b.id.slice(-6)} sudah ditampilkan ke Juragan dan MENUNGGU persetujuan. Belum ada tugas yang dibuat.` });
           }
         } else if (b.name === 'usulkan_perubahan') {
           const err = await validateProposal(db, b.input);
