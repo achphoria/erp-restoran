@@ -10,19 +10,21 @@ import { rpc } from '../lib/supabase';
 import { errorMessage, formatDateTime, formatRupiah } from '../lib/format';
 import { useTabParam } from '../lib/useTabParam';
 import { LABEL_SIZES, getLabelSizeKey, setLabelSizeKey } from '../lib/barcode';
-import { METHOD_LABEL, REQ_STATUS, fmtDate, fmtMonth, lifeLabel, monthISO, printAssetLabels, type AssetOptions } from '../lib/assets';
+import { METHOD_LABEL, REQ_STATUS, fmtDate, fmtMonth, lifeLabel, monthISO, parseAssetCode, printAssetLabels, type AssetOptions } from '../lib/assets';
 import AssetForm from '../components/assets/AssetForm';
 import AssetDetail from '../components/assets/AssetDetail';
+import { AuditTab, MaintenanceOverview } from '../components/assets/AssetOpsTabs';
 import '../styles/assets.css';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Tab = 'list' | 'depreciation' | 'requests' | 'categories';
+type Tab = 'list' | 'depreciation' | 'maintenance' | 'audit' | 'requests' | 'categories';
 
 // Aset tetap: daftar & nilai buku, penyusutan bulanan, mutasi & pelepasan, kategori.
 export default function AssetsPage() {
-  const { profile } = useAuth();
+  const { profile, can } = useAuth();
   const { toast } = useFeedback();
-  const [tab, setTab] = useTabParam<Tab>('list', ['list', 'depreciation', 'requests', 'categories']);
+  const [tab, setTab] = useTabParam<Tab>('list', ['list', 'depreciation', 'maintenance', 'audit', 'requests', 'categories']);
+  const [counts, setCounts] = useState<any | null>(null);
   const [params, setParams] = useSearchParams();
   const [options, setOptions] = useState<AssetOptions | null>(null);
   const [summary, setSummary] = useState<any | null>(null);
@@ -40,16 +42,19 @@ export default function AssetsPage() {
     setOptions(await rpc<AssetOptions>('ast_options'));
   }, []);
   const loadList = useCallback(async () => {
-    const [list, s] = await Promise.all([rpc<any[]>('ast_list', { p_status: status }), rpc<any>('ast_summary')]);
+    const [list, s, c] = await Promise.all([rpc<any[]>('ast_list', { p_status: status }), rpc<any>('ast_summary'), rpc<any>('ast_maintenance_counts')]);
+    setCounts(c);
     setRows(list); setSummary(s);
   }, [status]);
   useEffect(() => { loadOptions().catch((e) => toast(errorMessage(e), 'error')); }, [loadOptions, toast]);
+  // tugas perawatan yang mendekati jatuh tempo dibuat saat halaman dibuka
+  useEffect(() => { rpc('ast_sync_maintenance').catch(() => undefined); }, []);
   useEffect(() => { loadList().catch((e) => toast(errorMessage(e), 'error')); }, [loadList, toast]);
 
   // dibuka dari scan QR label: /assets?code=AST-DPR-0001
   const openCode = useCallback(async (code: string) => {
     try {
-      const id = await rpc<string | null>('ast_find_by_code', { p_code: code });
+      const id = await rpc<string | null>('ast_find_by_code', { p_code: parseAssetCode(code) });
       if (id) setOpenId(id); else toast(`Aset ${code} tidak ditemukan`, 'error');
     } catch (e) { toast(errorMessage(e), 'error'); }
   }, [toast]);
@@ -83,10 +88,12 @@ export default function AssetsPage() {
         {options.can_manage && tab === 'list' && <button className="btn-primary" onClick={() => setCreating(true)}><Plus size={16} /> Aset baru</button>}
       </div>
       <div className="tabs">
-        {([['list', 'Daftar aset'], ['depreciation', 'Penyusutan'], ['requests', 'Mutasi & pelepasan'], ['categories', 'Kategori & pengaturan']] as [Tab, string][]).map(([k, v]) => (
+        {([['list', 'Daftar aset'], ['depreciation', 'Penyusutan'], ['maintenance', 'Perawatan & kerusakan'], ['audit', 'Opname'], ['requests', 'Mutasi & pelepasan'], ['categories', 'Kategori & pengaturan']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}
             {k === 'requests' && summary?.pengajuan_menunggu > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>{summary.pengajuan_menunggu}</span>}
             {k === 'depreciation' && summary?.perlu_disusutkan > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>!</span>}
+            {k === 'maintenance' && counts?.kerusakan_terbuka + counts?.perawatan_terlambat > 0 && <span className="badge badge-danger" style={{ marginLeft: 6 }}>{counts.kerusakan_terbuka + counts.perawatan_terlambat}</span>}
+            {k === 'audit' && counts?.opname_terbuka > 0 && <span className="badge badge-warning" style={{ marginLeft: 6 }}>{counts.opname_terbuka}</span>}
           </button>
         ))}
       </div>
@@ -101,11 +108,13 @@ export default function AssetsPage() {
               <div className="card stat-card"><div className="stat-label">Nilai buku</div><div className="stat-value">{formatRupiah(summary.nilai_buku)}</div></div>
             </div>
           )}
-          {summary && (summary.perlu_disusutkan > 0 || summary.garansi_habis_30_hari.length > 0 || Number(summary.hutang_aset) > 0) && (
+          {summary && (summary.perlu_disusutkan > 0 || summary.garansi_habis_30_hari.length > 0 || Number(summary.hutang_aset) > 0 || counts?.kerusakan_terbuka > 0 || counts?.perawatan_terlambat > 0) && (
             <div className="card asset-alerts">
               {summary.perlu_disusutkan > 0 && <div>📅 {summary.perlu_disusutkan} aset belum disusutkan sampai {fmtMonth(monthISO(-1))}. <button className="btn-sm" onClick={() => setTab('depreciation')}>Jalankan penyusutan</button></div>}
               {summary.garansi_habis_30_hari.map((g: any) => <div key={g.id}>🛡️ Garansi <button className="asset-link" onClick={() => setOpenId(g.id)}>{g.kode} {g.nama}</button> habis {fmtDate(g.garansi)}</div>)}
               {Number(summary.hutang_aset) > 0 && <div>💳 Hutang pembelian aset belum dibayar {formatRupiah(summary.hutang_aset)}</div>}
+              {counts?.kerusakan_terbuka > 0 && <div>🔧 {counts.kerusakan_terbuka} laporan kerusakan terbuka{counts.mati_total > 0 && <b className="text-danger"> ({counts.mati_total} mati total)</b>}. <button className="btn-sm" onClick={() => setTab('maintenance')}>Lihat</button></div>}
+              {counts?.perawatan_terlambat > 0 && <div>⏰ {counts.perawatan_terlambat} perawatan rutin terlambat</div>}
             </div>
           )}
           <div className="card">
@@ -159,6 +168,8 @@ export default function AssetsPage() {
 
       {tab === 'depreciation' && <DepreciationTab options={options} onChanged={loadList} />}
       {tab === 'requests' && <RequestsTab onOpen={setOpenId} />}
+      {tab === 'maintenance' && <MaintenanceOverview options={options} onOpen={setOpenId} />}
+      {tab === 'audit' && <AuditTab options={options} canAudit={can(['asset.manage', 'asset.audit'])} onOpen={setOpenId} />}
       {tab === 'categories' && <CategoriesTab options={options} onChanged={loadOptions} />}
 
       {creating && <AssetForm initial={null} options={options} onClose={() => setCreating(false)}

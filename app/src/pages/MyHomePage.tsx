@@ -8,6 +8,7 @@ import MyAttendance from '../components/hr/MyAttendance';
 import MyLeave, { TeamInbox } from '../components/hr/MyLeave';
 import MyTasks from '../components/tasks/MyTasks';
 import MyAppraisals from '../components/hr/MyAppraisals';
+import ReportAssetCard from '../components/assets/ReportAssetCard';
 import { rpc } from '../lib/supabase';
 import { errorMessage, formatDateTime } from '../lib/format';
 import { EMPLOYMENT } from '../lib/hr';
@@ -28,6 +29,7 @@ export default function MyHomePage() {
     setAnn(a ?? []);
   }, []);
   useEffect(() => { load().catch((e) => toast(errorMessage(e), 'error')); }, [load, toast]);
+  useEffect(() => { rpc('ast_sync_maintenance').catch(() => undefined); }, []);
 
   const read = async (a: any) => {
     setOpen(open === a.id ? null : a.id);
@@ -65,6 +67,7 @@ export default function MyHomePage() {
         <TeamInbox />
         <MyAppraisals />
         <MyTasks />
+        <ReportAssetCard />
         {profile && <MyLeave companyId={profile.company_id} />}
 
         <div className="card">

@@ -36,6 +36,8 @@ export default function TasksPage() {
     window.dispatchEvent(new Event('tasks-changed'));
   }, [scope, outletId, archived]);
   useEffect(() => { load().catch((e) => toast(errorMessage(e), 'error')); }, [load, toast]);
+  // tugas perawatan aset yang mendekati jatuh tempo dibuat dulu, lalu papan dimuat ulang
+  useEffect(() => { rpc<number>('ast_sync_maintenance').then((n) => { if (n > 0) load(); }).catch(() => undefined); }, [load]);
   useEffect(() => {
     Promise.all([rpc<People>('hr_task_people'), must(supabase.from('sys_outlets').select('id, name').eq('is_active', true).order('name'))])
       .then(([p, o]) => { setPeople(p); setOutlets(o); }).catch(() => undefined);

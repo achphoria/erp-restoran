@@ -3184,5 +3184,113 @@ await check('akses aset: kasir ditolak, user branch hanya melihat aset branch-ny
   assert((await val(`select count(*)::int from sys_approval_rules where company_id = $1 and document_type in ('asset_transfer', 'asset_disposal') and is_enabled`, [company4])) === 2, 'aturan approval default aktif');
 });
 
+console.log('\nAset tahap 2: perawatan, kerusakan, opname:');
+let astAc, astRak, kasirOutlet, acPlan, acRepair, astAudit;
+const msnCat = () => val(`select id from ast_categories where company_id = $1 and code = 'MSN'`, [company1]);
+const frnCat = () => val(`select id from ast_categories where company_id = $1 and code = 'FRN'`, [company1]);
+await check('perawatan: jadwal → tugas otomatis H-3 untuk kasir; selesai → riwayat & jadwal maju; biaya dijurnal', async () => {
+  await db.exec('reset role');
+  kasirOutlet = await val(`select outlet_id from sys_user_outlets where user_id = $1 limit 1`, [KASIR]) ?? outletId;
+  await loginAs(U1);
+  astAc = (await val(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'AC split 1 PK', category_id: await msnCat(), outlet_id: kasirOutlet,
+    acquisition_date: await astMonth(-1), acquisition_cost: 3500000, funding: 'none', location: 'Ruang makan' })])).id;
+  const due = await val(`select ((now() at time zone 'Asia/Jakarta')::date + 2)::text`);
+  acPlan = await val(`select ast_save_plan($1::jsonb)`, [JSON.stringify({ asset_id: astAc, title: 'Service AC', interval_value: 3, interval_unit: 'month',
+    next_due_date: due, lead_days: 3, assignee_user_id: KASIR, checklist: ['Cuci filter', 'Cek freon'], vendor: 'CV Sejuk' })]);
+  assert(acPlan.open_task_id, 'tugas belum dibuat: ' + JSON.stringify(acPlan));
+  const t = await one(`select assignee_id, due_date::text due, created_by, labels, link_url, jsonb_array_length(checklist) n from hr_tasks where id = $1`, [acPlan.open_task_id]);
+  assert(t.assignee_id === KASIR && t.due === due && t.created_by === U1 && t.labels[0] === 'perawatan' && /^\/aset\/AST-MSN-/.test(t.link_url) && t.n === 2, JSON.stringify(t));
+  assert((await val(`select ast_sync_maintenance()`)) === 0, 'tugas dobel');
+  // centang checklist (di aplikasi lewat hr_task_save oleh penerima)
+  await db.exec('reset role');
+  await db.query(`update hr_tasks set checklist = (select jsonb_agg(c || '{"done": true}') from jsonb_array_elements(checklist) c) where id = $1`, [acPlan.open_task_id]);
+  await loginAs(KASIR);
+  await db.query(`select hr_task_move($1, 'in_progress')`, [acPlan.open_task_id]);
+  await db.query(`select hr_task_move($1, 'review')`, [acPlan.open_task_id]);
+  await loginAs(U1);
+  await db.query(`select hr_task_move($1, 'done')`, [acPlan.open_task_id]);
+  const pl = await one(`select open_task_id, next_due_date::text nd, last_done_on is not null done from ast_maintenance_plans where id = $1`, [acPlan.id]);
+  const expectNext = await val(`select ($1::date + interval '3 months')::date::text`, [due]);
+  assert(pl.open_task_id === null && pl.nd === expectNext && pl.done, JSON.stringify(pl));
+  const log = await one(`select id, kind, performed_by from ast_maintenance_logs where plan_id = $1`, [acPlan.id]);
+  assert(log.kind === 'scheduled' && log.performed_by === KASIR, JSON.stringify(log));
+  const l = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
+  const dr = await val(`select l.debit::float8 from fin_journal_lines l join fin_accounts f on f.id = l.account_id where l.journal_id = $1 and f.system_key = 'maintenance_expense'`, [l.journal_id]);
+  assert(dr === 350000, `jurnal biaya ${dr}`);
+  // ubah biaya yang sudah dijurnal: jurnal lama diganti, tetap satu jurnal
+  const l2 = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 400000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
+  assert((await val(`select count(*)::int from fin_journals where source_type = 'asset_maintenance' and source_id = $1`, [log.id])) === 1 && l2.journal_id !== l.journal_id, 'jurnal biaya dobel');
+  assert((await val(`select total_amount::float8 from fin_journals where id = $1`, [l2.journal_id])) === 400000, 'nominal jurnal baru');
+  const l3 = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: false })]);
+  assert(l3.journal_id === null && (await val(`select count(*)::int from fin_journals where source_type = 'asset_maintenance' and source_id = $1`, [log.id])) === 0, 'jurnal tidak terhapus');
+  await db.query(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
+  await journalBalanced();
+});
+await check('kerusakan: kasir lapor dari scan QR (tanpa angka keuangan) → tiket + tugas perbaikan; manajer tutup & biaya dijurnal', async () => {
+  const code = await val(`select asset_number from ast_assets where id = $1`, [astAc]);
+  await loginAs(KASIR);
+  const info = await val(`select ast_scan_info($1)`, [code.toLowerCase()]);
+  assert(info.id === astAc && info.can_view === false && !('acquisition_cost' in info) && info.next_maintenance?.title === 'Service AC', JSON.stringify(info));
+  acRepair = await val(`select ast_report_damage($1::jsonb)`, [JSON.stringify({ asset_id: astAc, severity: 'down', description: 'AC mati, bocor air' })]);
+  assert(acRepair.status === 'open' && acRepair.task_id && /^KRS\//.test(acRepair.repair_number), JSON.stringify(acRepair));
+  await expectError(`select ast_report_damage($1::jsonb)`, [JSON.stringify({ asset_id: astAc, severity: 'down', description: 'lagi' })], /baru saja/);
+  await expectError(`select ast_update_repair($1::jsonb)`, [JSON.stringify({ id: acRepair.id, status: 'done' })], /izin kelola/);
+  // foto kerusakan boleh diunggah pelapor, foto aset tidak
+  await db.query(`insert into storage.objects (bucket_id, name) values ('asset-files', $1)`, [`${company1}/${astAc}/repairs/a.webp`]);
+  await expectError(`insert into storage.objects (bucket_id, name) values ('asset-files', $1)`, [`${company1}/${astAc}/b.webp`], /row-level security/);
+  await loginAs(U1);
+  assert((await val(`select priority from hr_tasks where id = $1`, [acRepair.task_id])) === 'urgent', 'prioritas');
+  const r = await val(`select ast_update_repair($1::jsonb)`, [JSON.stringify({ id: acRepair.id, status: 'done', cost: 500000, vendor: 'CV Sejuk',
+    resolution: 'Ganti kapasitor', record_journal: true, paid_from_account_id: astCash })]);
+  assert(r.status === 'done' && r.journal_id && r.resolved_at, JSON.stringify(r));
+  assert((await val(`select status from hr_tasks where id = $1`, [acRepair.task_id])) === 'done', 'tugas perbaikan belum selesai');
+  const r2 = await val(`select ast_update_repair($1::jsonb)`, [JSON.stringify({ id: acRepair.id, status: 'done', cost: 500000, vendor: 'CV Sejuk', resolution: 'Ganti kapasitor', record_journal: true, paid_from_account_id: astCash })]);
+  assert(r2.journal_id !== r.journal_id && (await val(`select count(*)::int from fin_journals where source_type = 'asset_repair' and source_id = $1`, [acRepair.id])) === 1, 'jurnal perbaikan dobel');
+  const md = await val(`select ast_maintenance_detail($1)`, [astAc]);
+  assert(Number(md.total_cost) === 850000 && md.repairs.length === 1 && md.logs.length === 1 && md.plans.length === 1, JSON.stringify(md).slice(0, 300));
+  await expectError(`select ast_delete_asset($1)`, [astAc], /tidak bisa dihapus/);
+  const ov = await val(`select ast_maintenance_overview()`);
+  assert(ov.top_cost[0].asset_id === astAc && Number(ov.top_cost[0].total) === 850000, JSON.stringify(ov.top_cost));
+  await journalBalanced();
+});
+await check('opname: scan ditemukan, salah lokasi, rusak → tiket; tutup → yang tidak ter-scan hilang', async () => {
+  await loginAs(U1);
+  astRak = (await val(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'Rak stainless 4 susun', category_id: await frnCat(), outlet_id: sc,
+    acquisition_date: await astMonth(-2), acquisition_cost: 2500000, funding: 'none' })])).id;
+  astAudit = await val(`select ast_audit_start($1, 'Opname kuartal')`, [sc]);
+  assert(Number(astAudit.items) === 2, JSON.stringify(astAudit));
+  await expectError(`select ast_audit_start($1)`, [sc], /Masih ada opname/);
+  await loginAs(KASIR);
+  await expectError(`select ast_audit_scan($1, 'X')`, [astAudit.id], /izin opname/);
+  await loginAs(U1);
+  const laptop = await val(`select asset_number from ast_assets where id = $1`, [astLaptop]);
+  const chiller = await val(`select asset_number from ast_assets where id = $1`, [astChiller]);
+  const u = await val(`select ast_audit_scan($1, $2)`, [astAudit.id, laptop]);
+  assert(u.result === 'unexpected' && u.expected === false, JSON.stringify(u));
+  const f = await val(`select ast_audit_scan($1, $2, 'damaged', 'Dapur pusat', 'Pintu tidak rapat')`, [astAudit.id, chiller]);
+  assert(f.result === 'found' && f.condition === 'damaged', JSON.stringify(f));
+  assert((await val(`select count(*)::int from ast_repairs where asset_id = $1 and status = 'open'`, [astChiller])) === 1, 'tiket rusak dari opname');
+  await expectError(`select ast_audit_scan($1, 'AST-XXX-9999')`, [astAudit.id], /tidak dikenal/);
+  const closed = await val(`select ast_audit_close($1)`, [astAudit.id]);
+  assert(closed.status === 'closed' && closed.summary.found === 1 && closed.summary.missing === 1 && closed.summary.unexpected === 1 && closed.summary.damaged === 1, JSON.stringify(closed.summary));
+  assert(closed.items.find((i) => i.asset_id === astRak).result === 'missing', 'rak harus hilang');
+  await expectError(`select ast_audit_scan($1, $2)`, [astAudit.id, chiller], /sudah ditutup/);
+  const counts = await val(`select ast_maintenance_counts()`);
+  assert(counts.kerusakan_terbuka >= 1 && counts.opname_terbuka === 0, JSON.stringify(counts));
+});
+await check('aset dilepas → jadwal perawatan nonaktif & tugas perawatan terbuka diarsipkan', async () => {
+  await loginAs(U1);
+  const today = await val(`select ((now() at time zone 'Asia/Jakarta')::date)::text`);
+  const plan = await val(`select ast_save_plan($1::jsonb)`, [JSON.stringify({ asset_id: astRak, title: 'Cek baut rak', interval_value: 1, interval_unit: 'month', next_due_date: today })]);
+  assert(plan.open_task_id, 'tugas rak belum dibuat');
+  await db.query(`select ast_request_disposal($1::jsonb)`, [JSON.stringify({ asset_id: astRak, disposal_type: 'lost', reason: 'Hilang saat opname' })]);
+  const p = await one(`select is_active, open_task_id from ast_maintenance_plans where id = $1`, [plan.id]);
+  assert(p.is_active === false && p.open_task_id === null, JSON.stringify(p));
+  assert((await val(`select status from hr_tasks where id = $1`, [plan.open_task_id])) === 'archived', 'tugas belum diarsipkan');
+  const sk = (await db.query(`select kind from ast_maintenance_logs where plan_id = $1`, [plan.id])).rows[0]?.kind;
+  assert(sk === undefined || sk === 'skipped', `log ${sk}`);
+  await journalBalanced();
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

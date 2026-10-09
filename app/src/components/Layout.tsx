@@ -2,7 +2,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import {
-  Armchair, CalendarCheck, ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
+  Armchair, CalendarCheck, ScanLine, Wrench, ArrowLeftRight, BadgeCheck, BarChart3, Banknote, Boxes, ChefHat, ChevronRight, ClipboardCheck, ClipboardList, FileText,
   Gift, HandCoins, LayoutDashboard, LogOut, Menu as MenuIcon, Package, PackageCheck, PackageOpen, Pin, PinOff, Receipt,
   IdCard, Megaphone, UserRound, Network, ScrollText, CalendarClock, Fingerprint, CalendarHeart, ListTodo, Award, MessageSquareHeart, MonitorSmartphone, ServerCog, Settings, ShieldAlert, UserPlus, ShieldCheck, ShoppingCart, UserCog, History, Building2, CreditCard, DatabaseBackup, KeyRound, Store, Tags, Timer, Truck, Users, UtensilsCrossed, Wallet, Warehouse, X, type LucideIcon,
 } from 'lucide-react';
@@ -96,8 +96,10 @@ const NAV: NavGroup[] = [
   {
     group: 'Aset', icon: Armchair,
     items: [
-      { to: '/assets?tab=list', label: 'Daftar Aset', icon: Armchair, permission: ['asset.view', 'asset.manage', 'finance.view'] },
+      { to: '/assets?tab=list', label: 'Daftar Aset', icon: Armchair, permission: ['asset.view', 'asset.manage', 'asset.audit', 'finance.view'] },
       { to: '/assets?tab=depreciation', label: 'Penyusutan', icon: CalendarCheck, permission: ['asset.manage', 'finance.manage'] },
+      { to: '/assets?tab=maintenance', label: 'Perawatan & Kerusakan', icon: Wrench, permission: ['asset.view', 'asset.manage'] },
+      { to: '/assets?tab=audit', label: 'Opname Aset', icon: ScanLine, permission: ['asset.manage', 'asset.audit'] },
       { to: '/assets?tab=requests', label: 'Mutasi & Pelepasan', icon: ArrowLeftRight, permission: ['asset.view', 'asset.manage', 'approval.asset_transfer', 'approval.asset_disposal'] },
       { to: '/assets?tab=categories', label: 'Kategori Aset', icon: Tags, permission: ['asset.view', 'asset.manage'] },
     ],
