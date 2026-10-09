@@ -53,6 +53,8 @@ const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: 'report.view', label: 'Dashboard & laporan penjualan', group: 'Laporan' },
   { key: 'finance.view', label: 'Lihat laporan keuangan', group: 'Keuangan' },
   { key: 'finance.manage', label: 'Input biaya, jurnal, bayar supplier, settlement POS', group: 'Keuangan' },
+  { key: 'asset.view', label: 'Lihat daftar aset & nilai buku', group: 'Aset' },
+  { key: 'asset.manage', label: 'Catat aset, penyusutan, ajukan mutasi & pelepasan', group: 'Aset' },
   { key: 'user.manage', label: 'Kelola user & role', group: 'Admin' },
   { key: 'settings.manage', label: 'Kelola perusahaan, outlet, approval & pembayaran online', group: 'Admin' },
   { key: 'audit.view', label: 'Lihat log aktivitas', group: 'Admin' },

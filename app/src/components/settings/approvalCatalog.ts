@@ -25,6 +25,8 @@ export const APPROVAL_DOCS: Record<string, ApprovalDoc> = {
   production:       { label: 'Produksi (Simple Manufacturing)', group: 'Persediaan', icon: Factory, desc: 'Assembly & disassembly', amountLabel: 'Nilai bahan minimal', creatorPerms: ['inventory.manage'] },
   product:          { label: 'Produk Baru', group: 'Persediaan', icon: Boxes, desc: 'Produk baru bisa dipakai', amountLabel: null, creatorPerms: ['inventory.manage'] },
   expense:          { label: 'Biaya Operasional', group: 'Keuangan', icon: Wallet, desc: 'Pencatatan biaya', amountLabel: 'Nominal minimal', creatorPerms: ['finance.manage'] },
+  asset_transfer:   { label: 'Mutasi Aset', group: 'Aset', icon: ArrowLeftRight, desc: 'Pindah aset antar outlet / lokasi', amountLabel: 'Nilai buku minimal', creatorPerms: ['asset.manage'] },
+  asset_disposal:   { label: 'Pelepasan Aset', group: 'Aset', icon: PackageX, desc: 'Jual, rusak, hilang, hibah', amountLabel: 'Nilai buku minimal', creatorPerms: ['asset.manage'] },
   manual_journal:   { label: 'Jurnal Manual', group: 'Keuangan', icon: BookOpen, desc: 'Jurnal umum buatan user', amountLabel: 'Total debit minimal', creatorPerms: ['finance.manage'] },
 };
 
@@ -35,4 +37,5 @@ export const MODULE_PERMS: Record<string, string> = {
   'inventory.manage': 'Persediaan (stok, dokumen stok, transfer, produksi, produk)',
   'finance.manage': 'Keuangan (biaya, jurnal, bayar supplier, settlement)',
   'pos.refund': 'Refund POS',
+  'asset.manage': 'Aset (catat aset, penyusutan, mutasi, pelepasan)',
 };

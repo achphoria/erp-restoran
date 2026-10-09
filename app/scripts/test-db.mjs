@@ -3059,5 +3059,130 @@ await check('Semar: insight ulasan tanpa kontak pelanggan; rekap SDM per karyawa
   assert((await val(`select 'hr_sop_templates' = any(ai_writable_tables()) and 'crm_feedback_questions' = any(ai_writable_tables())`)) === true, 'tabel boleh diubah Semar');
 });
 
+console.log('\nManajemen aset:');
+const U11 = 'b6b6b6b6-b6b6-b6b6-b6b6-b6b6b6b6b6b6';
+let astKompor, astLaptop, astChiller, astCash, astPeriod;
+const astMonth = (offset) => val(`select (date_trunc('month', (now() at time zone 'Asia/Jakarta')::date) + ($1 || ' month')::interval)::date::text`, [String(offset)]);
+await check('aset: setup akun & 6 kategori, batas Rp 1 jt, perolehan tunai dijurnal (Dr aset / Cr kas)', async () => {
+  await loginAs(U1);
+  const st = await val(`select ast_setup()`);
+  assert(Number(st.capitalization_threshold) === 1000000, JSON.stringify(st));
+  assert((await val(`select count(*)::int from ast_categories where company_id = $1`, [company1])) === 6, 'kategori default');
+  assert((await val(`select count(*)::int from fin_accounts where company_id = $1 and system_key in ('fa_equipment', 'fa_accum_depreciation', 'depreciation_expense', 'asset_payable', 'asset_disposal_gain', 'asset_disposal_loss')`, [company1])) === 6, JSON.stringify((await db.query(`select code, name, system_key from fin_accounts where company_id = $1 and (code like '1-2%' or code like '6-%' or code like '2-14%' or code like '4-18%')`, [company1])).rows));
+  const dpr = await val(`select id from ast_categories where company_id = $1 and code = 'DPR'`, [company1]);
+  astCash = await val(`select id from fin_accounts where company_id = $1 and system_key = 'cash'`, [company1]);
+  const acq = await val(`select ($1::date + 9)::text`, [await astMonth(-3)]);
+  await expectError(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'Blender kecil', category_id: dpr, outlet_id: outletId, acquisition_date: acq, acquisition_cost: 750000, funding: 'cash', paid_from_account_id: astCash })], /batas aset/);
+  const a = await val(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'Kompor 4 tungku', category_id: dpr, outlet_id: outletId, location: 'Dapur panas',
+    acquisition_date: acq, acquisition_cost: 12000000, funding: 'cash', paid_from_account_id: astCash, serial_number: 'KMP-778', warranty_until: await astMonth(1) })]);
+  astKompor = a.id;
+  assert(/^AST-DPR-\d{4}$/.test(a.asset_number) && a.useful_life_months === 48 && a.depreciation_start === await astMonth(-3), JSON.stringify(a));
+  const j = await one(`select j.total_amount, (select credit from fin_journal_lines l where l.journal_id = j.id and l.account_id = $2)::float8 cash
+    from fin_journals j where j.source_type = 'asset_acquisition' and j.source_id = $1`, [astKompor, astCash]);
+  assert(Number(j.total_amount) === 12000000 && j.cash === 12000000, JSON.stringify(j));
+  await journalBalanced();
+});
+await check('aset: aset lama (saldo awal, akumulasi otomatis) & beli dengan hutang + pembayaran', async () => {
+  const elk = await val(`select id from ast_categories where company_id = $1 and code = 'ELK'`, [company1]);
+  const msn = await val(`select id from ast_categories where company_id = $1 and code = 'MSN'`, [company1]);
+  const old = await val(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'Laptop kasir', category_id: elk, outlet_id: outletId,
+    acquisition_date: await astMonth(-24), acquisition_cost: 4800000, funding: 'opening' })]);
+  astLaptop = old.id;
+  assert(old.opening_months === 24 && Number(old.opening_accumulated) === 2400000 && old.depreciation_start === await astMonth(0), JSON.stringify(old));
+  const eq = await val(`select l.credit::float8 from fin_journal_lines l join fin_journals j on j.id = l.journal_id join fin_accounts f on f.id = l.account_id
+    where j.source_id = $1 and f.system_key = 'opening_equity'`, [astLaptop]);
+  assert(eq === 2400000, `ekuitas ${eq}`);
+  const ch = await val(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'Chiller 2 pintu', category_id: msn, outlet_id: sc,
+    acquisition_date: await astMonth(-1), acquisition_cost: 9600000, funding: 'payable' })]);
+  astChiller = ch.id;
+  assert(ch.useful_life_months === 96, 'umur MSN');
+  await db.query(`select ast_record_payment($1, $2, 5000000, current_date, 'DP')`, [astChiller, astCash]);
+  await expectError(`select ast_record_payment($1, $2, 5000000, current_date)`, [astChiller, astCash], /sisa hutang/);
+  const d = await val(`select ast_asset_detail($1)`, [astChiller]);
+  assert(Number(d.paid_amount) === 5000000 && d.payments.length === 1 && Number(d.monthly_depreciation) === 100000, JSON.stringify(d).slice(0, 300));
+  // data keuangan terkunci setelah ada pembayaran
+  await expectError(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ id: astChiller, name: 'Chiller', acquisition_cost: 9000000 })], /tidak bisa diubah/);
+  await journalBalanced();
+});
+await check('penyusutan: pratinjau, kejar bulan tertinggal, jurnal per outlet, tidak dobel, batal periode terakhir', async () => {
+  astPeriod = await astMonth(-1);
+  const pv = await val(`select ast_depreciation_preview($1)`, [astPeriod]);
+  const k = pv.items.find((x) => x.asset_id === astKompor), c = pv.items.find((x) => x.asset_id === astChiller);
+  assert(pv.items.length === 2 && k.months === 3 && Number(k.amount) === 750000 && Number(c.amount) === 100000, JSON.stringify(pv));
+  await expectError(`select ast_run_depreciation($1)`, [await astMonth(1)], /belum berjalan/);
+  const r = await val(`select ast_run_depreciation($1)`, [astPeriod]);
+  assert(Number(r.total) === 850000 && r.assets === 2, JSON.stringify(r));
+  assert((await val(`select count(*)::int from ast_depreciation_runs where company_id = $1 and period = $2`, [company1, astPeriod])) === 2, 'per outlet');
+  const a = await one(`select accumulated_depreciation::float8 acc, months_depreciated m from ast_assets where id = $1`, [astKompor]);
+  assert(a.acc === 750000 && a.m === 3, JSON.stringify(a));
+  await expectError(`select ast_run_depreciation($1)`, [astPeriod], /sudah dijalankan/);
+  await journalBalanced();
+  await db.query(`select ast_void_depreciation($1)`, [astPeriod]);
+  assert((await val(`select accumulated_depreciation::float8 from ast_assets where id = $1`, [astKompor])) === 0, 'batal tidak mengembalikan akumulasi');
+  assert((await val(`select count(*)::int from fin_journals where company_id = $1 and source_type = 'asset_depreciation'`, [company1])) === 0, 'jurnal penyusutan masih ada');
+  await db.query(`select ast_run_depreciation($1)`, [astPeriod]);
+  const s = await val(`select ast_summary()`);
+  assert(s.aktif === 3 && Number(s.akumulasi) === 750000 + 2400000 + 100000 && Number(s.hutang_aset) === 4600000 && s.garansi_habis_30_hari.length === 1, JSON.stringify(s));
+  await journalBalanced();
+});
+await check('mutasi & pelepasan: staf butuh approval, owner langsung; laba pelepasan dijurnal; tidak bisa batal penyusutan setelahnya', async () => {
+  await db.exec(`reset role; insert into auth.users values ('${U11}', 'aset.staff@staff.santap.local')`);
+  const role = await val(`insert into sys_roles (company_id, code, name, permissions) values ($1, 'aset_staff', 'Staf Aset', '["asset.manage"]') returning id`, [company1]);
+  await db.query(`select sys_register_staff_user($1, $2, 'aset.staff', 'Staf Aset', $3, array[$4, $5]::uuid[], $6)`, [U11, company1, role, outletId, sc, U1]);
+  await db.query(`update sys_approval_rules set is_enabled = true, min_amount = 0 where company_id = $1 and document_type in ('asset_transfer', 'asset_disposal')`, [company1]);
+  await loginAs(U11);
+  const t = await val(`select ast_request_transfer($1::jsonb)`, [JSON.stringify({ asset_id: astKompor, to_outlet_id: sc, to_location: 'Dapur pusat', reason: 'Pindah produksi' })]);
+  assert(t.status === 'pending_approval' && t.approval_request_id, JSON.stringify(t));
+  await expectError(`select ast_request_transfer($1::jsonb)`, [JSON.stringify({ asset_id: astKompor, to_outlet_id: sc })], /menunggu persetujuan/);
+  await expectError(`select ast_run_depreciation($1)`, [await astMonth(0)], /semua outlet/);
+  await loginAs(U1);
+  await db.query(`select sys_decide_approval($1, true, 'ok')`, [t.approval_request_id]);
+  const moved = await one(`select outlet_id, location from ast_assets where id = $1`, [astKompor]);
+  assert(moved.outlet_id === sc && moved.location === 'Dapur pusat', JSON.stringify(moved));
+  assert((await val(`select status from ast_transfers where id = $1`, [t.id])) === 'completed', 'mutasi belum selesai');
+  await loginAs(U11);
+  const x = await val(`select ast_request_disposal($1::jsonb)`, [JSON.stringify({ asset_id: astKompor, disposal_type: 'sold', proceeds: 10000000, cash_account_id: astCash, reason: 'Ganti model' })]);
+  assert(x.status === 'pending_approval', JSON.stringify(x));
+  await loginAs(U1);
+  await db.query(`select sys_decide_approval($1, false, 'Masih dipakai')`, [x.approval_request_id]);
+  assert((await val(`select status from ast_disposals where id = $1`, [x.id])) === 'rejected' && (await val(`select status from ast_assets where id = $1`, [astKompor])) === 'active', 'tolak');
+  const d = await val(`select ast_request_disposal($1::jsonb)`, [JSON.stringify({ asset_id: astKompor, disposal_type: 'sold', proceeds: 11500000, cash_account_id: astCash, reason: 'Dijual ke cabang mitra' })]);
+  assert(d.status === 'completed' && Number(d.book_value) === 11250000 && Number(d.gain_loss) === 250000, JSON.stringify(d));
+  const gain = await val(`select l.credit::float8 from fin_journal_lines l join fin_journals j on j.id = l.journal_id join fin_accounts f on f.id = l.account_id
+    where j.source_type = 'asset_disposal' and j.source_id = $1 and f.system_key = 'asset_disposal_gain'`, [d.id]);
+  assert(gain === 250000, `laba ${gain}`);
+  assert((await val(`select status from ast_assets where id = $1`, [astKompor])) === 'disposed', 'status aset');
+  await expectError(`select ast_void_depreciation($1)`, [astPeriod], /dilepas/);
+  await expectError(`select ast_request_transfer($1::jsonb)`, [JSON.stringify({ asset_id: astKompor, to_outlet_id: outletId })], /dilepas/);
+  const det = await val(`select ast_asset_detail($1)`, [astKompor]);
+  assert(det.events.some((e) => e.type === 'transferred') && det.events.some((e) => e.type === 'disposed') && det.schedule.length === 0, JSON.stringify(det.events));
+  await journalBalanced();
+});
+await check('akses aset: kasir ditolak, user branch hanya melihat aset branch-nya, PT lain tidak melihat; scan kode', async () => {
+  await loginAs(KASIR);
+  await expectError(`select ast_list('all')`, [], /izin/);
+  assert((await val(`select count(*)::int from ast_assets`)) === 0, 'kasir melihat tabel aset');
+  const U13 = 'c7c7c7c7-c7c7-c7c7-c7c7-c7c7c7c7c7c7';
+  await db.exec(`reset role; insert into auth.users values ('${U13}', 'aset.sc@staff.santap.local')`);
+  const viewer = await val(`insert into sys_roles (company_id, code, name, permissions) values ($1, 'aset_viewer', 'Lihat Aset', '["asset.view"]') returning id`, [company1]);
+  await db.query(`select sys_register_staff_user($1, $2, 'aset.sc', 'Aset SC', $3, array[$4]::uuid[], $5)`, [U13, company1, viewer, sc, U1]);
+  await loginAs(U13);
+  const seen = await val(`select ast_list('all')`);
+  assert(seen.length >= 2 && seen.every((a) => a.outlet_id === sc), JSON.stringify(seen.map((a) => a.outlet)));
+  const op = await val(`select ast_options()`);
+  assert(op.outlets.length === 1 && op.can_manage === false && op.can_depreciate === false && op.categories.length === 6 && op.cash_accounts.some((x) => x.key === 'cash'), JSON.stringify(op).slice(0, 300));
+  await expectError(`select ast_asset_detail($1)`, [astLaptop], /tidak ditemukan/);
+  await expectError(`select ast_save_asset($1::jsonb)`, [JSON.stringify({ name: 'X' })], /izin kelola/);
+  await loginAs(U4b);
+  assert((await val(`select jsonb_array_length(ast_list('all'))`)) === 0, 'PT lain melihat aset');
+  await expectError(`select ast_asset_detail($1)`, [astLaptop], /tidak ditemukan/);
+  await loginAs(U1);
+  const code = await val(`select asset_number from ast_assets where id = $1`, [astLaptop]);
+  assert((await val(`select ast_find_by_code($1)`, [code.toLowerCase()])) === astLaptop, 'scan kode');
+  await expectError(`select ast_delete_asset($1)`, [astChiller], /tidak bisa dihapus/);
+  await db.exec('reset role');
+  assert((await val(`select count(*)::int from sys_approval_rules where company_id = $1 and document_type in ('asset_transfer', 'asset_disposal') and is_enabled`, [company4])) === 2, 'aturan approval default aktif');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);
