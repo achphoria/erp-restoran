@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
+import { Rocket, Save } from 'lucide-react';
 import { useFeedback } from '../Feedback';
 import { useAuth } from '../../context/AuthContext';
 import { rpc } from '../../lib/supabase';
@@ -33,6 +33,11 @@ export default function ModulesSettings() {
     } catch (e) { toast(errorMessage(e), 'error'); } finally { setBusy(false); }
   };
 
+  const showGuide = async () => {
+    try { await rpc('sys_dismiss_setup_guide', { p_dismiss: false }); await refreshProfile(); toast('Panduan memulai tampil lagi di Dashboard', 'success'); }
+    catch (e) { toast(errorMessage(e), 'error'); }
+  };
+
   return (
     <div className="grid">
       <div className="card">
@@ -45,6 +50,9 @@ export default function ModulesSettings() {
             </p>
           </div>
           <div className="row">
+            {profile?.permissions.includes('*') && profile.modules?.guide_dismissed_at && (
+              <button type="button" className="btn-sm" onClick={showGuide}><Rocket size={14} /> Tampilkan Panduan memulai</button>
+            )}
             <button type="button" className="btn-sm" onClick={() => setValue(MODULE_KEYS)}>Aktifkan semua</button>
             <button type="button" className="btn-primary" disabled={!dirty || busy} onClick={save}><Save size={16} /> {busy ? 'Menyimpan…' : 'Simpan'}</button>
           </div>
