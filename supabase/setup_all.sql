@@ -15892,7 +15892,7 @@ create or replace function ast_post_cost(p_company uuid, p_outlet uuid, p_date d
   p_desc text, p_amount numeric, p_account uuid, p_old_journal uuid)
 returns uuid language plpgsql security definer set search_path = public as $$
 begin
-  if p_old_journal is not null then delete from fin_journals where id = p_old_journal; end if;
+  -- jurnal lama (p_old_journal) sudah dilepas & dihapus pemanggil sebelum memanggil fungsi ini
   if coalesce(p_amount, 0) <= 0 or p_account is null then return null; end if;
   perform ast_check_account(p_account, array['asset'], 'Akun kas / bank pembayar');
   if sys_approval_required('expense', p_amount) then
@@ -16052,9 +16052,13 @@ begin
       vendor = nullif(trim(coalesce(p->>'vendor', '')), ''), cost = v_cost, note = nullif(trim(coalesce(p->>'note', '')), '')
     where id = l.id returning * into l;
   end if;
+  if l.journal_id is not null then
+    update ast_maintenance_logs set journal_id = null where id = l.id;
+    delete from fin_journals where id = l.journal_id;
+  end if;
   update ast_maintenance_logs set journal_id = ast_post_cost(v_c, a.outlet_id, l.performed_on, 'asset_maintenance', l.id,
       'Perawatan ' || a.asset_number || ' ' || a.name || ': ' || l.title, case when (p->>'record_journal')::boolean then v_cost else 0 end,
-      nullif(p->>'paid_from_account_id', '')::uuid, l.journal_id)
+      nullif(p->>'paid_from_account_id', '')::uuid, null)
   where id = l.id returning * into l;
   return to_jsonb(l);
 end $$;
@@ -16114,9 +16118,13 @@ begin
     resolved_at = case when v_status in ('done', 'cancelled') then coalesce(resolved_at, now()) else null end,
     resolved_by = case when v_status in ('done', 'cancelled') then coalesce(resolved_by, auth.uid()) else null end
   where id = r.id returning * into r;
+  if r.journal_id is not null then
+    update ast_repairs set journal_id = null where id = r.id;
+    delete from fin_journals where id = r.journal_id;
+  end if;
   update ast_repairs set journal_id = ast_post_cost(v_c, a.outlet_id, v_date, 'asset_repair', r.id,
       'Perbaikan ' || a.asset_number || ' ' || a.name || ' (' || r.repair_number || ')', case when (p->>'record_journal')::boolean then v_cost else 0 end,
-      nullif(p->>'paid_from_account_id', '')::uuid, r.journal_id)
+      nullif(p->>'paid_from_account_id', '')::uuid, null)
   where id = r.id returning * into r;
   -- tugas perbaikan ikut ditutup bila tiket selesai / batal dari sini
   if v_status in ('done', 'cancelled') and r.task_id is not null then

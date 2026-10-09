@@ -3217,6 +3217,13 @@ await check('perawatan: jadwal → tugas otomatis H-3 untuk kasir; selesai → r
   const l = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
   const dr = await val(`select l.debit::float8 from fin_journal_lines l join fin_accounts f on f.id = l.account_id where l.journal_id = $1 and f.system_key = 'maintenance_expense'`, [l.journal_id]);
   assert(dr === 350000, `jurnal biaya ${dr}`);
+  // ubah biaya yang sudah dijurnal: jurnal lama diganti, tetap satu jurnal
+  const l2 = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 400000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
+  assert((await val(`select count(*)::int from fin_journals where source_type = 'asset_maintenance' and source_id = $1`, [log.id])) === 1 && l2.journal_id !== l.journal_id, 'jurnal biaya dobel');
+  assert((await val(`select total_amount::float8 from fin_journals where id = $1`, [l2.journal_id])) === 400000, 'nominal jurnal baru');
+  const l3 = await val(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: false })]);
+  assert(l3.journal_id === null && (await val(`select count(*)::int from fin_journals where source_type = 'asset_maintenance' and source_id = $1`, [log.id])) === 0, 'jurnal tidak terhapus');
+  await db.query(`select ast_save_log($1::jsonb)`, [JSON.stringify({ id: log.id, cost: 350000, vendor: 'CV Sejuk', record_journal: true, paid_from_account_id: astCash })]);
   await journalBalanced();
 });
 await check('kerusakan: kasir lapor dari scan QR (tanpa angka keuangan) → tiket + tugas perbaikan; manajer tutup & biaya dijurnal', async () => {
@@ -3237,6 +3244,8 @@ await check('kerusakan: kasir lapor dari scan QR (tanpa angka keuangan) → tike
     resolution: 'Ganti kapasitor', record_journal: true, paid_from_account_id: astCash })]);
   assert(r.status === 'done' && r.journal_id && r.resolved_at, JSON.stringify(r));
   assert((await val(`select status from hr_tasks where id = $1`, [acRepair.task_id])) === 'done', 'tugas perbaikan belum selesai');
+  const r2 = await val(`select ast_update_repair($1::jsonb)`, [JSON.stringify({ id: acRepair.id, status: 'done', cost: 500000, vendor: 'CV Sejuk', resolution: 'Ganti kapasitor', record_journal: true, paid_from_account_id: astCash })]);
+  assert(r2.journal_id !== r.journal_id && (await val(`select count(*)::int from fin_journals where source_type = 'asset_repair' and source_id = $1`, [acRepair.id])) === 1, 'jurnal perbaikan dobel');
   const md = await val(`select ast_maintenance_detail($1)`, [astAc]);
   assert(Number(md.total_cost) === 850000 && md.repairs.length === 1 && md.logs.length === 1 && md.plans.length === 1, JSON.stringify(md).slice(0, 300));
   await expectError(`select ast_delete_asset($1)`, [astAc], /tidak bisa dihapus/);
