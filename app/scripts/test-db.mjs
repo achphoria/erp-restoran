@@ -2936,5 +2936,101 @@ await check('Konsolidasi: laba rugi & neraca per PT digabung per kode akun; tran
   await db.query(`update sys_companies set group_id = null where id in ($1, $2)`, [company1, company2]);
 });
 
+console.log('\nTransaksi antar-PT dalam grup:');
+let icGrp, icSup2, icPo2, icSo2, icCust1, icItem1, icItem2, wh2;
+await check('Antar-PT: masuk grup -> supplier & pelanggan antar-PT otomatis; barang dicocokkan lewat kode', async () => {
+  await db.exec('reset role');
+  icGrp = await val(`insert into sys_company_groups (code, name) values ('GRP-IC', 'Grup Antar PT') returning id`);
+  await db.query(`update sys_companies set group_id = $1 where id in ($2, $3)`, [icGrp, company1, company2]);
+  await db.query(`insert into sys_group_members (group_id, user_id) values ($1, $2) on conflict do nothing`, [icGrp, U1]);
+  icSup2 = await one(`select id, supplier_type, is_active from pur_suppliers where company_id = $1 and linked_company_id = $2`, [company1, company2]);
+  icCust1 = await val(`select id from sal_customers where company_id = $1 and linked_company_id = $2 and is_active`, [company2, company1]);
+  assert(icSup2?.supplier_type === 'intercompany' && icSup2.is_active && icCust1, JSON.stringify(icSup2));
+  assert(await val(`select count(*)::int from pur_suppliers where company_id = $1 and linked_company_id = $2`, [company2, company1]) === 1, 'supplier di PT 2');
+  // barang yang sama (kode BHN01) di PT 2
+  icItem1 = await one(`select i.id, i.code, i.name, u.code as unit_code, i.base_unit_id from inv_items i join inv_units u on u.id = i.base_unit_id
+    where i.company_id = $1 and i.code = 'BHN01'`, [company1]);
+  const unit2 = (await val(`select id from inv_units where company_id = $1 and code = $2`, [company2, icItem1.unit_code]))
+    ?? await val(`insert into inv_units (company_id, code, name) values ($1, $2, $2) returning id`, [company2, icItem1.unit_code]);
+  icItem2 = await val(`insert into inv_items (company_id, code, name, base_unit_id) values ($1, 'BHN01', 'Beras (PT2)', $2) returning id`, [company2, unit2]);
+  wh2 = await val(`select default_warehouse_id from sys_outlets where company_id = $1 and default_warehouse_id is not null order by code limit 1`, [company2]);
+  assert(wh2, 'gudang PT 2');
+  // stok awal PT 2 dari supplier luar
+  const ext2 = await val(`insert into pur_suppliers (company_id, code, name) values ($1, 'SUPX', 'Supplier Luar') returning id`, [company2]);
+  const gr0 = await val(`insert into pur_goods_receipts (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company2, ext2, wh2]);
+  await db.query(`insert into pur_goods_receipt_items (company_id, goods_receipt_id, item_id, unit_id, conversion_qty, quantity, unit_price) values ($1, $2, $3, $4, 1, 50000, 12)`, [company2, gr0, icItem2, unit2]);
+  await loginAs(U2);
+  await db.query(`select pur_post_goods_receipt($1)`, [gr0]);
+});
+await check('Antar-PT: PO disetujui di PT pembeli -> SO "Baru" di PT penjual; barang tanpa pasangan & penerimaan manual ditolak', async () => {
+  await loginAs(U1);
+  icPo2 = await val(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, icSup2.id, await mainWh()]);
+  const other = await val(`select id from inv_items where company_id = $1 and code <> 'BHN01' and is_active order by code limit 1`, [company1]);
+  await expectError(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, (select base_unit_id from inv_items where id = $3), 1, 10)`,
+    [company1, icPo2, other], /belum ada di/);
+  await expectError(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 1000, 0)`,
+    [company1, icPo2, icItem1.id, icItem1.base_unit_id], /Harga/);
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 1000, 15)`,
+    [company1, icPo2, icItem1.id, icItem1.base_unit_id]);
+  const ap = await val(`select pur_approve_purchase_order($1)`, [icPo2]);
+  assert(ap.status === 'approved', JSON.stringify(ap));
+  await expectError(`select pur_create_goods_receipt_from_po($1)`, [icPo2], /PT dalam grup/);
+  await db.exec('reset role');
+  const so = await one(`select * from sal_sales_orders where ic_purchase_order_id = $1`, [icPo2]);
+  assert(so && so.company_id === company2 && so.status === 'new' && so.customer_id === icCust1 && Number(so.subtotal) === 15000, JSON.stringify(so));
+  icSo2 = so.id;
+  assert((await val(`select item_id from sal_sales_order_items where sales_order_id = $1`, [icSo2])) === icItem2, 'barang PT 2');
+  assert((await val(`select ic_po_item_id from sal_sales_order_items where sales_order_id = $1`, [icSo2])) === (await val(`select id from pur_purchase_order_items where purchase_order_id = $1`, [icPo2])), 'tautan item PO');
+});
+await check('Antar-PT: penjual kirim -> draft penerimaan otomatis di pembeli; jurnal kedua PT ditandai & dieliminasi di konsolidasi', async () => {
+  await loginAs(U2);
+  await db.query(`select sal_confirm_sales_order($1)`, [icSo2]);
+  const d = await val(`select sal_create_delivery($1, $2)`, [icSo2, wh2]);
+  await db.query(`update sal_delivery_items set quantity = 800 where delivery_id = $1`, [d]);
+  await db.query(`select sal_ship_delivery($1)`, [d]);
+  await loginAs(U1);
+  const gr = await one(`select id, status, ic_delivery_id, delivery_id from pur_goods_receipts where purchase_order_id = $1`, [icPo2]);
+  assert(gr && gr.status === 'draft' && gr.ic_delivery_id === d && gr.delivery_id === null, JSON.stringify(gr));
+  assert(Number(await val(`select quantity from pur_goods_receipt_items where goods_receipt_id = $1`, [gr.id])) === 800, 'qty kiriman');
+  await db.query(`select pur_post_goods_receipt($1)`, [gr.id]);
+  await loginAs(U2);
+  const inv = await val(`select sal_create_invoice($1)`, [icSo2]);
+  assert(Number(inv.grand_total) === 12000, JSON.stringify(inv));
+  await db.exec('reset role');
+  const untagged = await val(`select count(*)::int from fin_journal_lines l join fin_journals j on j.id = l.journal_id
+    where ((j.company_id = $1 and j.source_type = 'purchase_receipt' and j.source_id = $2) or (j.company_id = $3 and j.source_type in ('sales_delivery', 'sales_invoice') and j.source_id in ($4, $5)))
+      and l.counterparty_company_id is null`, [company1, gr.id, company2, d, inv.id]);
+  const tagged = await val(`select count(*)::int from fin_journal_lines where counterparty_company_id is not null`);
+  assert(untagged === 0 && tagged >= 4, `untagged ${untagged}, tagged ${tagged}`);
+  await loginAs(U1);
+  const ov = await val(`select grp_ic_overview($1)`, [icGrp]);
+  const doc = ov.documents.find((x) => x.id === icPo2);
+  assert(doc && doc.so_status === 'partially_delivered' && doc.po_status === 'partially_received' && Number(doc.qty_delivered) === 800 && Number(doc.invoiced) === 12000, JSON.stringify(doc));
+  const bal = ov.balances.find((b) => b.seller_id === company2 && b.buyer_id === company1);
+  assert(bal && Number(bal.receivable) === 12000 && Number(bal.payable) === 12000 && Number(bal.difference) === 0, JSON.stringify(ov.balances));
+  const f = await val(`select grp_financials($1, '2000-01-01', current_date + 1)`, [icGrp]);
+  const rev = f.accounts.filter((a) => a.account_type === 'revenue').reduce((s, a) => s + Number(a.elimination), 0);
+  const ar = f.accounts.find((a) => a.code === '1-1300');
+  const apAcc = f.accounts.find((a) => a.code === '2-1100');
+  assert(rev === 12000 && Number(ar.elimination) === 12000 && Number(apAcc.elimination) === 12000, JSON.stringify({ rev, ar, apAcc }));
+});
+await check('Antar-PT: SO ditolak penjual -> PO pembeli batal; keluar grup -> mitra antar-PT nonaktif', async () => {
+  await loginAs(U1);
+  const po = await val(`insert into pur_purchase_orders (company_id, supplier_id, warehouse_id) values ($1, $2, $3) returning id`, [company1, icSup2.id, await mainWh()]);
+  await db.query(`insert into pur_purchase_order_items (company_id, purchase_order_id, item_id, unit_id, quantity, unit_price) values ($1, $2, $3, $4, 10, 15)`,
+    [company1, po, icItem1.id, icItem1.base_unit_id]);
+  await db.query(`select pur_approve_purchase_order($1)`, [po]);
+  await loginAs(U2);
+  const so = await val(`select id from sal_sales_orders where ic_purchase_order_id = $1`, [po]);
+  await db.query(`select sal_reject_sales_order($1, 'Stok kosong')`, [so]);
+  await loginAs(U1);
+  assert((await val(`select status from pur_purchase_orders where id = $1`, [po])) === 'cancelled', 'PO tidak batal');
+  await db.exec('reset role');
+  await db.query(`update sys_companies set group_id = null where id = $1`, [company2]);
+  assert((await val(`select is_active from pur_suppliers where id = $1`, [icSup2.id])) === false, 'supplier antar-PT masih aktif');
+  assert((await val(`select is_active from sal_customers where id = $1`, [icCust1])) === false, 'pelanggan antar-PT masih aktif');
+  await db.query(`update sys_companies set group_id = null where id = $1`, [company1]);
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

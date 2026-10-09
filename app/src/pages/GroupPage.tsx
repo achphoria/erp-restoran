@@ -7,9 +7,10 @@ import { errorMessage, formatRupiah } from '../lib/format';
 import { useTabParam } from '../lib/useTabParam';
 import { downloadXlsx } from '../lib/excel';
 import { addDays, localDate } from '../lib/hr';
+import IcTab from '../components/group/IcTab';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Tab = 'summary' | 'pl' | 'bs';
+type Tab = 'summary' | 'pl' | 'bs' | 'ic';
 const COLORS = ['#1F7F72', '#F7B733', '#FC4A1A', '#6C63FF', '#2E86DE', '#8E44AD', '#27AE60', '#7F8C8D'];
 const PRESETS: [string, () => [string, string]][] = [
   ['Hari ini', () => [localDate(), localDate()]],
@@ -29,7 +30,7 @@ const pct = (cur: number, prev: number) => (prev ? Math.round(((cur - prev) / pr
 export default function GroupPage() {
   const { switchCompany } = useAuth();
   const { toast } = useFeedback();
-  const [tab, setTab] = useTabParam<Tab>('summary', ['summary', 'pl', 'bs']);
+  const [tab, setTab] = useTabParam<Tab>('summary', ['summary', 'pl', 'bs', 'ic']);
   const [groups, setGroups] = useState<any[] | null>(null);
   const [groupId, setGroupId] = useState('');
   const [[from, to], setRange] = useState<[string, string]>(PRESETS[2][1]);
@@ -88,6 +89,7 @@ export default function GroupPage() {
         <button className={tab === 'summary' ? 'active' : ''} onClick={() => setTab('summary')}>Ringkasan</button>
         <button className={tab === 'pl' ? 'active' : ''} onClick={() => setTab('pl')}>Laba Rugi Konsolidasi</button>
         <button className={tab === 'bs' ? 'active' : ''} onClick={() => setTab('bs')}>Neraca Konsolidasi</button>
+        <button className={tab === 'ic' ? 'active' : ''} onClick={() => setTab('ic')}>Antar-PT</button>
       </div>
 
       {tab === 'summary' && dash && (
@@ -154,6 +156,7 @@ export default function GroupPage() {
         </>
       )}
 
+      {tab === 'ic' && groupId && <IcTab groupId={groupId} />}
       {(tab === 'pl' || tab === 'bs') && fin && <Statement kind={tab} fin={fin} from={from} to={to} groupName={group?.name ?? 'grup'} />}
     </>
   );
