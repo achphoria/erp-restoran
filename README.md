@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–040)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–041)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -39,6 +39,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase28.sql`](supabase/update_fase28.sql) (038: User Management ↔ data karyawan)
   - [`supabase/update_fase29.sql`](supabase/update_fase29.sql) (039: struk 80mm, QR ulasan & analisa ulasan pelanggan)
   - [`supabase/update_fase30.sql`](supabase/update_fase30.sql) (040: self-order kiosk)
+  - [`supabase/update_fase31.sql`](supabase/update_fase31.sql) (041: dashboard grup & laporan konsolidasi)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -358,6 +359,17 @@ Konsep: **karyawan dulu, baru akun**. Data orang dikelola di **SDM / HR**, akun 
 - **Ulasan Pelanggan** (menu Kasir & Outlet): rata-rata bintang, NPS, tingkat respons, sebaran bintang, tren mingguan, nilai per aspek, yang disukai, per outlet;
   daftar ulasan + filter + **tindak lanjut** (WhatsApp pelanggan yang bersedia), export Excel; atur pertanyaan & teks form. Izin `feedback.view` / `feedback.manage`.
   Form publik hanya menampilkan nama outlet/brand & tanggal (tanpa isi pesanan/harga).
+
+## Dashboard grup & laporan konsolidasi
+Menu **Dashboard Grup** (`/grup`) untuk **pemilik grup usaha** (beberapa PT) dan Platform Admin. Hanya membaca, tidak mengubah data PT.
+- **Ringkasan semua PT sekaligus**: penjualan bersih (tanpa pajak/service) + pertumbuhan vs periode sebelumnya, rata-rata transaksi,
+  laba bersih dari jurnal, kehadiran karyawan hari ini, grafik penjualan harian bertumpuk per PT, tabel perbandingan PT
+  (porsi penjualan, stok menipis, rating ulasan, approval & cuti menunggu, tombol **Masuk** ke PT), outlet & menu terlaris se-grup.
+- **Laba rugi konsolidasi** & **neraca konsolidasi**: kolom per PT + **Eliminasi** + **Konsolidasi**, digabung per kode akun, kelompok bisa dilipat, export Excel.
+  Akun kontra (diskon penjualan, akumulasi penyusutan, prive) bernilai minus; laba ditahan = akumulasi laba rugi (belum ada jurnal penutup).
+- **Eliminasi antar-PT**: baris jurnal bertanda lawan transaksi PT lain dalam grup yang sama (`fin_journal_lines.counterparty_company_id`)
+  dikeluarkan dari konsolidasi. Diisi otomatis oleh transaksi antar-PT (tahap berikutnya).
+- Rentang cepat: hari ini, 7 hari, bulan ini, bulan lalu, tahun ini, atau tanggal bebas.
 
 ## Self-order kiosk
 Layar sentuh **berdiri (portrait, mis. TV 1080×1920)** untuk pelanggan memesan sendiri, dibuka di `/kiosk/<token>` tanpa login staf.
