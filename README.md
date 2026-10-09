@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–042)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–043)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -41,6 +41,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase30.sql`](supabase/update_fase30.sql) (040: self-order kiosk)
   - [`supabase/update_fase31.sql`](supabase/update_fase31.sql) (041: dashboard grup & laporan konsolidasi)
   - [`supabase/update_fase32.sql`](supabase/update_fase32.sql) (042: transaksi antar-PT dalam grup)
+  - [`supabase/update_fase33.sql`](supabase/update_fase33.sql) (043: Semar makin pintar: briefing harian, ulasan, rekap SDM, membuat tugas & SOP; deploy ulang Edge Function `semar-agent`)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -302,6 +303,13 @@ Owner bisa bertanya tutorial, minta analisa data, dan melampirkan file (Excel, C
   draft atau langsung diajukan lewat matriks approval). Transaksi lain (penjualan, stok, jurnal) hanya dibaca.
 - **Forecasting kebutuhan beli**: pemakaian per hari dari kartu stok, stok cukup berapa hari, saran qty (satuan beli),
   opsi supplier & harga dari pricelist aktif, dan pembelian terakhir. Contoh: *"Bahan apa yang perlu dibeli 7 hari ke depan? Buatkan PO-nya"*.
+- **Briefing & saran harian**: penjualan hari ini vs kemarin, jam ramai, menu terlaris & tidak laku, stok menipis/kedaluwarsa,
+  siapa belum absen/telat, cuti & koreksi menunggu, tugas lewat tenggat, ulasan buruk, persetujuan menunggu, laba rugi bulan ini,
+  lalu 3-5 saran tindakan prioritas. Contoh: *"Ringkasan usaha hari ini & saran prioritas"*.
+- **Ulasan pelanggan**: tema keluhan & pujian, aspek terendah, NPS, tanpa menampilkan kontak pelanggan.
+- **Rekap SDM**: per karyawan hadir, telat (menit), pulang cepat, alpa, cuti, sisa cuti, tugas lewat tenggat (maks 3 bulan).
+- **Tugas & SOP**: Semar mengusulkan tugas untuk orang / tim (kartu usulan, dibuat setelah disetujui), template SOP harian,
+  dan pertanyaan form ulasan.
 - Batas 40 pesan per jam per owner; token yang terpakai tercatat di tabel `ai_chat_messages`.
 
 ### Setup (sekali saja)

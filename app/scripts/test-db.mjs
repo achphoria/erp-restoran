@@ -3032,5 +3032,32 @@ await check('Antar-PT: SO ditolak penjual -> PO pembeli batal; keluar grup -> mi
   await db.query(`update sys_companies set group_id = null where id = $1`, [company1]);
 });
 
+console.log('\nSemar AI: insight bisnis:');
+await check('Semar: briefing bisnis sesuai data perusahaan sendiri (penjualan, stok, SDM, tugas, ulasan, keuangan)', async () => {
+  await loginAs(U1);
+  const b = await val(`select ai_business_brief(7)`);
+  for (const k of ['periode', 'penjualan', 'stok', 'sdm', 'tugas', 'ulasan', 'persetujuan_menunggu', 'pembelian', 'keuangan_bulan_ini']) assert(k in b, `kunci ${k} hilang`);
+  const expected = await val(`select count(*)::int from pos_orders where company_id = $1 and status = 'paid'
+    and business_date between (now() at time zone 'Asia/Jakarta')::date - 6 and (now() at time zone 'Asia/Jakarta')::date`, [company1]);
+  assert(Number(b.penjualan.periode.transaksi) === expected, `transaksi ${b.penjualan.periode.transaksi} vs ${expected}`);
+  assert(Array.isArray(b.penjualan.menu_terlaris) && typeof b.sdm.karyawan_aktif === 'number' && 'laba_bersih' in b.keuangan_bulan_ini, JSON.stringify(b).slice(0, 300));
+  await loginAs(U4b);
+  const other = await val(`select ai_business_brief(30)`);
+  assert(other.sdm && !JSON.stringify(other).includes('Andi Saputra'), 'data PT lain bocor ke briefing');
+});
+await check('Semar: insight ulasan tanpa kontak pelanggan; rekap SDM per karyawan; kasir ditolak', async () => {
+  await loginAs(U1);
+  const f = await val(`select ai_feedback_insights(current_date - 60, current_date + 1)`);
+  assert(f.ringkasan && Array.isArray(f.ulasan) && f.ulasan.length >= 1 && !JSON.stringify(f.ulasan).includes('0812333444'), JSON.stringify(f).slice(0, 300));
+  const r = await val(`select ai_hr_recap(current_date - 30, current_date)`);
+  const andi = r.find((x) => x.nama === 'Andi Saputra');
+  assert(andi && 'alpa' in andi && 'sisa_cuti_tahunan' in andi && Number(andi.hadir) >= 1, JSON.stringify(andi));
+  await expectError(`select ai_hr_recap(current_date - 200, current_date)`, [], /maksimal 3 bulan/);
+  await loginAs(KASIR);
+  await expectError(`select ai_hr_recap(current_date - 7, current_date)`, [], /izin/);
+  await expectError(`select ai_feedback_insights(current_date - 7, current_date)`, [], /izin/);
+  assert((await val(`select 'hr_sop_templates' = any(ai_writable_tables()) and 'crm_feedback_questions' = any(ai_writable_tables())`)) === true, 'tabel boleh diubah Semar');
+});
+
 console.log(`\n${passed} lulus, ${failed} gagal\n`);
 process.exit(failed ? 1 : 0);

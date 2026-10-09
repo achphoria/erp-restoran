@@ -139,6 +139,9 @@
 .semar-prop-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .semar-prop.hapus .semar-prop-head .badge:first-child { background: var(--danger-soft); color: var(--danger); }
 .semar-prop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.semar-tasks { display: grid; gap: 6px; }
+.semar-task { display: grid; gap: 3px; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.semar-task ul { margin: 2px 0 0; padding-left: 18px; }
 .semar-composer { display: grid; gap: 8px; width: 100%; }
 .semar-files { display: flex; flex-wrap: wrap; gap: 6px; }
 .semar-file { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 600; }
