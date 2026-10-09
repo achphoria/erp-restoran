@@ -1136,10 +1136,10 @@ begin
       where company_id = v_c and is_active), '[]'::jsonb),
     'suppliers', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name) order by name) from pur_suppliers
       where company_id = v_c and is_active and supplier_type = 'external'), '[]'::jsonb),
-    -- kas & bank (aset lancar selain piutang / persediaan)
+    -- kas & bank (termasuk sub-akun, mis. 1-1210 Bank BCA)
     'cash_accounts', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', code || ' ' || name, 'key', system_key) order by code) from fin_accounts
-      where company_id = v_c and account_type = 'asset' and not is_header and is_active and code < '1-2'
-        and coalesce(system_key, '') not in ('ar', 'inventory', 'ic_receivable')), '[]'::jsonb),
+      where company_id = v_c and account_type = 'asset' and not is_header and is_active
+        and (system_key in ('cash', 'bank') or code like '1-11%' or code like '1-12%')), '[]'::jsonb),
     'accounts', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', code || ' ' || name, 'type', account_type, 'key', system_key) order by code)
       from fin_accounts where company_id = v_c and not is_header and is_active and account_type in ('asset', 'expense', 'cogs')), '[]'::jsonb),
     'settings', (select to_jsonb(s) from ast_settings s where s.company_id = v_c),
