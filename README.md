@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–043)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–044)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -42,6 +42,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase31.sql`](supabase/update_fase31.sql) (041: dashboard grup & laporan konsolidasi)
   - [`supabase/update_fase32.sql`](supabase/update_fase32.sql) (042: transaksi antar-PT dalam grup)
   - [`supabase/update_fase33.sql`](supabase/update_fase33.sql) (043: Semar makin pintar: briefing harian, ulasan, rekap SDM, membuat tugas & SOP; deploy ulang Edge Function `semar-agent`)
+  - [`supabase/update_fase34.sql`](supabase/update_fase34.sql) (044: manajemen aset tetap: daftar aset, label QR, penyusutan, mutasi & pelepasan)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -419,6 +420,20 @@ Menu **Tugas** untuk semua user (badge = tugas baru untuk saya + yang menunggu r
 - **SOP harian**: template per role / outlet (mis. *Buka toko*, *Tutup toko*, *Cek suhu chiller*), langkah bisa wajib foto.
   Checklist hari ini dibuat otomatis per outlet saat dibuka; tercatat siapa & jam berapa. Rekap **kepatuhan SOP** 7 hari (%) untuk manajer.
 - Beranda Saya: kartu *Tugas saya* + pengingat SOP hari ini. Foto di bucket privat `task-files`.
+
+## Aset tetap (tahap 1)
+Menu **Aset**: peralatan dapur, elektronik, mesin besar, furnitur, kendaraan & renovasi.
+- **Kategori** default mengikuti kelompok pajak (4 / 8 / 20 tahun), akun COA per kategori (Peralatan, Elektronik, Mesin, Furnitur,
+  Kendaraan, Bangunan; Akumulasi Penyusutan; Beban Penyusutan). **Batas nilai aset** default Rp 1.000.000: di bawahnya dicatat sebagai biaya.
+- **Daftar aset**: kode otomatis `AST-DPR-0001`, outlet & lokasi, penanggung jawab, merek, nomor seri, supplier, garansi, foto (bucket privat `asset-files`).
+- **Cara perolehan** (dijurnal otomatis): dibayar tunai/bank · belum dibayar (hutang pembelian aset, bayar dari detail aset) ·
+  **aset lama** sebelum pakai SEMAR (akumulasi penyusutan lama dihitung otomatis, lawan Ekuitas Saldo Awal) · sudah dicatat di jurnal (tanpa jurnal).
+- **Penyusutan bulanan**: garis lurus / saldo menurun, jurnal per outlet (Beban Penyusutan / Akumulasi), bulan yang tertinggal otomatis disusulkan,
+  periode terakhir bisa dibatalkan. Proyeksi nilai buku per tahun di detail aset.
+- **Mutasi** antar outlet / lokasi & **pelepasan** (dijual, rusak, hilang, hibah) lewat matriks approval (jenis *Mutasi Aset* & *Pelepasan Aset*,
+  default aktif; owner/penyetuju langsung jalan). Laba / rugi pelepasan dijurnal otomatis.
+- **Label QR** untuk printer thermal: scan pakai kamera HP langsung membuka detail aset; bisa cetak banyak sekaligus.
+- Izin: `asset.view`, `asset.manage`, `approval.asset_transfer`, `approval.asset_disposal`. Tahap berikutnya: jadwal perawatan & laporan kerusakan, opname aset scan QR.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).
