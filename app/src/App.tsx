@@ -34,10 +34,11 @@ const MyHomePage = lazyRetry(() => import('./pages/MyHomePage'));
 const TasksPage = lazyRetry(() => import('./pages/TasksPage'));
 const GroupPage = lazyRetry(() => import('./pages/GroupPage'));
 const AssetsPage = lazyRetry(() => import('./pages/AssetsPage'));
+const AssetScanPage = lazyRetry(() => import('./pages/AssetScanPage'));
 const LandingPage = lazyRetry(() => import('./pages/LandingPage'));
 import { FeedbackProvider } from './components/Feedback';
 import { APPROVAL_DOCS } from './components/settings/approvalCatalog';
-const ASSET_PERMS = ['asset.view', 'asset.manage', 'finance.view', 'approval.asset_transfer', 'approval.asset_disposal'];
+const ASSET_PERMS = ['asset.view', 'asset.manage', 'asset.audit', 'finance.view', 'approval.asset_transfer', 'approval.asset_disposal'];
 
 function Guard({ permission, children }: { permission: string | string[]; children: React.ReactNode }) {
   const { can } = useAuth();
@@ -97,6 +98,7 @@ function AppRoutes() {
         <Route path="grup" element={<GroupPage />} />
         <Route path="kiosks" element={<Guard permission="kiosk.manage"><KiosksPage /></Guard>} />
         <Route path="ulasan" element={<Guard permission={['feedback.view', 'feedback.manage']}><ReviewsPage /></Guard>} />
+        <Route path="aset/:code" element={<AssetScanPage />} />
         <Route path="assets" element={<Guard permission={ASSET_PERMS}><AssetsPage /></Guard>} />
         <Route path="hr" element={<Guard permission={['hr.view', 'hr.manage', 'hr.attendance', 'approval.leave', 'hr.appraisal']}><HrPage /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeftRight, HandCoins, Pencil, Printer, Trash2, XCircle } from 'lucide-react';
+import { ArrowLeftRight, HandCoins, Pencil, Printer, Trash2, Wrench, XCircle } from 'lucide-react';
 import Modal from '../Modal';
 import MoneyInput from '../MoneyInput';
 import { useFeedback } from '../Feedback';
@@ -11,9 +11,11 @@ import {
   DISPOSAL_TYPE, FUNDING, METHOD_LABEL, REQ_STATUS, assetPhotoUrl, fmtDate, fmtMonth, lifeLabel, printAssetLabels, type AssetOptions,
 } from '../../lib/assets';
 import AssetForm from './AssetForm';
+import AssetMaintenance from './AssetMaintenance';
+import { ReportDamageDialog } from './MaintenanceDialogs';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Tab = 'info' | 'depreciation' | 'history';
+type Tab = 'info' | 'depreciation' | 'maintenance' | 'history';
 
 export default function AssetDetail({ id, options, onClose, onChanged }: {
   id: string; options: AssetOptions; onClose: () => void; onChanged: () => void;
@@ -23,7 +25,8 @@ export default function AssetDetail({ id, options, onClose, onChanged }: {
   const [d, setD] = useState<any | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('info');
-  const [dialog, setDialog] = useState<'edit' | 'transfer' | 'dispose' | 'pay' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'transfer' | 'dispose' | 'pay' | 'damage' | null>(null);
+  const [mKey, setMKey] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +65,7 @@ export default function AssetDetail({ id, options, onClose, onChanged }: {
     <Modal large title={`${d.asset_number} · ${d.name}`} onClose={onClose}
       footer={<>
         <button onClick={print}><Printer size={16} /> Label QR</button>
+        {active && <button onClick={() => setDialog('damage')}><Wrench size={16} /> Lapor kerusakan</button>}
         {manage && !pending && <button onClick={() => setDialog('transfer')}><ArrowLeftRight size={16} /> Mutasi</button>}
         {manage && unpaid > 0 && <button onClick={() => setDialog('pay')}><HandCoins size={16} /> Bayar hutang</button>}
         {manage && !pending && <button className="btn-danger" onClick={() => setDialog('dispose')}><XCircle size={16} /> Lepas aset</button>}
@@ -87,7 +91,7 @@ export default function AssetDetail({ id, options, onClose, onChanged }: {
       </div>
 
       <div className="tabs">
-        {([['info', 'Info'], ['depreciation', 'Penyusutan'], ['history', 'Riwayat']] as [Tab, string][]).map(([k, v]) => (
+        {([['info', 'Info'], ['depreciation', 'Penyusutan'], ['maintenance', 'Perawatan'], ['history', 'Riwayat']] as [Tab, string][]).map(([k, v]) => (
           <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{v}</button>
         ))}
       </div>
@@ -148,6 +152,8 @@ export default function AssetDetail({ id, options, onClose, onChanged }: {
         </div>
       )}
 
+      {tab === 'maintenance' && <AssetMaintenance asset={d} options={options} refreshKey={mKey} onChanged={() => { load(); onChanged(); }} />}
+
       {tab === 'history' && (
         <div className="card">
           {[...d.transfers.map((t: any) => ({ ...t, kind: 'transfer' })), ...d.disposals.map((x: any) => ({ ...x, kind: 'disposal' }))]
@@ -172,6 +178,7 @@ export default function AssetDetail({ id, options, onClose, onChanged }: {
       {dialog === 'edit' && <AssetForm initial={d} options={options} onClose={() => setDialog(null)} onSaved={() => { toast('Aset disimpan', 'success'); changed(); }} />}
       {dialog === 'transfer' && <TransferDialog asset={d} options={options} onClose={() => setDialog(null)} onDone={changed} />}
       {dialog === 'dispose' && <DisposeDialog asset={d} options={options} onClose={() => setDialog(null)} onDone={changed} />}
+      {dialog === 'damage' && <ReportDamageDialog asset={d} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setTab('maintenance'); setMKey((k) => k + 1); load(); onChanged(); }} />}
       {dialog === 'pay' && <PayDialog asset={d} unpaid={unpaid} options={options} onClose={() => setDialog(null)} onDone={changed} />}
     </Modal>
   );

@@ -26,6 +26,28 @@ export const REQ_STATUS: Record<string, [string, string]> = {
   rejected: ['Ditolak', 'badge-danger'], cancelled: ['Dibatalkan', ''],
 };
 
+export const SEVERITY: Record<string, [string, string]> = {
+  minor: ['Masih bisa dipakai', 'badge-info'], major: ['Terganggu', 'badge-warning'], down: ['Mati total', 'badge-danger'],
+};
+export const REPAIR_STATUS: Record<string, [string, string]> = {
+  open: ['Baru', 'badge-warning'], in_progress: ['Diperbaiki', 'badge-info'], waiting_parts: ['Menunggu suku cadang', 'badge-info'],
+  done: ['Selesai', 'badge-success'], cancelled: ['Dibatalkan', ''],
+};
+export const UNIT_LABEL: Record<string, string> = { day: 'hari', week: 'minggu', month: 'bulan' };
+export const AUDIT_RESULT: Record<string, [string, string]> = {
+  pending: ['Belum di-scan', ''], found: ['Ditemukan', 'badge-success'], missing: ['Hilang', 'badge-danger'], unexpected: ['Salah lokasi', 'badge-warning'],
+};
+// hasil scan bisa berupa link label (…/aset/AST-DPR-0001 atau …/assets?code=…) atau kode saja
+export function parseAssetCode(raw: string): string {
+  const s = raw.trim();
+  const q = s.match(/[?&]code=([^&#]+)/);
+  if (q) return decodeURIComponent(q[1]);
+  const m = s.match(/\/aset\/([^/?#]+)/);
+  return m ? decodeURIComponent(m[1]) : s;
+}
+// tanggal hari ini (WIB) + n hari, format YYYY-MM-DD
+export const dayISO = (offset = 0) => new Date(Date.now() + 7 * 3600 * 1000 + offset * 86400000).toISOString().slice(0, 10);
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 export const fmtDate = (d: string | null | undefined) => {
   if (!d) return '-';
@@ -54,6 +76,15 @@ export async function uploadAssetPhoto(companyId: string, assetId: string | null
   if (error) throw new Error(error.message);
   return path;
 }
+// foto kerusakan: asset-files/<company>/<asset_id>/repairs/<acak>.webp (boleh diunggah semua yang bisa melapor)
+export async function uploadRepairPhoto(companyId: string, assetId: string, file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('File harus foto');
+  const path = `${companyId}/${assetId}/repairs/${crypto.randomUUID().slice(0, 8)}.webp`;
+  const body = await resizeImage(file, 1280);
+  const { error } = await supabase.storage.from('asset-files').upload(path, body, { contentType: 'image/webp' });
+  if (error) throw new Error(error.message);
+  return path;
+}
 const cache = new Map<string, { url: string; until: number }>();
 export async function assetPhotoUrl(path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
@@ -65,8 +96,8 @@ export async function assetPhotoUrl(path: string | null | undefined): Promise<st
   return data.signedUrl;
 }
 
-// link yang dibuka saat QR di-scan kamera HP: langsung ke detail aset (perlu login)
-export const assetUrl = (code: string) => `${window.location.origin}${import.meta.env.BASE_URL}assets?code=${encodeURIComponent(code)}`;
+// link yang dibuka saat QR di-scan kamera HP: halaman aset untuk semua karyawan (lapor kerusakan, opname); perlu login
+export const assetUrl = (code: string) => `${window.location.origin}${import.meta.env.BASE_URL}aset/${encodeURIComponent(code)}`;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 

@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–044)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–045)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -43,6 +43,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase32.sql`](supabase/update_fase32.sql) (042: transaksi antar-PT dalam grup)
   - [`supabase/update_fase33.sql`](supabase/update_fase33.sql) (043: Semar makin pintar: briefing harian, ulasan, rekap SDM, membuat tugas & SOP; deploy ulang Edge Function `semar-agent`)
   - [`supabase/update_fase34.sql`](supabase/update_fase34.sql) (044: manajemen aset tetap: daftar aset, label QR, penyusutan, mutasi & pelepasan)
+  - [`supabase/update_fase35.sql`](supabase/update_fase35.sql) (045: perawatan rutin → Tugas, laporan kerusakan, opname aset scan QR)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -433,7 +434,21 @@ Menu **Aset**: peralatan dapur, elektronik, mesin besar, furnitur, kendaraan & r
 - **Mutasi** antar outlet / lokasi & **pelepasan** (dijual, rusak, hilang, hibah) lewat matriks approval (jenis *Mutasi Aset* & *Pelepasan Aset*,
   default aktif; owner/penyetuju langsung jalan). Laba / rugi pelepasan dijurnal otomatis.
 - **Label QR** untuk printer thermal: scan pakai kamera HP langsung membuka detail aset; bisa cetak banyak sekaligus.
-- Izin: `asset.view`, `asset.manage`, `approval.asset_transfer`, `approval.asset_disposal`. Tahap berikutnya: jadwal perawatan & laporan kerusakan, opname aset scan QR.
+- Izin: `asset.view`, `asset.manage`, `asset.audit` (ikut opname), `approval.asset_transfer`, `approval.asset_disposal`.
+
+**Tahap 2: perawatan, kerusakan & opname**
+- **Jadwal perawatan rutin** per aset (tiap N hari / minggu / bulan, mis. *Service AC tiap 3 bulan*): tugas otomatis muncul di menu **Tugas**
+  H-x sebelum jatuh tempo (untuk orang / tim / penanggung jawab aset, dengan checklist & wajib foto). Saat tugas *Selesai*, riwayat perawatan
+  tercatat dan jadwal maju ke periode berikutnya; tugas yang diarsipkan dicatat *dilewati*.
+- **Riwayat perawatan + biaya**; biaya bisa langsung dijurnal (Beban Perbaikan & Perawatan / Kas-Bank). Biaya di atas batas approval *Biaya*
+  diarahkan lewat Keuangan → Biaya.
+- **Lapor kerusakan oleh semua karyawan**: scan label QR di aset (link `/aset/<kode>`) atau dari **Beranda Saya** → pilih tingkat
+  (masih bisa dipakai / terganggu / mati total) + foto. Otomatis jadi tiket `KRS/…` + tugas perbaikan (prioritas sesuai tingkat).
+  Pengelola aset mengisi status, vendor, tindakan & biaya; lama aset rusak tercatat.
+- **Opname aset** per outlet: scan QR satu per satu → ditemukan / salah lokasi / rusak (rusak otomatis jadi laporan kerusakan);
+  saat ditutup yang tidak ter-scan tercatat hilang. Petugas opname juga bisa menandai dari halaman scan QR.
+- **Biaya perawatan terbesar 12 bulan** per aset, dengan tanda bila biaya > 50% nilai buku (pertimbangkan ganti baru).
+- Tahap berikutnya: Semar membaca data aset & briefing harian mengingatkan perawatan terlambat / aset rusak.
 
 ## Email pendaftaran (Supabase Auth)
 Template email konfirmasi bertema SEMAR ada di [`supabase/email_templates/confirm_signup.html`](supabase/email_templates/confirm_signup.html).
