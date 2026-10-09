@@ -68,8 +68,8 @@
 .lp-bars { display: flex; align-items: flex-end; gap: 5px; height: 42px; width: 100%; margin-top: 8px; }
 .lp-bars i { flex: 1; border-radius: 4px 4px 2px 2px; background: linear-gradient(var(--fresh), var(--primary)); }
 .lp-bars i:last-child { background: linear-gradient(var(--sunshine), #e39a12); }
-.lp-float-stock { right: 5%; top: 30%; max-width: 54%; animation-delay: -3s; }
-.lp-float-stock > svg { color: var(--accent); }
+.lp-float-semar { right: 4%; top: 31%; max-width: 60%; animation-delay: -3s; align-items: flex-start; }
+.lp-float-semar .pd-avatar { border-radius: 10px; flex-shrink: 0; }
 .lp-float-approve { left: 5%; bottom: 25%; max-width: 50%; animation-delay: -2s; }
 .lp-float-qr { right: 6%; bottom: 8%; max-width: 44%; animation-delay: -4s; }
 .lp-float-qr > svg { color: #b97a00; }
@@ -94,7 +94,7 @@
 .lp-puna-card.vermillion { --tone: var(--accent); --tone-soft: var(--accent-soft); }
 .lp-puna-card.ink { --tone: #1d2433; --tone-soft: #eceaf0; }
 .lp-puna-badge {
-  width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; font-size: 22px; font-weight: 800;
+  width: 56px; height: 56px; border-radius: 16px; overflow: hidden; display: grid; place-items: center; font-size: 22px; font-weight: 800;
   background: var(--tone-soft); color: var(--tone);
 }
 .lp-puna-name { margin-top: 14px; font-size: 20px; font-weight: 800; }
@@ -293,8 +293,109 @@
 .lp-brands-row { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; }
 .marquee .lp-brands-row { width: max-content; flex-wrap: nowrap; justify-content: flex-start; animation: lp-marquee 40s linear infinite; }
 .marquee:hover .lp-brands-row { animation-play-state: paused; }
-.lp-brand { margin: 0; width: 120px; display: grid; justify-items: center; gap: 8px; }
-.lp-brand img { width: 84px; height: 84px; object-fit: cover; border-radius: 22px; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
-.lp-brand figcaption { font-size: 12.5px; font-weight: 700; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-logo { margin: 0; width: 120px; display: grid; justify-items: center; gap: 8px; }
+.lp-logo img { width: 84px; height: 84px; object-fit: cover; border-radius: 22px; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lp-logo figcaption { font-size: 12.5px; font-weight: 700; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes lp-marquee { from { transform: translateX(0); } to { transform: translateX(calc(-50% - 9px)); } }
 @media (prefers-reduced-motion: reduce) { .marquee .lp-brands-row { animation: none; flex-wrap: wrap; width: auto; justify-content: center; } }
+
+/* ---------------------------------------------------------------------
+   REVAMP: pita modul, Semar AI, fitur per kebutuhan, peran tim, FAQ, WhatsApp
+   --------------------------------------------------------------------- */
+.lp-modules { overflow: hidden; padding: 6px 0 34px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
+.lp-modules-row { display: flex; gap: 10px; width: max-content; animation: lp-marquee 55s linear infinite; }
+.lp-modules-row span { padding: 8px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-weight: 700; font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.lp-modules-row span:nth-child(5n + 1) { color: var(--primary); border-color: #bfe6df; background: var(--primary-soft); }
+
+/* Semar AI */
+.lp-ai {
+  display: grid; grid-template-columns: 0.95fr 1.05fr; gap: 40px; align-items: center; padding: 44px; border-radius: 28px; color: #e9f5f2;
+  background: radial-gradient(70% 90% at 100% 0%, rgba(247, 183, 51, 0.22), transparent 60%), radial-gradient(120% 90% at 0% 100%, #1f7f72, #0f3d37 70%);
+  box-shadow: 0 30px 70px rgba(15, 61, 55, 0.3);
+}
+.lp-ai .lp-eyebrow { display: inline-flex; align-items: center; gap: 6px; }
+.lp-ai h2 { font-size: clamp(26px, 3.4vw, 38px); letter-spacing: -0.02em; margin: 10px 0 12px; color: #fff; }
+.lp-ai-copy > p { line-height: 1.65; margin: 0; opacity: 0.92; }
+.lp-ai-list { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 12px; }
+.lp-ai-list li { position: relative; padding-left: 26px; line-height: 1.55; font-size: 14.5px; }
+.lp-ai-list li::before { content: '✦'; position: absolute; left: 0; top: 0; color: var(--sunshine); }
+.lp-ai-list b { color: #fff; }
+
+.lp-demo { background: var(--surface); color: var(--text); border-radius: 22px; box-shadow: 0 24px 50px rgba(0, 0, 0, 0.28); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.lp-demo-tabs { display: flex; gap: 6px; padding: 10px 10px 0; overflow-x: auto; scrollbar-width: none; }
+.lp-demo-tabs button { flex: none; min-height: 32px; padding: 4px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 700; background: var(--surface-2); border-color: transparent; color: var(--text-muted); }
+.lp-demo-tabs button.active { background: var(--primary-soft); color: var(--primary); border-color: #bfe6df; }
+.lp-demo-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.lp-demo-head b { display: block; font-size: 14px; }
+.lp-demo-head small { color: var(--text-muted); font-size: 11.5px; }
+.lp-demo-head .pd-avatar { border-radius: 10px; }
+.lp-demo-body { height: 340px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: linear-gradient(var(--surface-2), var(--surface)); }
+.lp-msg { max-width: 88%; padding: 9px 12px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; animation: lp-pop 0.3s ease-out; }
+.lp-msg.me { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+.lp-msg.ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; display: grid; gap: 4px; }
+.lp-msg-file { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.18); font-size: 12px; font-weight: 700; }
+.lp-msg-tool { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); padding: 2px 4px; animation: lp-pop 0.3s ease-out; }
+.lp-typing { align-self: flex-start; display: flex; gap: 4px; padding: 10px 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.lp-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: lp-dot 1s infinite; }
+.lp-typing i:nth-child(2) { animation-delay: 0.15s; }
+.lp-typing i:nth-child(3) { animation-delay: 0.3s; }
+.lp-msg-card { align-self: flex-start; max-width: 88%; display: grid; gap: 4px; padding: 10px 12px; border-radius: 14px; border: 2px dashed var(--sunshine); background: #fffaf0; font-size: 13px; animation: lp-pop 0.3s ease-out; }
+.lp-msg-card.done { border-style: solid; border-color: #bfe6df; background: var(--success-soft); }
+.lp-msg-card-head { display: flex; align-items: center; gap: 6px; font-weight: 800; color: var(--primary); }
+.lp-msg-card .btn { justify-self: start; margin-top: 6px; }
+.lp-msg-card-ok { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--success); font-weight: 700; }
+.lp-demo-foot { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-muted); }
+@keyframes lp-pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes lp-dot { 0%, 100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
+
+/* fitur per kebutuhan */
+.lp-groups { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.lp-groups button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 6px 16px; border-radius: 999px; font-weight: 700; background: var(--surface); }
+.lp-groups button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.lp-group-lead { text-align: center; color: var(--text-muted); margin: 0 0 18px; font-size: 15px; }
+.lp-group .lp-features { grid-template-columns: repeat(3, 1fr); }
+.lp-group .lp-feature { animation: lp-pop 0.3s ease-out; }
+
+/* peran tim */
+.lp-roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.lp-role { display: flex; gap: 12px; align-items: flex-start; padding: 18px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lp-role .lp-feature-icon { flex-shrink: 0; }
+.lp-role p { color: var(--text-muted); margin: 4px 0 0; line-height: 1.5; font-size: 13.5px; }
+
+/* FAQ */
+.lp-faq { max-width: 780px; margin: 0 auto; display: grid; gap: 10px; }
+.lp-faq details { border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lp-faq summary { cursor: pointer; list-style: none; padding: 16px 48px 16px 18px; font-weight: 700; position: relative; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq summary::after { content: '+'; position: absolute; right: 18px; top: 50%; transform: translateY(-50%); font-size: 22px; color: var(--primary); font-weight: 400; }
+.lp-faq details[open] summary::after { content: '–'; }
+.lp-faq details p { margin: 0; padding: 0 18px 16px; color: var(--text-muted); line-height: 1.65; }
+.lp-faq-more { text-align: center; color: var(--text-muted); margin: 10px 0 0; }
+
+/* WhatsApp */
+.lp-wa-btn { background: #25d366; border-color: #25d366; color: #fff; }
+.lp-wa-btn:hover:not(:disabled) { background: #1fb457 !important; border-color: #1fb457 !important; }
+.lp-wa-float {
+  position: fixed; right: 18px; bottom: 18px; z-index: 30; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+  background: #25d366; color: #fff; box-shadow: 0 10px 26px rgba(37, 211, 102, 0.45); transition: transform 0.15s ease;
+}
+.lp-wa-float:hover { transform: scale(1.06); }
+
+@media (max-width: 1000px) {
+  .lp-ai { grid-template-columns: 1fr; padding: 28px 20px; }
+  .lp-group .lp-features, .lp-roles { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 520px) {
+  .lp-group .lp-features, .lp-roles { grid-template-columns: 1fr; }
+  .lp-groups { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 16px; padding: 0 16px; }
+  .lp-groups button { flex: none; }
+  .lp-demo-body { height: 380px; }
+  .lp-float-semar { top: 33%; max-width: 70%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-modules-row { animation: none; flex-wrap: wrap; width: auto; justify-content: center; }
+  .lp-msg, .lp-msg-card, .lp-msg-tool, .lp-group .lp-feature { animation: none; }
+}
+
+/* lompat dari menu: judul tidak tertutup navigasi yang menempel */
+.landing section[id] { scroll-margin-top: 64px; }

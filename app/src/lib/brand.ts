@@ -4,6 +4,11 @@ export const APP_NAME = 'SEMAR';
 export const APP_LONG_NAME = 'Sistem ERP, Manajemen, Akuntansi & Restoran';
 export const APP_TAGLINE = 'Abdi setia usaha kuliner';
 
+// WhatsApp untuk calon pengguna di landing page (format internasional tanpa +, mis. 6281234567890).
+// Kosong = tombol WhatsApp disembunyikan.
+export const WHATSAPP_NUMBER = '';
+export const whatsappLink = (text: string) => `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
+
 // nama perusahaan yang sedang login (dipakai di dokumen cetak: surat jalan, invoice)
 let companyName = '';
 export const getCompanyName = () => companyName;
