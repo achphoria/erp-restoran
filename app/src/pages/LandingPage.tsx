@@ -1,39 +1,84 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, BadgeCheck, ChefHat, HandHeart, Languages, LogIn, Network, Package, QrCode, Receipt, ScanBarcode, ShieldCheck, Smartphone, Sprout, Store, Truck, Users, Wallet,
-  type LucideIcon,
+  ArrowRight, Armchair, BadgeCheck, Bell, Boxes, CalendarCheck, ChefHat, ClipboardList, Fingerprint, HandHeart, Languages, LayoutDashboard, ListTodo,
+  LogIn, MessageCircle, MessageSquareHeart, MonitorSmartphone, Network, Package, QrCode, Receipt, ScanBarcode, ShieldCheck, Smartphone,
+  Sparkles, Sprout, Store, Truck, UserRound, Users, Wallet, Warehouse, Wrench, type LucideIcon,
 } from 'lucide-react';
 import Gunungan from '../components/Gunungan';
-import { APP_LONG_NAME, APP_NAME } from '../lib/brand';
+import MiniAvatar from '../components/pendopo/MiniAvatar';
+import SemarDemo from '../components/landing/SemarDemo';
+import { APP_LONG_NAME, APP_NAME, WHATSAPP_NUMBER, whatsappLink } from '../lib/brand';
 import { formatRupiah } from '../lib/format';
 import { rpc } from '../lib/supabase';
 import '../styles/landing.css';
 
 // Punakawan = modul SEMAR. Watak tiap tokoh dipakai sebagai cerita modulnya.
-const PUNAKAWAN: { name: string; watak: string; modul: string; desc: string; tone: string }[] = [
-  { name: 'Semar', watak: 'Pamong yang bijak', modul: 'Pusat kendali',
-    desc: 'Dashboard, approval transaksi, user & role, akses per branch, multi outlet, brand, sampai grup usaha.', tone: 'fresh' },
-  { name: 'Gareng', watak: 'Teliti, tangannya tak mengambil hak orang', modul: 'Kasir & penjualan',
-    desc: 'POS, pesan lewat QR meja, layar dapur, shift kasir, member & promo, settlement uang harian.', tone: 'sunshine' },
-  { name: 'Petruk', watak: 'Jangkauannya panjang', modul: 'Stok, gudang & pembelian',
-    desc: 'Stok FIFO/FEFO per batch, barcode & koli, transfer antar cabang, PO, produksi & resep (BOM).', tone: 'vermillion' },
-  { name: 'Bagong', watak: 'Lugas, bicara apa adanya', modul: 'Keuangan & laporan',
-    desc: 'Jurnal otomatis dari setiap transaksi, laba rugi, neraca, piutang & hutang, laporan penjualan.', tone: 'ink' },
+const PUNAKAWAN: { id: 'semar' | 'gareng' | 'petruk' | 'bagong'; name: string; watak: string; modul: string; desc: string; tone: string }[] = [
+  { id: 'semar', name: 'Semar', watak: 'Pamong yang bijak', modul: 'Pusat kendali & tim',
+    desc: 'Konsultan AI, approval transaksi, SDM & absensi, tugas & SOP, multi outlet, brand, sampai grup usaha.', tone: 'fresh' },
+  { id: 'gareng', name: 'Gareng', watak: 'Teliti, tangannya tak mengambil hak orang', modul: 'Kasir & pelanggan',
+    desc: 'POS, QR meja, self kiosk, layar dapur, struk 80mm + QR ulasan, member & promo, setoran harian.', tone: 'sunshine' },
+  { id: 'petruk', name: 'Petruk', watak: 'Jangkauannya panjang', modul: 'Stok, gudang & aset',
+    desc: 'Stok FIFO/FEFO per batch, PO & antar cabang, produksi & resep, aset dengan label QR & perawatan.', tone: 'vermillion' },
+  { id: 'bagong', name: 'Bagong', watak: 'Lugas, bicara apa adanya', modul: 'Keuangan & laporan',
+    desc: 'Jurnal otomatis dari setiap transaksi, laba rugi, neraca, penyusutan aset, laporan konsolidasi grup.', tone: 'ink' },
 ];
 
-const FEATURES: [LucideIcon, string, string][] = [
-  [Receipt, 'Kasir cepat & QR order', 'Dine-in, takeaway, split payment, struk, dan pesanan tamu langsung dari meja.'],
-  [ScanBarcode, 'Stok FIFO/FEFO & barcode', 'Setiap batch terlacak dari terima barang sampai terjual, lengkap dengan kedaluwarsa.'],
-  [Truck, 'Pembelian & SO antar cabang', 'PO ke supplier atau ke cabang lain, pengiriman per koli, invoice & pembayaran.'],
-  [ChefHat, 'Produksi & resep', 'Simple manufacturing ala central kitchen: BOM, hasil aktual, dan HPP otomatis.'],
-  [Wallet, 'Akuntansi otomatis', 'Jurnal terbentuk sendiri dari penjualan, pembelian, stok, dan settlement POS.'],
-  [BadgeCheck, 'Approval transaksi', 'Atur siapa pembuat & penyetuju untuk PO, refund, opname, produksi, dan lainnya.'],
-  [Network, 'Multi outlet, brand & PT', 'Satu juragan, banyak cabang, banyak brand, bahkan beberapa PT dalam satu grup.'],
-  [ShieldCheck, 'Akses aman per branch', 'Staf hanya melihat branch atau brand miliknya, dikunci langsung di database.'],
+// fitur dikelompokkan per kebutuhan usaha
+const GROUPS: { key: string; label: string; icon: LucideIcon; lead: string; items: [LucideIcon, string, string][] }[] = [
+  { key: 'jualan', label: 'Jualan', icon: Receipt, lead: 'Layani tamu lebih cepat, dari kasir, meja, sampai layar pesan sendiri.', items: [
+    [Receipt, 'Kasir (POS)', 'Dine-in & takeaway, split bill & split payment, diskon, refund dengan approval, shift kasir.'],
+    [QrCode, 'Pesan dari meja', 'Tamu scan QR di meja, pesanan langsung masuk kasir & dapur.'],
+    [MonitorSmartphone, 'Self kiosk', 'Layar sentuh berdiri untuk pesan sendiri, menu unggulan & nomor antrean, bayar di kasir.'],
+    [ChefHat, 'Layar dapur', 'Pesanan tampil per stasiun dapur, tanpa kertas yang tercecer.'],
+    [MessageSquareHeart, 'Struk + QR ulasan', 'Struk thermal 80mm berlogo dengan QR form ulasan, analisa rating & NPS.'],
+    [Wallet, 'Member, promo & setoran', 'Poin member, voucher, promo terjadwal, dan settlement uang per metode bayar.'],
+  ] },
+  { key: 'dapur', label: 'Dapur & stok', icon: Package, lead: 'Stok dan HPP selalu benar, karena setiap menu terhubung ke resep.', items: [
+    [ScanBarcode, 'Stok FIFO / FEFO', 'Setiap batch terlacak dari terima barang sampai terjual, lengkap tanggal kedaluwarsa & barcode.'],
+    [Boxes, 'Resep & produksi', 'BOM, produksi central kitchen, hasil aktual, HPP otomatis.'],
+    [Truck, 'Pembelian', 'PO ke supplier, pricelist, penerimaan barang per lot, tagihan & pembayaran hutang.'],
+    [Store, 'Antar cabang', 'Sales order & transfer antar cabang dengan pengiriman per koli.'],
+    [ClipboardList, 'Opname & waste', 'Stock opname bertahap, penyesuaian, waste & pemakaian langsung ke jurnal.'],
+  ] },
+  { key: 'tim', label: 'Tim & SDM', icon: Users, lead: 'Semua karyawan pegang HP; juragan cukup memantau.', items: [
+    [Fingerprint, 'Absen foto + GPS', 'Absen dari HP dengan selfie & lokasi; di luar radius tercatat untuk direview.'],
+    [CalendarCheck, 'Jadwal shift & cuti', 'Template shift, papan jadwal mingguan, saldo cuti, izin & persetujuan atasan.'],
+    [ListTodo, 'Tugas & SOP harian', 'Kanban tugas dengan foto bukti, checklist SOP buka/tutup toko per role.'],
+    [BadgeCheck, 'Penilaian kinerja', 'Template per jabatan, penilaian diri & atasan, grade A-E.'],
+    [UserRound, 'Beranda Saya', 'Satu halaman di HP: absen, jadwal, cuti, tugas, pengumuman.'],
+  ] },
+  { key: 'aset', label: 'Aset', icon: Armchair, lead: 'Kompor, AC, chiller, mesin kasir: tercatat, terawat, tersusut otomatis.', items: [
+    [QrCode, 'Label QR aset', 'Setiap aset punya kode & label QR; scan dari HP untuk lihat info atau lapor rusak.'],
+    [Wallet, 'Penyusutan otomatis', 'Garis lurus / saldo menurun sesuai kelompok pajak, jurnal bulanan per outlet.'],
+    [Wrench, 'Perawatan & kerusakan', 'Jadwal servis rutin jadi tugas otomatis; kasir bisa lapor kerusakan dengan foto.'],
+    [ScanBarcode, 'Opname aset', 'Cek fisik per outlet dengan scan QR: ditemukan, salah lokasi, rusak, hilang.'],
+    [Truck, 'Mutasi & pelepasan', 'Pindah aset antar outlet atau jual / buang lewat approval; laba-rugi dijurnal.'],
+  ] },
+  { key: 'keuangan', label: 'Keuangan', icon: Wallet, lead: 'Tutup buku tanpa input ulang: jurnal terbentuk dari setiap transaksi.', items: [
+    [Wallet, 'Jurnal otomatis', 'Penjualan, HPP, pembelian, stok, setoran, penyusutan: semua langsung jadi jurnal.'],
+    [LayoutDashboard, 'Laba rugi & neraca', 'Laporan keuangan per outlet & periode, buku besar, piutang & hutang.'],
+    [BadgeCheck, 'Matriks approval', 'Tentukan siapa pembuat & penyetuju PO, biaya, refund, opname, mutasi aset, dll.'],
+    [ShieldCheck, 'Log aktivitas', 'Siapa mengubah apa & kapan, tercatat rapi.'],
+  ] },
+  { key: 'grup', label: 'Multi cabang & grup', icon: Network, lead: 'Dari satu warung sampai beberapa PT, datanya tetap satu tempat.', items: [
+    [Store, 'Multi outlet & brand', 'Banyak cabang, banyak brand, gudang per toko & central kitchen.'],
+    [ShieldCheck, 'Akses per cabang', 'Staf hanya melihat cabang / brand miliknya, dikunci langsung di database.'],
+    [Network, 'Dashboard grup', 'Ringkasan semua PT, laba rugi & neraca konsolidasi dengan eliminasi antar-PT.'],
+    [Truck, 'Transaksi antar-PT', 'PO ke PT saudara otomatis jadi sales order di PT penjual, sampai tagihannya.'],
+  ] },
 ];
 
-// alasan SEMAR cocok untuk UMKM
+const ROLES: [LucideIcon, string, string][] = [
+  [LayoutDashboard, 'Juragan / owner', 'Pantau omzet, stok & tim dari HP. Tanya Semar, setujui PO & pengeluaran dari mana saja.'],
+  [Receipt, 'Kasir', 'Layar kasir yang cepat, struk otomatis, setoran akhir shift tanpa hitung manual.'],
+  [ChefHat, 'Dapur', 'Pesanan masuk ke layar dapur per stasiun, tandai siap saji sekali sentuh.'],
+  [Warehouse, 'Gudang & purchasing', 'Terima barang per batch, transfer antar cabang, opname, PO ke supplier.'],
+  [Smartphone, 'Semua karyawan', 'Absen, lihat jadwal, ajukan cuti, kerjakan tugas & SOP, lapor aset rusak dari HP.'],
+  [Bell, 'Manajer cabang', 'Review absensi, setujui cuti & tugas, cek kepatuhan SOP & ulasan pelanggan cabangnya.'],
+];
+
 const UMKM: [LucideIcon, string, string][] = [
   [Sprout, 'Mulai dari satu warung', 'Tidak perlu jadi restoran besar dulu. Mulai dari kasir & stok, fitur lain menyusul saat usaha tumbuh.'],
   [Languages, 'Bahasa Indonesia sepenuhnya', 'Istilah yang akrab untuk pedagang: struk, shift, opname, setoran, tanpa jargon yang membingungkan.'],
@@ -44,8 +89,21 @@ const UMKM: [LucideIcon, string, string][] = [
 const JOURNEY: [LucideIcon, string, string][] = [
   [Store, 'Warung pertama', 'Kasir, menu, dan stok rapi sejak hari pertama.'],
   [Package, 'Buka cabang', 'Gudang per toko, central kitchen, transfer stok antar cabang.'],
-  [Users, 'Tambah brand', 'Satu PT dengan beberapa brand, akses staf per brand.'],
-  [Network, 'Grup usaha', 'Beberapa PT dalam satu grup, pindah PT dengan sekali klik.'],
+  [Users, 'Tambah brand & tim', 'Satu PT dengan beberapa brand, absensi & tugas tim di HP.'],
+  [Network, 'Grup usaha', 'Beberapa PT dalam satu grup, laporan konsolidasi & transaksi antar-PT.'],
+];
+
+const MODULES = ['Kasir', 'QR meja', 'Self kiosk', 'Layar dapur', 'Struk & ulasan', 'Member & promo', 'Stok FIFO/FEFO', 'Pembelian', 'Produksi',
+  'Antar cabang', 'Absensi GPS', 'Cuti & shift', 'Tugas & SOP', 'Penilaian kinerja', 'Aset & QR', 'Akuntansi', 'Approval', 'Grup usaha', 'Semar AI'];
+
+const FAQ: [string, string][] = [
+  ['Apakah data usaha saya aman?', 'Data setiap perusahaan dipisahkan langsung di database (row level security): pengguna hanya bisa membaca data perusahaannya, dan staf hanya cabang yang diberikan kepadanya. Owner bisa mengunduh backup kapan saja dari menu Data & Backup.'],
+  ['Perangkat apa yang dibutuhkan?', 'Cukup browser di HP, tablet, atau komputer. Opsional: printer thermal 80mm untuk struk, scanner barcode (USB/Bluetooth) atau kamera HP, dan layar sentuh untuk self kiosk.'],
+  ['Apakah bisa dipakai tanpa internet?', 'Belum. SEMAR berjalan online supaya stok, laporan, dan semua cabang selalu sinkron, jadi pastikan koneksi internet di outlet stabil.'],
+  ['Data lama saya ada di Excel, bisa dipindah?', 'Bisa. Produk & menu punya fitur impor Excel, dan Semar AI bisa membantu memindahkan data supplier, pelanggan, resep, dan pricelist dari file Excel / CSV / PDF: Anda cukup memeriksa dan menyetujui usulannya.'],
+  ['Bagaimana cara kerja Semar AI?', 'Semar membaca data perusahaan Anda sendiri untuk memberi briefing & saran. Setiap perubahan (PO, tugas, jadwal perawatan, data master) hanya berupa usulan dan baru dijalankan setelah Anda menekan Setujui. Semar memakai model Claude dengan kunci API milik Anda.'],
+  ['Saya baru punya satu warung, apa terlalu berat?', 'Tidak. Mulai saja dari kasir, menu, dan stok. Fitur seperti SDM, aset, atau grup usaha bisa dipakai nanti saat usaha bertambah besar, tanpa pindah sistem.'],
+  ['Bagaimana cara mulai?', 'Klik Daftarkan usaha, isi nama usaha & outlet pertama, lalu ikuti panduan awal. Anda bisa memakai data contoh untuk mencoba, kemudian membuatkan akun untuk kasir dan tim.'],
 ];
 
 // Brand pengguna SEMAR yang mengizinkan tampil (dari database, tanpa login)
@@ -58,6 +116,10 @@ function useBrands() {
 export default function LandingPage() {
   const brands = useBrands();
   const marquee = brands.length >= 5;
+  const [group, setGroup] = useState(GROUPS[0].key);
+  const g = GROUPS.find((x) => x.key === group) ?? GROUPS[0];
+  const wa = WHATSAPP_NUMBER ? whatsappLink(`Halo, saya tertarik memakai ${APP_NAME} untuk usaha kuliner saya.`) : null;
+
   return (
     <div className="landing">
       <header className="lp-nav">
@@ -66,10 +128,10 @@ export default function LandingPage() {
           <span>{APP_NAME}</span>
         </Link>
         <nav className="lp-links">
-          <a href="#punakawan">Modul</a>
+          <a href="#semar-ai">Semar AI</a>
           <a href="#fitur">Fitur</a>
-          <a href="#umkm">UMKM</a>
-          <a href="#dalang">Sang Dalang</a>
+          <a href="#tim">Untuk tim</a>
+          <a href="#faq">FAQ</a>
         </nav>
         <Link to="/login" className="btn btn-primary lp-nav-cta"><LogIn size={16} /> Masuk</Link>
       </header>
@@ -81,15 +143,15 @@ export default function LandingPage() {
           <span className="lp-eyebrow">{APP_LONG_NAME}</span>
           <h1>Abdi setia untuk <em>usaha kuliner</em> Anda.</h1>
           <p>
-            Seperti Semar yang ngemong para ksatria, {APP_NAME} mengurus kasir, stok, pembelian, produksi, sampai pembukuan,
-            supaya juragan bisa fokus melayani tamu dan membesarkan usaha.
+            Kasir, dapur, stok, tim, aset, sampai pembukuan dalam satu sistem, ditemani <b>Semar</b>, konsultan AI yang memberi
+            briefing tiap pagi dan menyiapkan PO, tugas, & jadwal servis untuk Anda setujui.
           </p>
           <div className="lp-cta">
-            <Link to="/login" className="btn btn-primary btn-lg">Masuk ke {APP_NAME} <ArrowRight size={18} /></Link>
-            <Link to="/login?daftar=1" className="btn btn-lg">Daftarkan usaha</Link>
+            <Link to="/login?daftar=1" className="btn btn-primary btn-lg">Daftarkan usaha <ArrowRight size={18} /></Link>
+            <Link to="/login" className="btn btn-lg">Masuk ke {APP_NAME}</Link>
           </div>
           <ul className="lp-ticks">
-            <li>Kasir & QR order</li><li>Stok FIFO per batch</li><li>Jurnal otomatis</li><li>Multi outlet</li>
+            <li>Kasir, QR meja & kiosk</li><li>Stok FIFO per batch</li><li>Absen & tugas dari HP</li><li>Jurnal otomatis</li>
           </ul>
         </div>
 
@@ -102,20 +164,27 @@ export default function LandingPage() {
             <span className="lp-up">▲ 18% dari kemarin</span>
             <div className="lp-bars">{[40, 62, 48, 75, 58, 88, 70].map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}</div>
           </div>
-          <div className="lp-float lp-float-stock">
-            <Package size={16} />
-            <span><b>Susu UHT</b><small>Batch LOT-0912 kedaluwarsa 3 hari lagi</small></span>
+          <div className="lp-float lp-float-semar">
+            <MiniAvatar id="semar" size={34} />
+            <span><b>Semar</b><small>Sugeng enjang, Juragan. Susu UHT cukup 1 hari lagi, PO sudah saya siapkan.</small></span>
           </div>
           <div className="lp-float lp-float-approve">
             <BadgeCheck size={16} />
             <span><b>PO/2026/0142</b><small>Menunggu persetujuan Anda</small></span>
           </div>
           <div className="lp-float lp-float-qr">
-            <QrCode size={16} />
-            <span><b>Meja 7</b><small>Pesanan QR baru masuk</small></span>
+            <MonitorSmartphone size={16} />
+            <span><b>Kiosk · antrean K012</b><small>Pesanan baru, bayar di kasir</small></span>
           </div>
         </div>
       </section>
+
+      {/* MODUL dalam satu sistem */}
+      <div className="lp-modules" aria-label="Modul SEMAR">
+        <div className="lp-modules-row">
+          {[...MODULES, ...MODULES].map((m, i) => <span key={i} aria-hidden={i >= MODULES.length ? true : undefined}>{m}</span>)}
+        </div>
+      </div>
 
       {/* BRAND YANG SUDAH BERSAMA SEMAR */}
       {brands.length > 0 && (
@@ -125,7 +194,7 @@ export default function LandingPage() {
           <div className={`lp-brands-track ${marquee ? 'marquee' : ''}`}>
             <div className="lp-brands-row">
               {(marquee ? [...brands, ...brands] : brands).map((b, i) => (
-                <figure key={`${b.name}-${i}`} className="lp-brand" aria-hidden={i >= brands.length ? true : undefined}>
+                <figure key={`${b.name}-${i}`} className="lp-logo" aria-hidden={i >= brands.length ? true : undefined}>
                   <img src={b.logo_url} alt={b.name} loading="lazy" />
                   <figcaption>{b.name}</figcaption>
                 </figure>
@@ -134,6 +203,24 @@ export default function LandingPage() {
           </div>
         </section>
       )}
+
+      {/* SEMAR AI */}
+      <section id="semar-ai" className="lp-section">
+        <div className="lp-ai">
+          <div className="lp-ai-copy">
+            <span className="lp-eyebrow light"><Sparkles size={13} /> Semar AI · kepala konsultan</span>
+            <h2>Konsultan yang paham usaha Anda, siap 24 jam.</h2>
+            <p>Semar membaca data usaha Anda sendiri, lalu bicara seperti konsultan yang ngemong: apa yang perlu diperhatikan hari ini, dan apa yang sebaiknya dilakukan.</p>
+            <ul className="lp-ai-list">
+              <li><b>Briefing harian</b> penjualan, stok, absensi, tugas, ulasan, aset & keuangan dalam satu jawaban.</li>
+              <li><b>Analisa</b> menu terlaris, kebutuhan beli 7 hari, ulasan pelanggan, aset yang lebih baik diganti.</li>
+              <li><b>Menyiapkan pekerjaan</b>: PO ke supplier, tugas untuk tim, jadwal servis, migrasi data dari Excel.</li>
+              <li><b>Anda tetap pegang kendali</b>: semuanya berupa usulan, baru dijalankan setelah Anda menekan Setujui.</li>
+            </ul>
+          </div>
+          <SemarDemo />
+        </div>
+      </section>
 
       {/* PUNAKAWAN = MODUL */}
       <section id="punakawan" className="lp-section">
@@ -145,7 +232,7 @@ export default function LandingPage() {
         <div className="lp-puna">
           {PUNAKAWAN.map((p) => (
             <article key={p.name} className={`lp-puna-card ${p.tone}`}>
-              <div className="lp-puna-badge">{p.name[0]}</div>
+              <div className="lp-puna-badge"><MiniAvatar id={p.id} size={52} /></div>
               <div className="lp-puna-name">{p.name}</div>
               <div className="lp-puna-watak">“{p.watak}”</div>
               <h3>{p.modul}</h3>
@@ -155,19 +242,46 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* FITUR */}
+      {/* FITUR per kebutuhan */}
       <section id="fitur" className="lp-section">
         <div className="lp-head">
           <span className="lp-eyebrow">Semua jadi satu</span>
           <h2>Dari dapur sampai laporan keuangan.</h2>
-          <p>Tidak perlu lagi aplikasi kasir, spreadsheet stok, dan software akuntansi terpisah.</p>
+          <p>Tidak perlu lagi aplikasi kasir, spreadsheet stok, absensi, dan software akuntansi yang terpisah-pisah.</p>
         </div>
-        <div className="lp-features">
-          {FEATURES.map(([Icon, title, desc]) => (
-            <div key={title} className="lp-feature">
+        <div className="lp-groups" role="tablist" aria-label="Kelompok fitur">
+          {GROUPS.map((x) => (
+            <button key={x.key} type="button" role="tab" aria-selected={x.key === group} className={x.key === group ? 'active' : ''} onClick={() => setGroup(x.key)}>
+              <x.icon size={16} /> {x.label}
+            </button>
+          ))}
+        </div>
+        <div className="lp-group" role="tabpanel">
+          <p className="lp-group-lead">{g.lead}</p>
+          <div className="lp-features">
+            {g.items.map(([Icon, title, desc]) => (
+              <div key={title} className="lp-feature">
+                <span className="lp-feature-icon"><Icon size={20} /></span>
+                <h3>{title}</h3>
+                <p>{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* UNTUK TIM */}
+      <section id="tim" className="lp-section">
+        <div className="lp-head">
+          <span className="lp-eyebrow">Untuk seluruh tim</span>
+          <h2>Setiap orang punya layarnya sendiri.</h2>
+          <p>Hak akses diatur per role & cabang, jadi setiap orang hanya melihat apa yang ia perlukan.</p>
+        </div>
+        <div className="lp-roles">
+          {ROLES.map(([Icon, title, desc]) => (
+            <div key={title} className="lp-role">
               <span className="lp-feature-icon"><Icon size={20} /></span>
-              <h3>{title}</h3>
-              <p>{desc}</p>
+              <div><h3>{title}</h3><p>{desc}</p></div>
             </div>
           ))}
         </div>
@@ -255,12 +369,31 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section id="faq" className="lp-section">
+        <div className="lp-head">
+          <span className="lp-eyebrow">Pertanyaan umum</span>
+          <h2>Yang sering ditanyakan juragan.</h2>
+        </div>
+        <div className="lp-faq">
+          {FAQ.map(([q, a], i) => (
+            <details key={q} open={i === 0}>
+              <summary>{q}</summary>
+              <p>{a}</p>
+            </details>
+          ))}
+          {wa && <p className="lp-faq-more">Pertanyaan lain? <a href={wa} target="_blank" rel="noreferrer">Tanya langsung lewat WhatsApp</a>.</p>}
+        </div>
+      </section>
+
       <section className="lp-final">
         <h2>Siap ditemani {APP_NAME}?</h2>
-        <p>Daftar sebagai pemilik usaha, lalu buatkan akun untuk kasir, gudang, dan tim Anda.</p>
+        <p>Daftar sebagai pemilik usaha, lalu buatkan akun untuk kasir, dapur, gudang, dan tim Anda.</p>
         <div className="lp-cta center">
           <Link to="/login?daftar=1" className="btn btn-accent btn-lg">Daftarkan usaha <ArrowRight size={18} /></Link>
-          <Link to="/login" className="btn btn-lg lp-ghost">Saya sudah punya akun</Link>
+          {wa
+            ? <a href={wa} target="_blank" rel="noreferrer" className="btn btn-lg lp-wa-btn"><MessageCircle size={18} /> Tanya via WhatsApp</a>
+            : <Link to="/login" className="btn btn-lg lp-ghost">Saya sudah punya akun</Link>}
         </div>
       </section>
 
@@ -268,6 +401,12 @@ export default function LandingPage() {
         <span><b>{APP_NAME}</b> · {APP_LONG_NAME}</span>
         <span>Dalang: <b>Achphoria</b> · Untuk UMKM kuliner Indonesia 🇮🇩</span>
       </footer>
+
+      {wa && (
+        <a href={wa} target="_blank" rel="noreferrer" className="lp-wa-float" aria-label="Chat WhatsApp">
+          <MessageCircle size={26} />
+        </a>
+      )}
     </div>
   );
 }
