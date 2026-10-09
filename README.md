@@ -9,7 +9,7 @@ ERP restoran (POS, Kitchen Display, Inventory, Resep/HPP, Purchasing, Laporan) d
 
 ### 1. Siapkan database
 Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
-- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–041)
+- **Database baru**: jalankan [`supabase/setup_all.sql`](supabase/setup_all.sql) (berisi semua migrasi 001–042)
 - **Update database lama**, jalankan berurutan yang belum pernah dijalankan:
   - [`supabase/update_fase3.sql`](supabase/update_fase3.sql) (006–007: user & keuangan)
   - [`supabase/update_fase4.sql`](supabase/update_fase4.sql) (008–009: member, promo, QR order)
@@ -40,6 +40,7 @@ Buka Supabase Dashboard → project → **SQL Editor** → **New query**, lalu:
   - [`supabase/update_fase29.sql`](supabase/update_fase29.sql) (039: struk 80mm, QR ulasan & analisa ulasan pelanggan)
   - [`supabase/update_fase30.sql`](supabase/update_fase30.sql) (040: self-order kiosk)
   - [`supabase/update_fase31.sql`](supabase/update_fase31.sql) (041: dashboard grup & laporan konsolidasi)
+  - [`supabase/update_fase32.sql`](supabase/update_fase32.sql) (042: transaksi antar-PT dalam grup)
 
 Lalu:
 3. (Disarankan untuk development) **Authentication → Sign In / Providers → Email** → matikan **Confirm email**,
@@ -370,6 +371,20 @@ Menu **Dashboard Grup** (`/grup`) untuk **pemilik grup usaha** (beberapa PT) dan
 - **Eliminasi antar-PT**: baris jurnal bertanda lawan transaksi PT lain dalam grup yang sama (`fin_journal_lines.counterparty_company_id`)
   dikeluarkan dari konsolidasi. Diisi otomatis oleh transaksi antar-PT (tahap berikutnya).
 - Rentang cepat: hari ini, 7 hari, bulan ini, bulan lalu, tahun ini, atau tanggal bebas.
+
+## Transaksi antar-PT dalam grup
+PT dalam satu grup bisa saling jual-beli dengan alur lengkap di kedua sisi:
+1. PT pembeli membuat **PO** ke supplier dari kelompok **PT dalam grup** (supplier & pelanggan antar-PT dibuat otomatis untuk setiap
+   pasangan PT saat PT masuk grup; dinonaktifkan saat keluar grup). Barang dicocokkan lewat **kode barang & satuan yang sama** di kedua PT;
+   harga dari Pricelist Jual PT penjual bila ada.
+2. PO disetujui → **Sales Order** otomatis di PT penjual (status Baru). Penjual konfirmasi / tolak (ditolak → PO pembeli batal). Status SO tampil di catatan PO.
+3. Penjual mengirim **Pengiriman** → **Penerimaan Barang** draft otomatis di PT pembeli (qty sesuai kiriman), pembeli posting → stok + hutang.
+   Penerimaan manual untuk PO antar-PT ditolak.
+4. Penjual membuat **Invoice** (piutang & pendapatan), pembeli membayar hutang, penjual mencatat pembayaran.
+5. Semua jurnal dokumen antar-PT diberi tanda `counterparty_company_id` → **dieliminasi** di laporan konsolidasi (penjualan, HPP, piutang, hutang).
+   Penyederhanaan: laba antar-PT yang masih ada di stok pembeli tidak disesuaikan saat stok itu dijual lagi.
+- **Dashboard Grup → Antar-PT**: saldo piutang vs hutang per pasangan PT (cocok / selisih) & daftar dokumen dengan progres kirim/terima/tagih/bayar.
+- Tautan lintas PT satu arah dan `on delete set null`, sehingga **reset data** satu PT tidak terhalang data PT lain.
 
 ## Self-order kiosk
 Layar sentuh **berdiri (portrait, mis. TV 1080×1920)** untuk pelanggan memesan sendiri, dibuka di `/kiosk/<token>` tanpa login staf.

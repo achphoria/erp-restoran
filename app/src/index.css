@@ -1017,3 +1017,17 @@ body.sidebar-pinned .page-sheet { left: calc(var(--sidebar-expanded) + 24px); }
 .grp-fin-acc { padding-left: 26px !important; }
 .grp-fin-grand td { font-weight: 900; border-top: 2px solid var(--text); font-size: 14px; }
 @media (max-width: 760px) { .grp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ic-balances { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.ic-bal { display: grid; gap: 8px; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--border); }
+.ic-bal.ok { border-color: var(--success); }
+.ic-bal.ok > .small { color: var(--success); }
+.ic-bal.warn { border-color: var(--warning); background: color-mix(in srgb, var(--warning-soft) 50%, transparent); }
+.ic-bal.warn > .small { color: var(--warning); font-weight: 700; }
+.ic-bal > .small { display: inline-flex; align-items: center; gap: 5px; }
+.ic-bal-parties { display: flex; align-items: center; gap: 8px; }
+.ic-bal-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ic-bal-nums > div { display: grid; }
+.ic-progress { position: relative; height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.ic-progress span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; }
+.ic-progress .sent { background: color-mix(in srgb, var(--info) 45%, transparent); }
+.ic-progress .got { background: var(--success); }

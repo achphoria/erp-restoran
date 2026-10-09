@@ -19,7 +19,7 @@ const TABS: Tab[] = ['po', 'receipts', 'bills', 'pricelist', 'suppliers'];
 
 interface Supplier {
   id: string; code: string; name: string; contact_name: string | null; phone: string | null; payment_term_days: number;
-  supplier_type: 'external' | 'internal'; linked_outlet_id: string | null; sys_outlets?: { name: string } | null;
+  supplier_type: 'external' | 'internal' | 'intercompany'; linked_outlet_id: string | null; sys_outlets?: { name: string } | null;
 }
 interface Warehouse { id: string; name: string; outlet_id: string | null }
 interface Item { id: string; code: string; name: string; base_unit_id: string; last_purchase_cost: number; inv_units: { code: string } }
@@ -123,7 +123,7 @@ export default function PurchasingPage() {
           }
         }}>Hapus</button>
       )}
-      {['approved', 'partially_received'].includes(po.status) && po.pur_suppliers.supplier_type !== 'internal' && (
+      {['approved', 'partially_received'].includes(po.status) && po.pur_suppliers.supplier_type === 'external' && (
         <button className="btn-sm btn-success" onClick={() => { onDone?.(); startReceiving(po.id); }}>Terima</button>
       )}
     </>
@@ -176,7 +176,7 @@ export default function PurchasingPage() {
                     <tr key={po.id} className="clickable-row" onClick={() => setPoDetail(po.id)}>
                       <td className="bold nowrap">{po.po_number ?? '(draft)'}</td>
                       <td className="nowrap">{po.po_date}</td>
-                      <td>{po.pur_suppliers.name}{po.pur_suppliers.supplier_type === 'internal' && <span className="badge badge-primary" style={{ marginLeft: 6 }}>Cabang</span>}</td>
+                      <td>{po.pur_suppliers.name}{po.pur_suppliers.supplier_type === 'internal' && <span className="badge badge-primary" style={{ marginLeft: 6 }}>Cabang</span>}{po.pur_suppliers.supplier_type === 'intercompany' && <span className="badge badge-info" style={{ marginLeft: 6 }}>Antar-PT</span>}</td>
                       <td className="small">{po.inv_warehouses.name}</td>
                       <td className="nowrap">{po.pur_purchase_order_items.length} item</td>
                       <td style={{ minWidth: 110 }}>
@@ -247,7 +247,7 @@ export default function PurchasingPage() {
               {suppliers.map((s) => (
                 <tr key={s.id}>
                   <td>{s.code}</td><td className="bold">{s.name}</td>
-                  <td>{s.supplier_type === 'internal' ? <span className="badge badge-primary">Cabang: {s.sys_outlets?.name}</span> : <span className="badge">Pihak ke-3</span>}</td>
+                  <td>{s.supplier_type === 'internal' ? <span className="badge badge-primary">Cabang: {s.sys_outlets?.name}</span> : s.supplier_type === 'intercompany' ? <span className="badge badge-info">PT dalam grup</span> : <span className="badge">Pihak ke-3</span>}</td>
                   <td>{s.contact_name}</td><td>{s.phone}</td>
                   <td>{s.payment_term_days ? `${s.payment_term_days} hari` : 'Tunai'}</td>
                   <td className="right"><button className="btn-sm" onClick={() => setEditingSupplier(s)}>Edit</button></td>
@@ -385,6 +385,7 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
   const valid = lines.filter((l) => l.item_id && Number(l.quantity) > 0);
   const total = valid.reduce((s, l) => s + Number(l.quantity) * Number(l.unit_price || 0), 0);
   const internal = suppliers.find((x) => x.id === supplierId)?.supplier_type === 'internal';
+  const intercompany = suppliers.find((x) => x.id === supplierId)?.supplier_type === 'intercompany';
   const missingPrice = internal && valid.some((l) => l.hint?.missing);
 
   const save = async (approve: boolean) => {
@@ -424,11 +425,13 @@ function PurchaseOrderForm({ companyId, suppliers, warehouses, items, itemUnits,
       </>}>
       {error && <div className="alert alert-error">{error}</div>}
       {internal && <div className="alert alert-info small">PO ke cabang internal: harga dikunci dari <b>Pricelist Jual</b> cabang penjual. Setelah disetujui, PO otomatis menjadi Sales Order di cabang penjual.</div>}
+      {intercompany && <div className="alert alert-info small">PO ke <b>PT lain dalam grup</b>: barang dicocokkan lewat <b>kode barang yang sama</b> di kedua PT; harga dari Pricelist Jual PT penjual bila ada. Setelah disetujui, PO otomatis menjadi Sales Order di PT penjual, dan penerimaan barang dibuat otomatis saat PT penjual mengirim.</div>}
       <div className="form-grid">
         <label className="field"><span>Supplier</span>
           <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
             <optgroup label="Pihak ke-3">{suppliers.filter((x) => x.supplier_type === 'external').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
             <optgroup label="Cabang internal">{suppliers.filter((x) => x.supplier_type === 'internal').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
+            {suppliers.some((x) => x.supplier_type === 'intercompany') && <optgroup label="PT dalam grup">{suppliers.filter((x) => x.supplier_type === 'intercompany').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
           </select>
         </label>
         <label className="field"><span>Kirim ke gudang</span>

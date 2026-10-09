@@ -10,11 +10,11 @@ import { DELIVERY_STATUS, INVOICE_STATUS, SO_STATUS, unitOptions, type SalesMast
 
 interface SoRow {
   id: string; so_number: string | null; so_date: string; expected_date: string | null; status: string; customer_type: string;
-  grand_total: number; note: string | null; outlet_id: string; warehouse_id: string | null; tax_pct: number; reject_reason: string | null;
+  grand_total: number; note: string | null; outlet_id: string; warehouse_id: string | null; tax_pct: number; reject_reason: string | null; ic_purchase_order_id?: string | null;
   seller: { name: string }; buyer: { name: string } | null; sal_customers: { name: string } | null; pur_purchase_orders: { po_number: string } | null;
 }
 
-const SO_SELECT = '*, seller:sys_outlets!sal_sales_orders_outlet_id_fkey(name), buyer:sys_outlets!sal_sales_orders_buyer_outlet_id_fkey(name), sal_customers(name), pur_purchase_orders(po_number)';
+const SO_SELECT = '*, seller:sys_outlets!sal_sales_orders_outlet_id_fkey(name), buyer:sys_outlets!sal_sales_orders_buyer_outlet_id_fkey(name), sal_customers(name), pur_purchase_orders!sal_sales_orders_purchase_order_id_fkey(po_number)';
 
 export default function SalesOrdersTab({ m }: { m: SalesMaster }) {
   const { toast } = useFeedback();
@@ -64,6 +64,7 @@ export default function SalesOrdersTab({ m }: { m: SalesMaster }) {
                   <td>{r.seller?.name}</td>
                   <td>{r.customer_type === 'internal'
                     ? <><span className="badge badge-primary">Cabang</span> {r.buyer?.name}</>
+                    : r.ic_purchase_order_id ? <><span className="badge badge-info" title="PO dari PT lain dalam grup">Antar-PT</span> {r.sal_customers?.name}</>
                     : <><span className="badge">B2B</span> {r.sal_customers?.name}</>}</td>
                   <td><span className={`badge ${cls}`}>{label}</span></td>
                   <td className="right">{formatRupiah(r.grand_total)}</td>
